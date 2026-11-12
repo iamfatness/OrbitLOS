@@ -19,7 +19,29 @@ export interface Brokerage {
   financeAccess?: boolean;
   maintenance?: boolean;
   accessRevision?: number;
+  features?: { uwm: boolean; compliance: boolean; revision: number };
+  hidden?: boolean;
+  releaseEndsAt?: string;
 }
+
+export function workspaceFeatures(brokerage?: Brokerage) {
+  return brokerage?.features ?? { uwm: true, compliance: brokerage?.pilot === true, revision: 0 };
+}
+
+export function workspaceCanBeDefault(brokerage: Brokerage) {
+  return !brokerage.hidden && !brokerage.releaseEndsAt;
+}
+
+export function releaseWorkspaceClosed(brokerage: Brokerage, now = new Date().toISOString()) {
+  return !!brokerage.releaseEndsAt && brokerage.releaseEndsAt <= now;
+}
+
+export function workspaceType(brokerage: Brokerage) {
+  if (brokerage.releaseEndsAt) return "Release test";
+  if (brokerage.id === demoBrokerageId) return "Built-in demo";
+  return brokerage.pilot ? "Fictional pilot" : "Operational";
+}
+
 
 export interface BrokerageMember {
   email: string;
@@ -52,6 +74,7 @@ export const pilotSeatFull = "All pilot seats are reserved. Cancel a pending inv
 export interface BrokerageSettings {
   brokerages: Brokerage[];
   members: VersionedBrokerageMember[];
+  preferredWorkspace?: string | null;
   history: AccessEvent[];
   seatCapacity?: PilotSeatCapacity;
   pilotScenario?: PilotScenario;
@@ -175,8 +198,9 @@ export function portalBrokerage(token: unknown) {
 
 
 export function defaultWorkspace(brokerages: Brokerage[], preferredId?: string) {
-  const available = brokerages.filter(item => !item.maintenance);
+  const ordinary = brokerages.filter(workspaceCanBeDefault);
+  const available = ordinary.filter(item => !item.maintenance);
   return available.find(item => item.id === preferredId && item.id !== demoBrokerageId && !item.pilot)
     ?? available.find(item => item.id !== demoBrokerageId && !item.pilot)
-    ?? available[0] ?? brokerages[0];
+    ?? available[0] ?? ordinary[0];
 }

@@ -98,7 +98,7 @@ export function DemoGuide(props: DemoGuideProps) {
     try {
       const response = await fetch(`/api/brokerages?brokerage=${encodeURIComponent(staff.brokerage.id)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "create", id: attempt.current, name: "OrbitLOS Guided Demo", pilot: true }),
+        body: JSON.stringify({ type: "create", id: attempt.current, name: "OrbitLOS Guided Demo", pilot: true, purpose: "guided" }),
       });
       const result = await response.json() as { created?: string; error?: string };
       if (!response.ok || !result.created) throw new Error(result.error || "Could not open the guided demo.");

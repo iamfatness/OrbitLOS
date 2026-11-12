@@ -18,6 +18,7 @@ export default function DemoPage() {
       <div><p className="marketing-kicker">Your walkthrough</p><h2>See the work come together.</h2>
         <ul className="marketing-detail-list">
           <li>See your pipeline, team workload, and funding in one view.</li>
+          <li>See how admins manage UWM and Compliance by workspace and use temporary, fictional workspaces for release testing.</li>
           <li>Hand off loans, follow-ups, and branch lead routing when staff leave a pilot brokerage.</li>
           <li>In a fictional compliance pilot, record internal reviews and obligations, and assign staff training or policies for acknowledgment.</li>
           <li>On a fictional Michigan loan, review application and disclosure receipt dates, borrower intent to proceed, and fee timing.</li>

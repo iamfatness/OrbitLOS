@@ -16,6 +16,7 @@ import { initializeComplianceInventory } from "./compliance-case-store";
 import { advanceInventory, currentPackage, inventoryAdvance, inventoryRead, readInventory, samplePackage, sampleWorkbenchReview } from "./compliance-inventory";
 import { advanceLeadBackfill, initializeComplianceLeadBackfill, leadBackfillAdvance, leadBackfillRead, readLeadBackfill } from "./compliance-lead-backfill";
 import { evaluateSampleReceipt, lastSampleReceiptEvaluation, sampleReceiptBasis, sampleReceiptEvaluation, sampleReceiptFingerprint } from "./sample-receipt-check";
+import { workspaceFeatures } from "./brokerage-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { loanAccess } from "./workspace-access";
@@ -319,13 +320,15 @@ function openFixture(db: Store, staff: WorkspaceStaff, roster: readonly Member[]
 
 export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
   roster: readonly Member[], now = new Date().toISOString()) {
-  if (!staff || staff.brokerage.id !== brokerageId || staff.brokerage.pilot !== true) return unavailable;
+  if (!staff || staff.brokerage.id !== brokerageId || !workspaceFeatures(staff.brokerage).compliance) return unavailable;
   // The caller supplies the directory's current, authenticated roster for this brokerage.
   const actor = currentMember(roster, staff.email);
   if (!actor || actor.role !== staff.brokerage.role || (actor.accessRevision ?? 0) !== (staff.brokerage.accessRevision ?? 0)) return unavailable;
   const parsed = request.safeParse(input);
   if (!parsed.success) return unavailable;
   const data = parsed.data;
+  if (!staff.brokerage.pilot && (staff.brokerage.role !== "Admin" ||
+      (data.type !== "research" && data.type !== "program"))) return unavailable;
   return db.transaction(() => {
     if (data.type === "trid") return { kind: "trid" as const, result: tridEvidenceWork(db, data.input, staff, now) };
     if (data.type === "obligations") return { kind: "obligations" as const, result: complianceObligationsWork(db, data.input, staff, roster, now) as unknown };

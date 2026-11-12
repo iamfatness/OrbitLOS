@@ -58,9 +58,9 @@ import { readLeadInbox } from "./lib/lead-inbox-query";
 import { leadInboxUnavailable } from "./lib/lead-inbox-model";
 import { contactsUnavailable } from "./lib/contact-directory-model";
 import { loanContactPickerUnavailable } from "./lib/loan-contact-picker-model";
-import { googleSettings, handleStaffAuth, rememberedStaffWorkspace, runtimeSetting, staffLoginUrl, staffSessionHash, staffWorkspaceCookie, workspaceAccessDenied, type StaffEmailAuth } from "./lib/staff-auth";
+import { closedReleaseWorkspacePage, googleSettings, handleStaffAuth, rememberedStaffWorkspace, runtimeSetting, staffLoginUrl, staffSessionHash, staffWorkspaceCookie, workspaceAccessDenied, type StaffEmailAuth } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
-import { defaultWorkspace, brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
+import { defaultWorkspace, brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, releaseWorkspaceClosed, workspaceCanBeDefault, workspaceFeatures, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
 import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, consumeStaffEmailCode, departureRoster, history as recordBrokerageHistory, initializeBrokerages, pilotSeatCapacity, readStaffAccess, rememberWorkspace, reserveStaffEmailCode, selectedActiveMembers } from "./lib/brokerages";
 import { readPilotSupport, readPilotSupportWork, readSupportRecovery } from "./lib/pilot-support";
 import { pilotSupportAccess } from "./lib/pilot-support-access";
@@ -1043,11 +1043,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
 
   async complianceCases(input: unknown, staff: WorkspaceStaff) {
-    if (!this.#accepts(staff) || !staff.brokerage.pilot) return { error: complianceWorkUnavailable };
+    if (!this.#accepts(staff) || !workspaceFeatures(staff.brokerage).compliance) return { error: complianceWorkUnavailable };
     const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
     const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
     try {
-      const roster = await directory.complianceRoster(staff, emails);
+      const roster = await directory.complianceRoster(staff, emails, true);
       return roster ? complianceCaseWork(this.#store, input, staff, this.#id, roster) : { error: complianceWorkUnavailable };
     } catch {
       return { error: complianceWorkUnavailable };
@@ -1055,7 +1055,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
 
   async loanRetention(input: unknown, staff: WorkspaceStaff) {
-    if (!this.#accepts(staff) || !staff.brokerage.pilot || staff.brokerage.role !== "Admin")
+    if (!this.#accepts(staff) || !staff.brokerage.pilot || !workspaceFeatures(staff.brokerage).compliance || staff.brokerage.role !== "Admin")
       return { error: loanRetentionUnavailable };
     const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
     const roster = await this.env.WORKSPACE.getByName(demoBrokerageId).complianceRoster(staff, emails);
@@ -1481,16 +1481,19 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
   brokerageDetails(id: string) {
     if (this.#id !== demoBrokerageId) return null;
-    const row = this.#store.prepare("SELECT pilot FROM brokerages WHERE id = ?").get(id);
+    const row = this.#store.prepare(`SELECT b.pilot FROM brokerages b LEFT JOIN brokerage_workspace_settings s ON b.id = s.brokerageId
+      WHERE b.id = ? AND (s.releaseEndsAt IS NULL OR s.releaseEndsAt > ?)`).get(id, new Date().toISOString());
     return row ? { pilot: Boolean(row.pilot), maintenance: maintenanceState(this.#store,id).mode !== "Open" } : null;
   }
   brokerageForPortal(token: unknown) {
     if (this.#id !== demoBrokerageId || typeof token !== "string") return null;
     const id = portalBrokerage(token);
     if (!id) return null;
-    const row = this.#store.prepare(`SELECT pilot FROM brokerages WHERE id = ? AND NOT EXISTS (
-      SELECT 1 FROM revoked_pilot_portals WHERE brokerageId = brokerages.id AND tokenHash = ? AND expiresAt > ?
-    )`).get(id, portalHash(token), new Date().toISOString());
+    const now = new Date().toISOString();
+    const row = this.#store.prepare(`SELECT b.pilot FROM brokerages b LEFT JOIN brokerage_workspace_settings s ON b.id = s.brokerageId
+      WHERE b.id = ? AND (s.releaseEndsAt IS NULL OR s.releaseEndsAt > ?) AND NOT EXISTS (
+      SELECT 1 FROM revoked_pilot_portals WHERE brokerageId = b.id AND tokenHash = ? AND expiresAt > ?
+    )`).get(id, now, portalHash(token), now);
     return row ? { pilot: Boolean(row.pilot), maintenance: maintenanceState(this.#store,id).mode !== "Open" } : null;
   }
   #protectPilotLinks = (links: PilotPortalLink[]) => {
@@ -1533,10 +1536,12 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       ...(staff.brokerage.pilot && this.brokerageDetails(id)?.pilot ? { seatCapacity: pilotSeatCapacity(this.#store, id, members) } : {}),
     } : { members: [], history: [] };
   }
-  complianceRoster(staff: WorkspaceStaff, emails: string[]): VersionedBrokerageMember[] | null {
+  complianceRoster(staff: WorkspaceStaff, emails: string[], forCompliance = false): VersionedBrokerageMember[] | null {
     if (this.#id !== demoBrokerageId) return null;
     const active = activeBrokerages(this.#store, staff.email, emails).find(({ id }) => id === staff.brokerage.id);
-    return active?.pilot && active.role === staff.brokerage.role && active.accessRevision === staff.brokerage.accessRevision
+    return active && (forCompliance ? workspaceFeatures(active).compliance &&
+      workspaceFeatures(active).revision === workspaceFeatures(staff.brokerage).revision : active.pilot) &&
+      active.role === staff.brokerage.role && active.accessRevision === staff.brokerage.accessRevision
       ? brokerageMembers(this.#store, active.id, emails).filter(({ status }) => status === "Active") : null;
   }
   coverageRoster(staff: WorkspaceStaff, bootstrapEmails: string[], selected: string[] | null): VersionedBrokerageMember[] | null {
@@ -2044,6 +2049,7 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
     }
     let staff: WorkspaceStaff | null = null;
     let brokerages: WorkspaceStaff["brokerage"][] = [];
+    let workspacePreference: string | null = null;
     if (!tokenPage) {
       if (google) {
         const requested = url.searchParams.get("brokerage");
@@ -2065,15 +2071,20 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
           if (access && tokenHash) {
             const { identity, preferredWorkspace } = access;
             brokerages = access.brokerages;
+            workspacePreference = preferredWorkspace;
             const available = url.searchParams.get("available") === "1";
             const savedChoice = dailyEntry && requested === null
               ? preferredWorkspace ?? await rememberedStaffWorkspace(request, identity.email) : null;
-            const remembered = available ? null : savedChoice;
+            const remembered = available || brokerages.some((item) => item.id === savedChoice && !workspaceCanBeDefault(item)) ? null : savedChoice;
             const choice = requested ?? remembered;
-            const brokerage = choice !== null ? brokerages.find((entry) => entry.id === choice) :
-              dailyEntry ? defaultWorkspace(brokerages, runtimeSetting(env, "UWM_BROKERAGE_ID")) : brokerages.find((entry) => !entry.maintenance) ?? brokerages[0];
+            const brokerage = choice !== null ? brokerages.find((entry) => entry.id === choice && !releaseWorkspaceClosed(entry)) :
+              dailyEntry ? defaultWorkspace(brokerages, runtimeSetting(env, "UWM_BROKERAGE_ID")) :
+                brokerages.find((entry) => workspaceCanBeDefault(entry) && !entry.maintenance) ?? defaultWorkspace(brokerages);
             if (choice !== null && !brokerage && (brokerages.length || openingWorkspace)) {
               if (workspaceTarget && await directory.staffInvitedTo(workspaceTarget, identity.email)) return login();
+              if (openingWorkspace && brokerages.some(item => item.id === choice && releaseWorkspaceClosed(item))) {
+                return closedReleaseWorkspacePage();
+              }
               if (openingWorkspace) return workspaceAccessDenied(workspaceTarget, guide, Boolean(remembered));
               return new Response("You don’t have access to this brokerage.", { status: 403, headers: { "Cache-Control": "no-store" } });
             }
@@ -2105,7 +2116,7 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
             if (staff && workspaceTarget && chooseWorkspace && (makeDefault || switchFromTeam)) {
               const headers = new Headers({ Location: brokerageUrl(staff.brokerage.id), "Cache-Control": "no-store" });
               // Older open Team pages may still use switch=1 for a visit to a sample workspace.
-              if (makeDefault || (!staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId)) {
+              if (workspaceCanBeDefault(staff.brokerage) && (makeDefault || (!staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId))) {
                 const saved = await directory.rememberStaffWorkspace(tokenHash, Date.now(), bootstrapEmails, staff.brokerage.id, true);
                 if (!saved) return login();
                 headers.set("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
@@ -2561,7 +2572,7 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
         }
         const [team, localHistory, pilot] = await Promise.all([directory.team(staff, bootstrapEmails), workspace.audit(staff), workspace.pilotReview(staff)]);
         const history = [...team.history, ...localHistory].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
-        return Response.json({ ...team, brokerages, history, ...pilot }, { headers });
+        return Response.json({ ...team, brokerages, preferredWorkspace: workspacePreference, history, ...pilot }, { headers });
       }
       if (request.method === "POST") return borrowerJson<{ message?: string; created?: string } | DeparturePage>(request, async (input) => {
         if (input && typeof input === "object" && "type" in input && (input.type === "saveBranch" || input.type === "setBranchActive")) {
@@ -2648,9 +2659,10 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
           return "error" in result ? { status: 409, error: result.error } : { value: result };
         }
         if (input && typeof input === "object" && "type" in input &&
-            (input.type === "setPilotSeatLimit" || input.type === "cancelInvitation") &&
+            (input.type === "setPilotSeatLimit" || input.type === "cancelInvitation" || input.type === "setWorkspaceFeatures" ||
+              input.type === "setWorkspaceListVisibility" || input.type === "closeReleaseWorkspace") &&
             url.searchParams.get("brokerage") !== staff.brokerage.id) {
-          return { status: 403, error: "Open Staff access in the brokerage you want to manage." };
+          return { status: 403, error: "Open Team in the brokerage you want to manage." };
         }
         const result = await directory.manage(staff, bootstrapEmails, input);
         if (result.error) return { status: result.status ?? 403, error: result.error };

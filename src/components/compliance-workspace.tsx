@@ -37,11 +37,11 @@ function inventoryStatus(data: Overview) {
   return `${scanned} of ${data.fileTotal} files inventoried${state === "Scanning" ? " · Scan in progress" : ""}${asOf ? ` · ${dateTime(asOf)} ET` : ""}`;
 }
 
-export function ComplianceWorkspace({ brokerageId, paused, openLoan, openHistoryRecord }: {
-  brokerageId: string; paused: boolean; openLoan: (loanId: string, caseId?: string) => void;
+export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openHistoryRecord }: {
+  brokerageId: string; pilot: boolean; paused: boolean; openLoan: (loanId: string, caseId?: string) => void;
   openHistoryRecord: (destination: MigrationDestination) => void;
 }) {
-  const [view, setView] = useState<View>("Overview");
+  const [view, setView] = useState<View>(pilot ? "Overview" : "Research & gaps");
   const [attention, setAttention] = useState<ComplianceAttention>();
   const [overview, setOverview] = useState<Overview | { error: string }>();
   const [revision, refresh] = useState(0);
@@ -83,10 +83,11 @@ export function ComplianceWorkspace({ brokerageId, paused, openLoan, openHistory
   return <div className="record-form compliance-work">
     <div className="document-item compliance-coverage">
       <strong>Coverage not evaluated</strong>
-      <p>Fictional pilot for internal planning and evidence review. Regulatory coverage remains undetermined.</p>
+      <p>{pilot ? "Fictional pilot for internal planning and evidence review. Regulatory coverage remains undetermined." :
+        "Use the research register and monthly review for internal planning. File-level evidence workflows are available in fictional pilots."}</p>
     </div>
     <nav className="loan-application-actions" aria-label="Compliance views">
-      {views.map((option) => <Button key={option} size="sm" variant={view === option ? "default" : "outline"}
+      {views.filter((option) => pilot || option === "Research & gaps" || option === "Monthly review").map((option) => <Button key={option} size="sm" variant={view === option ? "default" : "outline"}
         aria-current={view === option ? "page" : undefined} onClick={() => show(option)}>{option}</Button>)}
     </nav>
     <section ref={panel} tabIndex={-1} aria-label={`Compliance ${view.toLowerCase()}`}>

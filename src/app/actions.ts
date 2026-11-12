@@ -12,7 +12,7 @@ import { currentStaff, loadCampaignCallbackExceptions, loadCampaignCallbackPerfo
   loadContactDirectory, loadDraftQueue, loadLeadInbox, loadLoanContactPicker, loadPipeline, loadRealtorQueueReport, loadReportingReadiness, loadSharedRealtorQueue, loadWorkspaceTasks, updateAppointments, updateConversation, updateCutoverFileInventory, updateFundingRecord, updateInboundReply, updateLoanReview, updateMigrationCutover, updateProcessingView, updateRealtorQueueAssignment, updateSalesSettings, updateStaffCoverage, updateWorkspace,
   loadUwmDelivery, workOnBrokerageFinance, workOnContactMerge, workOnOfficerDashboard, workOnPlaybookRun } from "@/lib/workspace-service";
 import { uwmDeliveryUnavailable } from "@/lib/uwm-delivery-model";
-import { demoBrokerageId } from "@/lib/brokerage-model";
+import { workspaceFeatures, demoBrokerageId } from "@/lib/brokerage-model";
 import { fundingDashboardUnavailable } from "@/lib/funding-dashboard-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable, workspaceTasksUnavailable } from "@/lib/officer-queue-model";
 import type { WorkspaceMutationScope } from "@/lib/commands";
@@ -369,7 +369,7 @@ export async function accessDisclosureTemplates(input: unknown, expectedBrokerag
 
 export async function accessComplianceCases(input: unknown, expectedBrokerage: string) {
   const staff = await currentStaff();
-  if (!staff?.brokerage.pilot || staff.brokerage.id !== expectedBrokerage) return { error: complianceWorkUnavailable };
+  if (!staff || !workspaceFeatures(staff.brokerage).compliance || staff.brokerage.id !== expectedBrokerage) return { error: complianceWorkUnavailable };
   return workOnComplianceCases(input, staff);
 }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { workspaceFeatures } from "@/lib/brokerage-model";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Calculator, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
@@ -511,7 +512,7 @@ function hasDisclosures(staff: WorkspaceStaff | null) {
 
 function visibleLoanSections(staff: WorkspaceStaff | null) {
   return loanSections.filter(([name]) => (name !== "Scenarios" || staff || process.env.NODE_ENV === "development") &&
-    (name !== "Disclosures" || hasDisclosures(staff)) && (name !== "Compliance" || staff?.brokerage.pilot));
+    (name !== "Disclosures" || hasDisclosures(staff)) && (name !== "Compliance" || (staff?.brokerage.pilot && workspaceFeatures(staff.brokerage).compliance)));
 }
 
 function loanSection(target?: string) {
@@ -609,7 +610,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   refreshDisclosures: () => void;
 }) {
   const processor = staff?.brokerage.role === "Processor";
-  const fictionalUwm = !staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot;
+  const { uwm: uwmEnabled, compliance: complianceEnabled } = workspaceFeatures(staff?.brokerage);
+  const fictionalWorkspace = !staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot;
+  const fictionalUwm = uwmEnabled && fictionalWorkspace;
   const canOpenReviews = Boolean(staff) || process.env.NODE_ENV === "development";
   const canOpenDisclosures = hasDisclosures(staff);
   const sharedProcessor = processor && loan.officerEmail !== staff.email;
@@ -707,7 +710,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         brokerageId={staff?.brokerage.id ?? demoBrokerageId} sampleAllowed={!staff || staff.brokerage.id === demoBrokerageId || Boolean(staff.brokerage.pilot)}
         markDraftChanged={markDraftChanged} openPricing={(sourceQuote) => show({ kind: "pricing", loanId: loan.id, campaignLender, sourceQuote })} />}
       {section === "Pricing & credit" && <>
-      {!fictionalUwm && staff && <UwmLoanActions key={`rates:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="rates"/>}
+      {uwmEnabled && !fictionalUwm && staff && <UwmLoanActions key={`rates:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="rates"/>}
       <section className="details-section" id={target === sharedQuoteReviewTarget ? sharedQuoteReviewTarget : "loan-pricing"} tabIndex={-1} aria-label="Loan pricing">
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
           {!processor && <Button size="sm" variant="outline" onClick={() => openPricing()}>{fictionalUwm ? "Price loan" : "Open pricing"}</Button>}
@@ -727,7 +730,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           brokerageId={staff?.brokerage.id ?? demoBrokerageId} focused={target === "income-worksheet"} worksheetRevision={incomeWorksheetRevision}
           onChanged={() => void save({ type: "refreshApplication", loanId: loan.id })}
           onPrice={processor ? undefined : (source) => openPricing(true, source)} />}
-      {fictionalUwm ? <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)}
+      {fictionalWorkspace ? <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)}
         revision={submittedApplicationRevision(application)} borrowerCount={creditApplicantCount(application?.draft)}
         busy={busy} readOnly={processor} save={save} openPricing={() => openPricing(true)}
         canReviewConflict={!staff || staff.brokerage.role === "Admin"} /> :
@@ -736,7 +739,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "Disclosures" && canOpenDisclosures &&
         <DisclosureWorkbench loan={loan} state={state} busy={busy} readOnly={processor} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
           save={save} open={open} refresh={refreshDisclosures} />}
-      {section === "Disclosures" && canOpenDisclosures && staff?.brokerage.pilot && application?.draft?.propertyLocation?.state?.trim().toUpperCase() === "MI" &&
+      {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && application?.draft?.propertyLocation?.state?.trim().toUpperCase() === "MI" &&
         <TridEvidencePanel key={`${staff.brokerage.id}:${loan.id}`} loanId={loan.id} brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Compliance" && staff?.brokerage.pilot && <ComplianceQueue key={`${loan.id}:${target}`} brokerageId={staff.brokerage.id}
         loanId={loan.id} initialCaseId={target?.startsWith(complianceCaseTarget("")) ? target.slice(complianceCaseTarget("").length) : undefined}
@@ -757,7 +760,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {!processor && state.quoteConsent !== undefined && <QuoteConsentEvidence receipt={state.quoteConsent} />}
       {!processor && state.quoteOverrides && <QuoteCorrectionEvidence receipt={state.quoteOverrides} />}
       {!!state.applicationQuestionReceipts?.length && <ApplicationQuestionReceipts receipts={state.applicationQuestionReceipts} />}
-      {!fictionalUwm && staff && <UwmLoanActions key={`import:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="import"/>}
+      {uwmEnabled && !fictionalUwm && staff && <UwmLoanActions key={`import:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="import"/>}
       <LoanApplication loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} state={state} busy={busy} save={save} processor={processor}
         jointLinks={!processor && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot : process.env.NODE_ENV === "development")}
         shareBrokerage={!processor && (staff ? staff.brokerage.pilot : process.env.NODE_ENV === "development") ? staff?.brokerage.id ?? demoBrokerageId : undefined}
@@ -777,7 +780,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         <CutoverInventoryDownload key={loan.id} brokerageId={staff.brokerage.id} loanId={loan.id} />}
       </>}
       {section === "Conditions" && <>
-      {!fictionalUwm && staff && <UwmLoanActions key={`documents:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="documents"/>}
+      {uwmEnabled && !fictionalUwm && staff && <UwmLoanActions key={`documents:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="documents"/>}
       <section className="details-section" id="lender-submissions" tabIndex={-1}>
         <div className="section-heading"><h3>Lender conditions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
         <DocumentBatch key={loan.id} loanId={loan.id} requests={requests} submissions={submissions}
@@ -1106,7 +1109,8 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     ? state.applications.find((item) => item.loanId === loan.id) : undefined;
   const handoffRun = modal.kind === "pricing" ? latestSelectedPricingRun(state.pricingRuns, loan?.id) : undefined;
   const manualPricingPath = !!handoffRun?.offers.some((offer) => offer.id === handoffRun.selectedId && offer.manual);
-  const fictionalUwm = !staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot;
+  const uwmEnabled = workspaceFeatures(staff?.brokerage).uwm;
+  const fictionalUwm = uwmEnabled && (!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot);
   const useManualPath = campaignLender === "manual" || manualPricingPath || !fictionalUwm;
   const receivedByUwm = handoffApplication?.versions.some((version) =>
     version.revision === handoffApplication.revision && version.uwmReceipt);
@@ -1224,7 +1228,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             if (applicationLoanId) show({ kind: "details", loanId: applicationLoanId, target: "loan-application" });
           })} />}
         {modal.kind === "pricing" && loan && <>
-        {!fictionalUwm && staff && <UwmLoanActions key={`pricing:${loan.id}`} loanId={loan.id} staff={staff} application={state.applications.find(item=>item.loanId===loan.id)} view="rates"/>}
+        {uwmEnabled && !fictionalUwm && staff && <UwmLoanActions key={`pricing:${loan.id}`} loanId={loan.id} staff={staff} application={state.applications.find(item=>item.loanId===loan.id)} view="rates"/>}
         <LoanPricing loan={loan} state={state} busy={busy} save={save}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId}
           canRehearseUnsupported={fictionalUwm}

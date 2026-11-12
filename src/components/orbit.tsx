@@ -29,7 +29,7 @@ import { LoanWorkQueue } from "./loan-work-queue";
 import { PagedTaskQueue } from "./paged-task-queue";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { pastClientLoan, rateFollowUpContext } from "@/lib/client-retention";
-import { demoBrokerageId, staffSignInRequired } from "@/lib/brokerage-model";
+import { workspaceFeatures, demoBrokerageId, staffSignInRequired } from "@/lib/brokerage-model";
 import { CallReportWorkbench } from "./call-report";
 import { callReportFactsTarget, currentReportingPeriod } from "@/lib/call-report-readiness-model";
 import { ManagerReports, ReturningClientReports } from "./manager-reports";
@@ -182,6 +182,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   initial: Workspace; staff: WorkspaceStaff | null; initialGuide?: GuideTrack; deferredWorkspace: boolean; uwmConnection: UwmConnectionStatus;
   initialSupport?: { loanId: string; group: SupportWorkGroup; offset: number };
 }) {
+  const { uwm: uwmEnabled, compliance: complianceEnabled } = workspaceFeatures(staff?.brokerage);
+  const pilotCompliance = !!staff?.brokerage.pilot && complianceEnabled;
   const processor = staff?.brokerage.role === "Processor";
   const canOpenToday = !processor && (Boolean(staff) || process.env.NODE_ENV === "development");
   const canOpenCalendar = Boolean(staff) || process.env.NODE_ENV === "development";
@@ -340,7 +342,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     + contactFollowUps.filter(({ item, blocked }) => !item.completedAt && !blocked).length
     + state.inboxLeads.reduce((total, lead) => total + (lead.heldAt ? Number(!!lead.revisitDate && (admin || lead.officerEmail === staff?.email))
       : lead.importedTasks.filter((task) => !task.completedAt && !prospectingBlocked(task.purpose, lead.outreachSuppressed)).length), 0)
-    + state.uwmAlerts.filter((alert) => !alert.reviewedAt && activeLoanWork(alert.loanId)).length + actionableProcessing.length + holdsToRevisit.length;
+    + (uwmEnabled ? state.uwmAlerts.filter((alert) => !alert.reviewedAt && activeLoanWork(alert.loanId)).length : 0) + actionableProcessing.length + holdsToRevisit.length;
   const officers = new Map([...state.loans, ...state.inboxLeads, ...contactFollowUps.map(({ owner }) => owner)].filter((loan) => loan.officer).map((loan) => [
     taskOwner(loan), loan.officerEmail ? `${loan.officer} (${loan.officerEmail})` : loan.officer,
   ]));
@@ -406,7 +408,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   }) : [];
   const campaignByCallback = new Map(state.callCampaignMembers.flatMap((member) =>
     member.callbackTaskId ? [[member.callbackTaskId, member.campaignId] as const] : []));
-  const showUwmAlerts = showDetailedTaskLists && (taskView === "Open" || taskView === "Completed" || taskView === "All");
+  const showUwmAlerts = uwmEnabled && showDetailedTaskLists && (taskView === "Open" || taskView === "Completed" || taskView === "All");
   const visibleUwmAlerts = showUwmAlerts ? state.uwmAlerts.flatMap((alert) => {
     const loan = taskLoans.get(alert.loanId);
     const matchesView = taskView === "All" || (taskView === "Completed" ? !!alert.reviewedAt : !alert.reviewedAt && activeLoanWork(alert.loanId));
@@ -1326,7 +1328,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   }
 
   function syncButton() {
-    if (!admin || uwmConnection.pipeline === "Insights credentials required") return null;
+    if (!admin || !uwmEnabled || uwmConnection.pipeline === "Insights credentials required") return null;
     return <Button variant="outline" onClick={() => void sync()} disabled={busy}><RefreshCw className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing…" : "Sync UWM"}</Button>;
   }
 
@@ -1352,7 +1354,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           {navigation.map(({ title, items }) => (
             <div className="nav-group" key={title}>
               <p className="workspace-label">{title}</p>
-              {items.filter(({ label }) => (label !== "Brokerage" || canReport) && (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Exceptions" || canReport) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (label !== "Compliance" || (admin && staff?.brokerage.pilot)) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
+              {items.filter(({ label }) => (label !== "Brokerage" || canReport) && (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Exceptions" || canReport) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (label !== "Compliance" || (admin && complianceEnabled)) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
                 const attention = label === "Today" ? actionCounts?.today : label === "Lead Inbox" ? actionCounts?.leads :
                   label === "Exceptions" ? actionCounts?.exceptions : label === "Processing" ? actionCounts?.processing : undefined;
                 const count = attention ? (attention > 99 ? "99+" : String(attention)) : null;
@@ -1394,7 +1396,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
               aria-current={section === "Review Inbox" ? "page" : undefined} disabled={!controlsReady} onClick={() => navigate("Review Inbox", false)}>
               <Bell aria-hidden="true" />{reviewInbox.unread && <span aria-hidden="true">{reviewInbox.unread}</span>}
             </Button>}
-            <button className="connection-chip" disabled={!controlsReady} onClick={() => navigate("Integrations")}><span /> {uwmConnection.pricing === "UWM stage API" ? "UWM stage" : "UWM"}</button>
+            {uwmEnabled && <button className="connection-chip" disabled={!controlsReady} onClick={() => navigate("Integrations")}><span /> {uwmConnection.pricing === "UWM stage API" ? "UWM stage" : "UWM"}</button>}
             {staff && <form method="post" action="/auth/logout"><Button type="submit" size="sm" variant="ghost"><LogOut /> Sign out</Button></form>}
           </div>
         </header>
@@ -1562,10 +1564,10 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             pilot={Boolean(staff.brokerage.pilot)} hasBranches={Boolean(staff.brokerage.pilot) || staff.brokerage.id === demoBrokerageId} refresh={refreshCounts}
             openQueue={(queue) => openBrokerageView(brokerageQueueSections[queue], queue !== "exceptions")} openReport={openBrokerageReport}
             openTeam={(panel) => { setTeamPanel(panel); openBrokerageView("Team"); }}
-            openCompliance={() => openBrokerageView("Compliance")} openSchedule={openReportSchedule} scheduleReturn={reportScheduleReturn} />}
+            openCompliance={complianceEnabled ? () => openBrokerageView("Compliance") : undefined} openSchedule={openReportSchedule} scheduleReturn={reportScheduleReturn} />}
           {(section === "Today" || conversationOrigin === "Today") && canOpenToday && <Activity mode={section === "Today" ? "visible" : "hidden"}><OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId}
-            complianceWork={staff?.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+            complianceWork={pilotCompliance && staff && <ComplianceDailyWork brokerageId={staff.brokerage.id}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             reviewingLoan={!!modal} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "today")}
             refreshCounts={refreshCounts}
@@ -1588,15 +1590,15 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             selection={searchSelection} onSearch={setSearchSelection} version={state} busy={busy} open={(record) => void openSearchResult(record)} />}
           {section === "Reviews" && canOpenCalendar && <LoanReviewQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={admin}
             version={reviewVersion} busy={busy} open={(row) => void openQueueLoan({ kind: "details", loanId: row.loanId, target: reviewTarget(row.id) })} />}
-          {section === "Compliance" && admin && staff?.brokerage.pilot && <ComplianceWorkspace key={staff.brokerage.id}
-            brokerageId={staff.brokerage.id} paused={!!modal || busy}
+          {section === "Compliance" && admin && staff && complianceEnabled && <ComplianceWorkspace key={staff.brokerage.id}
+            brokerageId={staff.brokerage.id} pilot={staff.brokerage.pilot === true} paused={!!modal || busy}
             openHistoryRecord={openMigrationDestination}
             openLoan={(loanId, caseId) => void openQueueLoan({ kind: "details", loanId, target: caseId ? complianceCaseTarget(caseId) : complianceTarget })} />}
           {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}
           {section === "Processing" && canOpenProcessing && <ProcessorQueue key={attentionVisit?.section === "Processing" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={!processor} initialReadyOnly={firstDayDestination === "accept-handoff"}
-            complianceWork={staff?.brokerage.pilot && processor && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+            complianceWork={pilotCompliance && staff && processor && <ComplianceDailyWork brokerageId={staff.brokerage.id}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             mockServices={!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot}
             reviewingLoan={!!modal || busy} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "processing")}
@@ -1605,7 +1607,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             onAssignment={canReport ? invalidateWorkspace : undefined}
             openAssignment={canReport ? (loanId) => show({ kind: "assignment", loanId }) : undefined} />}
           {section === "Tasks" && staff && pagedTasks && <PagedTaskQueue staff={staff} version={queueVersion} busy={busy}
-            complianceWork={staff.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+            complianceWork={pilotCompliance && <ComplianceDailyWork brokerageId={staff.brokerage.id}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             focusContact={focusContactTask} openWork={openActiveTask} openHistory={(id, realtor) => void openContactRecord(id, false, realtor ? "partner" : "contact")}
             save={(input, after) => save(input, after, true, "tasks")} />}
@@ -1836,7 +1838,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           {section === "Playbooks" && admin && (!staff || staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) &&
             <ManageBorrowerQuestionSets brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           {section === "Playbooks" && admin && <BrokeragePlaybooks staff={staff} busy={busy}
-            complianceReviews={staff?.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id} view="review"
+            complianceReviews={pilotCompliance && staff && <ComplianceDailyWork brokerageId={staff.brokerage.id} view="review"
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             save={(input, after) => save(input, after, true,
               input && typeof input === "object" && "type" in input && input.type === "assignInboxLead" ? "inbox" : "tasks")}
@@ -1864,7 +1866,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             role={staff.brokerage.role} pilot={Boolean(staff.brokerage.pilot)} openStep={openFirstDayStep}
             openPractice={() => openFirstDayStep("pilot-tools")} />}
 
-          {section === "Team" && staff && <BrokerageTeam staff={staff} version={state} panel={teamPanel} setPanel={setTeamPanel} refresh={async () => invalidateWorkspace()}
+          {section === "Team" && staff && <BrokerageTeam staff={staff} uwmConnection={uwmConnection} version={state} panel={teamPanel} setPanel={setTeamPanel} refresh={async () => invalidateWorkspace()}
             openRouting={() => { openBrokerageView("Lead Inbox"); setOpenLeadRouting(true); }}
             openLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })}
             openDepartureWork={(item) => {
@@ -1898,7 +1900,11 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           </fieldset>}
 
           {section === "Integrations" && <section className="uwm-integration-page">
-            <header className="uwm-provider-heading"><span className="uwm-provider-mark" aria-hidden="true">UWM</span><div><span className="uwm-eyebrow">Lender connection</span><h2>United Wholesale Mortgage</h2><p>Connect your account and manage your lender services.</p></div></header>
+            {!uwmEnabled && <div className="document-item"><h2>UWM is off for this workspace</h2>
+              <p className="muted">{admin ? "Manage this setting in Team → Workspaces." : "Your workspace admin manages this setting."}</p>
+              {admin && <Button size="sm" variant="outline" onClick={() => { setTeamPanel("Workspaces"); navigate("Team"); }}>Workspace settings</Button>}
+            </div>}
+            {uwmEnabled && <><header className="uwm-provider-heading"><span className="uwm-provider-mark" aria-hidden="true">UWM</span><div><span className="uwm-eyebrow">Lender connection</span><h2>United Wholesale Mortgage</h2><p>Connect your account and manage your lender services.</p></div></header>
             <div className="uwm-integration-grid">
             {staff && <UwmAccount key={staff.brokerage.id} brokerageId={staff.brokerage.id} />}
             <div className="uwm-service-card"><UwmConnection overview connection={uwmConnection} brokerageId={staff?.brokerage.id} admin={admin} />
@@ -1910,7 +1916,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             {admin && uwmConnection.pipeline === "Sample pipeline" && <p className="muted">{state.mockUwmChangesApplied
               ? "Sample lender changes applied. Review Charlotte Kim’s alerts under Tasks. My Tasks shows alerts for your assigned loans."
               : "After the first sync, simulate three lender changes on Charlotte Kim’s loan. Assign her loan to yourself to see the alerts in My Tasks."}</p>}
-            </div></div>
+            </div></div></>}
             {staff?.brokerage.role === "Admin" && <>
               <UwmReceipts key={`receipts:${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />
               <AutomationDeliveries key={staff.brokerage.id} brokerageId={staff.brokerage.id} onChanged={refreshCounts}

@@ -1,7 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { demoBrokerageId, brokerageRoles, brokerageUrl, defaultWorkspaceUrl, pilotSeatFull, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
+import { demoBrokerageId, brokerageRoles, brokerageUrl, defaultWorkspaceUrl, pilotSeatFull, pilotWalkthroughs, workspaceCanBeDefault, workspaceType, type BrokerageSettings } from "@/lib/brokerage-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -14,16 +15,19 @@ import { ManageFeeTemplates } from "./fee-templates";
 import { ManagePreapprovalTemplates } from "./preapproval-template-settings";
 import { ManagePreapprovalPolicy } from "./preapproval-policy-settings";
 import { BrokerageBranches } from "./brokerage-branches";
+import { WorkspaceFeatures, WorkspaceList } from "./workspace-settings";
+import type { UwmConnectionStatus } from "./uwm-connection";
 import { PilotSupportRequests } from "./pilot-support-requests";
 
 const teamPanels = ["Staff access", "Branches", "Loan settings", "Workspaces", "Pilot tools", "Support requests", "Access history"] as const;
 export type TeamPanel = (typeof teamPanels)[number];
 
-export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLoan, openDepartureWork, openRouting }: {
-  staff: WorkspaceStaff; version: object; refresh: () => Promise<void>; openLoan: (id: string, target?: string) => void;
+export function BrokerageTeam({ staff, uwmConnection, version, panel, setPanel, refresh, openLoan, openDepartureWork, openRouting }: {
+  staff: WorkspaceStaff; uwmConnection: UwmConnectionStatus; version: object; refresh: () => Promise<void>; openLoan: (id: string, target?: string) => void;
   openDepartureWork: (item: DepartureItem) => void; panel: TeamPanel; setPanel: (panel: TeamPanel) => void;
   openRouting: () => void;
 }) {
+  const router = useRouter();
   const endpoint = `/api/brokerages?brokerage=${staff.brokerage.id}`;
   const [settings, setSettings] = useState<BrokerageSettings | null>(null);
   const [message, setMessage] = useState("");
@@ -36,7 +40,6 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   const seatAttempt = useRef<{ key: string; id: string } | null>(null);
   const [inviteAttempt, setInviteAttempt] = useState<{ key: string; id: string } | null>(null);
   const [invitationCopy, setInvitationCopy] = useState<{ email: string; url: string; copied: boolean }>();
-  const [workspaceSearch, setWorkspaceSearch] = useState("");
   const [offboardingEmail, setOffboardingEmail] = useState<string | null>(null);
   const offboardingReturn = useRef<string | null>(null);
   const creating = useRef<string | null>(null);
@@ -60,11 +63,8 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     (member.status === "Active" || member.status === "Invited")) ?? [];
   const scenario = settings?.pilotScenario;
   const seats = settings?.seatCapacity;
-  const otherWorkspaces = settings?.brokerages.filter(item => item.id !== staff.brokerage.id) ?? [];
-  const sampleWorkspaces = otherWorkspaces.filter(item => item.pilot || item.id === demoBrokerageId);
-  const operationalWorkspaces = otherWorkspaces.filter(item => !item.pilot && item.id !== demoBrokerageId);
-  const matchingSamples = sampleWorkspaces.filter(item => `${item.name} ${item.id}`.toLowerCase().includes(workspaceSearch.trim().toLowerCase()));
-
+  const currentWorkspace = settings?.brokerages.find(item => item.id === staff.brokerage.id) ?? staff.brokerage;
+  const isDefault = currentWorkspace.id === settings?.preferredWorkspace;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -105,12 +105,13 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
         .catch(() => { throw new Error("Orbit could not confirm the change. Try again or refresh staff access."); });
       const result = await response.json() as { error?: string; created?: string; message?: string };
       if (!response.ok) {
-        if (capacityAction && response.status === 409) {
+        if ((capacityAction || action.type === "setWorkspaceFeatures") && response.status === 409) {
           if (action.type === "invite") setInviteAttempt(null);
           await reloadTeam().catch(() => undefined);
         }
         throw new Error(result.error ?? "Orbit could not save this change.");
       }
+      if (action.type === "closeReleaseWorkspace") { router.push("/workspace"); return; }
       if (result.created) { window.location.assign(brokerageUrl(result.created)); return; }
       if (action.type === "invite" && typeof action.email === "string" && typeof action.role === "string") {
         setInvitation({ email: action.email.trim().toLowerCase(), role: action.role });
@@ -125,6 +126,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       }
       if (action.type === "loadPilotScenario" || action.type === "loadPilotExploration" || action.type === "role" || action.type === "revoke") await refresh();
       await reloadTeam();
+      if (action.type === "setWorkspaceFeatures") router.refresh();
       if (!onError) setMessage(result.message ?? "Saved.");
       reset?.();
     } catch (failure) { (onError ?? setError)(failure instanceof Error ? failure.message : "Orbit could not save this change."); }
@@ -172,7 +174,9 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     event.preventDefault();
     const fields = new FormData(event.currentTarget);
     creating.current ??= crypto.randomUUID();
-    void change({ type: "create", name: fields.get("name"), id: creating.current, pilot: fields.has("pilot") });
+    const kind = fields.get("workspaceType");
+    void change({ type: "create", name: fields.get("name"), id: creating.current, pilot: kind !== "operational",
+      ...(kind === "release" ? { purpose: "release" } : {}) });
   }
 
   function loadScenario(event: FormEvent<HTMLFormElement>) {
@@ -230,29 +234,29 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     </nav>}
     {!settings && !error && <p className="muted" role="status">Loading team…</p>}
     {(!admin || activePanel === "Workspaces") && <section className="pipeline relationship-panel" aria-label="Brokerage workspaces">
-      <div className="section-heading"><h2>{staff.brokerage.name}</h2><span className="pill">{pilot ? "Pilot · " : ""}{staff.brokerage.role}</span></div>
+      <div className="section-heading"><h2>{staff.brokerage.name}</h2><span className="pill">{workspaceType(currentWorkspace)} · {staff.brokerage.role}</span></div>
       {admin && pilot && <div className="loan-application-actions">
         <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}`}>Workspace maintenance</a></Button>
         <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}#pilot-support-report`}>Support report</a></Button>
       </div>}
-      <p className="muted">Current workspace · {canUseSampleTools ? "Fictional data and practice workflows" : "Operational workspace"}</p>
+      <p className="muted">Current workspace{isDefault ? " · Your sign-in default" : ""}{currentWorkspace.releaseEndsAt ?
+        ` · Closes ${dateTime(currentWorkspace.releaseEndsAt)} ET` : ""}</p>
       <div className="loan-application-actions">
-        <Button asChild variant="outline" size="sm"><a href={defaultWorkspaceUrl(staff.brokerage.id)}>Make this my default</a></Button>
+        {settings && !isDefault && workspaceCanBeDefault(currentWorkspace) &&
+          <Button asChild variant="outline" size="sm"><a href={defaultWorkspaceUrl(staff.brokerage.id)}>Make this my default</a></Button>}
+        {admin && currentWorkspace.releaseEndsAt && <Button size="sm" variant="outline" disabled={busy}
+          onClick={() => void change({ type: "closeReleaseWorkspace" })}>Close release test</Button>}
         <Button variant="outline" size="sm" onClick={()=>void copyWorkspace()}>Copy workspace link</Button>
       </div>
       {copyStatus && <p role="status">{copyStatus}</p>}
-      {!!(operationalWorkspaces.length || sampleWorkspaces.length) && <p className="muted">Opening another workspace keeps your sign-in default.</p>}
-      {!!operationalWorkspaces.length && <div className="workspace-list"><h3>Operational workspaces</h3>{operationalWorkspaces.map(item =>
-        <a className="workspace-list-item" key={item.id} href={brokerageUrl(item.id)}><strong>{item.name}</strong><span>{item.role}{item.maintenance ? " · Paused" : ""}</span></a>)}</div>}
-      {!!sampleWorkspaces.length && <details className="workspace-samples"><summary>Demo &amp; test workspaces ({sampleWorkspaces.length})</summary>
-        <label className="field">Find a demo or test workspace<input type="search" value={workspaceSearch} onChange={event=>setWorkspaceSearch(event.target.value)} placeholder="Search by name or reference"/></label>
-        <div className="workspace-list">{matchingSamples.map(item => <a className="workspace-list-item" key={item.id} href={brokerageUrl(item.id)}>
-          <strong>{item.name}</strong><span>{item.role} · {item.id === demoBrokerageId ? "Demo" : "Test"}{item.maintenance ? " · Paused" : ""} · {item.id.slice(0,8)}</span></a>)}</div>
-        {!matchingSamples.length && <p role="status">No matching workspaces.</p>}
-      </details>}
-      {admin && <details className="document-form"><summary>Create brokerage</summary><form onSubmit={create}>
-        <label className="field">Brokerage name<input name="name" required minLength={2} maxLength={80} /></label>
-        <label className="demo-confirm"><input name="pilot" type="checkbox" /> Create as a fictional pilot workspace</label>
+      <WorkspaceFeatures workspace={currentWorkspace} connection={uwmConnection} busy={busy || !settings} save={change} />
+      {settings && <WorkspaceList current={currentWorkspace} settings={settings} busy={busy} save={change} />}
+      {admin && <details className="document-form"><summary>Create workspace</summary><form onSubmit={create}>
+        <label className="field">Workspace name<input name="name" required minLength={2} maxLength={80} /></label>
+        <label className="field">Workspace type<select name="workspaceType">
+          <option value="operational">Operational</option><option value="pilot">Fictional pilot</option><option value="release">Release test</option>
+        </select></label>
+        <p className="muted">Release tests use fictional data and close after 24 hours. Use a pilot for ongoing testing.</p>
         <Button type="submit" size="sm" disabled={busy}>Create workspace</Button>
       </form></details>}
     </section>}

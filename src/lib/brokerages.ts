@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { brokerageRoles, demoBrokerageId, pilotSeatFull, type AccessEvent, type Brokerage, type BrokerageMember, type PilotSeatCapacity, type VersionedBrokerageMember } from "./brokerage-model";
+import { brokerageIdPattern, brokerageRoles, demoBrokerageId, pilotSeatFull, workspaceCanBeDefault, workspaceFeatures, type AccessEvent, type Brokerage, type BrokerageMember, type PilotSeatCapacity, type VersionedBrokerageMember } from "./brokerage-model";
 import type { DepartureMember, DepartureRoster } from "./offboarding-model";
 import { readStaffSession, type StaffEmailProof, type StaffIdentity } from "./staff-store";
 import type { Store } from "./store";
@@ -30,6 +30,14 @@ export function initializeBrokerages(db: Store) {
     CREATE INDEX IF NOT EXISTS staff_email_codes_expiry ON staff_email_codes(expiresAt);
     CREATE TABLE IF NOT EXISTS staff_workspace_preferences (
       email TEXT PRIMARY KEY, brokerageId TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS brokerage_workspace_settings (
+      brokerageId TEXT PRIMARY KEY REFERENCES brokerages(id), uwm INTEGER, compliance INTEGER,
+      revision INTEGER NOT NULL DEFAULT 0, releaseEndsAt TEXT
+    );
+    CREATE TABLE IF NOT EXISTS staff_hidden_workspaces (
+      email TEXT NOT NULL, brokerageId TEXT NOT NULL REFERENCES brokerages(id),
+      PRIMARY KEY (email, brokerageId)
     );
     CREATE TABLE IF NOT EXISTS brokerage_access_history (
       id TEXT PRIMARY KEY, brokerageId TEXT NOT NULL REFERENCES brokerages(id), actor TEXT NOT NULL,
@@ -77,14 +85,19 @@ export function bootstrapDemoMembers(db: Store, emails: string[]) {
 }
 
 export function activeBrokerages(db: Store, email: string, bootstrapEmails: string[]): Brokerage[] {
-  return db.prepare(`SELECT b.id, b.name, b.pilot, m.role, m.bootstrap, m.accessRevision,
+  return db.prepare(`SELECT b.id, b.name, b.pilot, m.role, m.bootstrap, m.accessRevision, s.uwm, s.compliance, s.revision, s.releaseEndsAt, h.email AS hidden,
     b.pilot AND m.role = 'Admin' AND EXISTS (SELECT 1 FROM brokerage_access_history creation
       WHERE creation.brokerageId = b.id AND creation.actor = m.email AND creation.action = 'Created pilot workspace') AS financeAccess
     FROM brokerage_members m JOIN brokerages b ON b.id = m.brokerageId
+    LEFT JOIN brokerage_workspace_settings s ON s.brokerageId = b.id
+    LEFT JOIN staff_hidden_workspaces h ON h.brokerageId = b.id AND h.email = m.email
     WHERE m.email = ? AND m.status = 'Active' ORDER BY b.id <> ?, b.name, b.id`).all(email, demoBrokerageId)
     .filter((row) => !row.bootstrap || bootstrapEmails.includes(email))
     .map((row) => ({ id: String(row.id), name: String(row.name), role: row.role as Brokerage["role"], pilot: Boolean(row.pilot), accessRevision: Number(row.accessRevision),
-      ...(row.financeAccess ? { financeAccess: true } : {}) }));
+      ...(row.financeAccess ? { financeAccess: true } : {}),
+      ...(row.revision ? { features: { uwm: Boolean(row.uwm), compliance: Boolean(row.compliance), revision: Number(row.revision) } } : {}),
+      ...(row.hidden ? { hidden: true } : {}),
+      ...(typeof row.releaseEndsAt === "string" ? { releaseEndsAt: row.releaseEndsAt } : {}) }));
 }
 
 export function readStaffAccess(db: Store, tokenHash: string, now: number, bootstrapEmails: string[]) {
@@ -103,7 +116,7 @@ export function rememberWorkspace(db: Store, tokenHash: string, now: number, boo
   brokerageId: string, replace: boolean) {
   return db.transaction(() => {
     const session = readStaffSession(db, tokenHash, now);
-    if (!session || !activeBrokerages(db, session.identity.email, session.method === "google" ? bootstrapEmails : []).some(({ id }) => id === brokerageId)) return false;
+    if (!session || !activeBrokerages(db, session.identity.email, session.method === "google" ? bootstrapEmails : []).some((item) => item.id === brokerageId && workspaceCanBeDefault(item))) return false;
     const { identity } = session;
     db.prepare(`INSERT INTO staff_workspace_preferences (email, brokerageId) VALUES (?, ?)
       ON CONFLICT(email) DO UPDATE SET brokerageId = excluded.brokerageId WHERE ?`)
@@ -224,7 +237,11 @@ export function departureRoster(db: Store, staff: StaffIdentity, id: string, boo
 export const staffEmail = z.string().trim().toLowerCase().pipe(z.email().max(254));
 const email = staffEmail;
 export const brokerageAction = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("create"), name: z.string().trim().min(2).max(80), id: z.uuid(), pilot: z.boolean().default(false) }),
+  z.object({ type: z.literal("create"), name: z.string().trim().min(2).max(80), id: z.uuid(), pilot: z.boolean().default(false),
+    purpose: z.enum(["release", "guided"]).optional() }),
+  z.object({ type: z.literal("setWorkspaceFeatures"), uwm: z.boolean(), compliance: z.boolean(), revision: z.number().int().nonnegative() }),
+  z.object({ type: z.literal("setWorkspaceListVisibility"), ids: z.array(z.string().regex(brokerageIdPattern)).min(1).max(100), hidden: z.boolean() }),
+  z.object({ type: z.literal("closeReleaseWorkspace") }),
   z.object({ type: z.literal("invite"), email, role: z.enum(brokerageRoles), operationId: z.uuid().optional() }),
   z.object({ type: z.literal("cancelInvitation"), email, expectedAccessRevision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("setPilotSeatLimit"), limit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
@@ -242,19 +259,64 @@ export function changeBrokerage(db: Store, id: string, staff: StaffIdentity, boo
   if (!parsed.success) return { error: "Check the brokerage settings and try again." };
   const data = parsed.data;
   return db.transaction(() => {
-    const access = activeBrokerages(db, staff.email, bootstrapEmails).find((brokerage) => brokerage.id === id);
+    const workspaces = activeBrokerages(db, staff.email, bootstrapEmails);
+    const access = workspaces.find((brokerage) => brokerage.id === id);
+    if (data.type === "setWorkspaceListVisibility") {
+      const preferred = db.prepare("SELECT brokerageId FROM staff_workspace_preferences WHERE email = ?").get(staff.email);
+      if (!access || data.ids.some((target) => !workspaces.some((item) => item.id === target && item.pilot &&
+          (data.hidden ? target !== id && target !== preferred?.brokerageId : item.hidden)))) {
+        return { error: "Choose another fictional workspace. Your current and default workspaces stay visible." };
+      }
+      const change = data.hidden
+        ? db.prepare("INSERT OR IGNORE INTO staff_hidden_workspaces (email, brokerageId) VALUES (?, ?)")
+        : db.prepare("DELETE FROM staff_hidden_workspaces WHERE email = ? AND brokerageId = ?");
+      for (const target of new Set(data.ids)) change.run(staff.email, target);
+      return { message: data.hidden ? "Moved to Hidden workspaces." : "Returned to your workspace list." };
+    }
     if (access?.role !== "Admin") return { error: "Only a brokerage admin can manage access and loan assignments." };
     const now = new Date().toISOString();
+    if (data.type === "setWorkspaceFeatures") {
+      const previous = workspaceFeatures(access);
+      if (previous.uwm === data.uwm && previous.compliance === data.compliance) return { message: "Workspace features saved." };
+      if (data.revision !== previous.revision) return { error: "Workspace features changed. Review the current settings before saving.", status: 409 };
+      db.prepare(`INSERT INTO brokerage_workspace_settings (brokerageId, uwm, compliance, revision) VALUES (?, ?, ?, ?)
+        ON CONFLICT(brokerageId) DO UPDATE SET uwm=excluded.uwm, compliance=excluded.compliance, revision=excluded.revision`)
+        .run(id, Number(data.uwm), Number(data.compliance), previous.revision + 1);
+      history(db, id, staff.email, "Updated workspace features", `UWM ${data.uwm ? "on" : "off"} · Compliance ${data.compliance ? "on" : "off"}`, now);
+      return { message: "Workspace features saved." };
+    }
+    if (data.type === "closeReleaseWorkspace") {
+      if (!access.releaseEndsAt) return { error: "Only a release test can be closed here." };
+      if (access.releaseEndsAt > now) {
+        db.prepare("UPDATE brokerage_workspace_settings SET releaseEndsAt = ? WHERE brokerageId = ?").run(now, id);
+        history(db, id, staff.email, "Closed release test", access.name, now);
+      }
+      return { message: "Release test closed." };
+    }
     if (data.type === "create") {
+      if (data.purpose && !data.pilot) return { error: "Release tests and guided demos use fictional data." };
+      if (data.purpose === "guided") {
+        const existingDemo = db.prepare(`SELECT a.brokerageId FROM brokerage_access_history a
+          WHERE a.actor = ? AND a.action = 'Created pilot workspace' AND a.subject = 'OrbitLOS Guided Demo'
+          ORDER BY a.createdAt DESC, a.brokerageId DESC`).all(staff.email)
+          .find((row) => workspaces.some(item => item.id === row.brokerageId && item.role === "Admin" && item.pilot && workspaceCanBeDefault(item)));
+        if (existingDemo) return { created: String(existingDemo.brokerageId) };
+        if (data.name !== "OrbitLOS Guided Demo") return { error: "Choose the guided demo workspace." };
+      }
       const existing = db.prepare("SELECT name, pilot FROM brokerages WHERE id = ?").get(data.id);
       if (existing) {
-        const owner = activeBrokerages(db, staff.email, bootstrapEmails).find((brokerage) => brokerage.id === data.id);
-        return owner?.role === "Admin" && owner.name === data.name && Boolean(existing.pilot) === data.pilot
+        const owner = workspaces.find((brokerage) => brokerage.id === data.id);
+        return owner?.role === "Admin" && owner.name === data.name && Boolean(existing.pilot) === data.pilot && Boolean(owner.releaseEndsAt) === (data.purpose === "release")
           ? { created: data.id } : { error: "This workspace could not be created. Try again." };
       }
       db.prepare("INSERT INTO brokerages (id, name, pilot) VALUES (?, ?, ?)").run(data.id, data.name, Number(data.pilot));
       db.prepare("INSERT INTO brokerage_members (brokerageId,email,name,role,status) VALUES (?, ?, ?, 'Admin', 'Active')")
         .run(data.id, staff.email, staff.name);
+      if (data.purpose === "release") {
+        const expires = new Date(Date.parse(now) + 24 * 60 * 60 * 1000).toISOString();
+        db.prepare("INSERT INTO brokerage_workspace_settings (brokerageId, releaseEndsAt) VALUES (?, ?)").run(data.id, expires);
+        history(db, data.id, staff.email, "Created release test", data.name, now);
+      }
       history(db, data.id, staff.email, data.pilot ? "Created pilot workspace" : "Created workspace", data.name, now);
       return { created: data.id };
     }

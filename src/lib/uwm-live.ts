@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { UwmConnector } from "./uwm";
 import type { WorkspaceStaff } from "./staff-store";
-import { demoBrokerageId } from "./brokerage-model";
+import { demoBrokerageId, workspaceFeatures } from "./brokerage-model";
 
 export class UwmError extends Error {}
 export type UwmEnvironment = Record<string, string | undefined>;
@@ -11,6 +11,7 @@ export function fictionalUwmWorkspace(staff: WorkspaceStaff | null) {
 }
 
 export function uwmPricingEnvironment(env: UwmEnvironment, staff: WorkspaceStaff | null): UwmEnvironment {
+  if (!workspaceFeatures(staff?.brokerage).uwm) throw new UwmError("UWM is turned off in this workspace.");
   if (!fictionalUwmWorkspace(staff)) {
     throw new UwmError("UWM production pricing is unavailable for this brokerage. Record a manual lender quote to continue.");
   }
@@ -19,14 +20,20 @@ export function uwmPricingEnvironment(env: UwmEnvironment, staff: WorkspaceStaff
 }
 
 export function uwmConnectionSettings(env: UwmEnvironment, staff: WorkspaceStaff | null) {
+  if (!workspaceFeatures(staff?.brokerage).uwm) return { pricing: "Off", pipeline: "Off", lenderActions: "Off" };
   const fictional = fictionalUwmWorkspace(staff);
-  const connected = uwmWorkspaceEnabled(env, staff);
+  const environment = env.UWM_USER_ENVIRONMENT || "stage";
+  const environments: Record<string, string> = { dev: "int", stage: "stage", production: "production" };
+  const expected = environments[env.ORBIT_DEPLOYMENT ?? ""];
+  const personalAccess = uwmWorkspaceEnabled(env, staff) && !!env.UWM_USER_CLIENT_ID && !!env.UWM_USER_CLIENT_SECRET &&
+    /^[a-f\d]{64}$/i.test(env.UWM_TOKEN_ENCRYPTION_KEY ?? "") && ["int", "stage", "production"].includes(environment) &&
+    (!env.ORBIT_DEPLOYMENT || expected === environment);
   const hasStageCredentials = (env.UWM_CLIENT_ID || env.UWM_EQ_CLIENT_ID) && (env.UWM_CLIENT_SECRET || env.UWM_EQ_CLIENT_SECRET);
   return {
     pricing: !fictional ? "Not configured" : env.ORBIT_PRICING_MODE !== "uwm-stage" ? "Sample pricing" :
       hasStageCredentials ? "UWM stage API" : "Stage credentials required",
     pipeline: uwmInsightsWorkspaceEnabled(env, staff) && env.UWM_INSIGHTS_CLIENT_ID && env.UWM_INSIGHTS_CLIENT_SECRET ? "UWM Insights" : fictional ? "Sample pipeline" : "Insights credentials required",
-    lenderActions: fictional ? "Simulated" : connected ? "Loan-screen controls" : "Onboarding required",
+    lenderActions: fictional ? "Simulated" : personalAccess ? "Personal UWM sign-in required" : "Onboarding required",
   };
 }
 
@@ -43,14 +50,14 @@ export async function checkUwmPublicConnection(env: UwmEnvironment, staff: Works
 }
 
 // Personal grants are scoped to the signed-in user and workspace.
-export function uwmAccountEnabled(staff: WorkspaceStaff | null) { return !!staff; }
+export function uwmAccountEnabled(staff: WorkspaceStaff | null) { return !!staff && workspaceFeatures(staff.brokerage).uwm; }
 
 // Shop-wide Insights credentials remain bound to their configured brokerage.
 export function uwmInsightsWorkspaceEnabled(env: UwmEnvironment, staff: WorkspaceStaff | null) {
   return uwmWorkspaceEnabled(env, staff) && !!env.UWM_BROKERAGE_ID && staff!.brokerage.id === env.UWM_BROKERAGE_ID;
 }
 export function uwmWorkspaceEnabled(_env: UwmEnvironment, staff: WorkspaceStaff | null) {
-  return !!staff && !staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId;
+  return uwmAccountEnabled(staff) && !staff!.brokerage.pilot && staff!.brokerage.id !== demoBrokerageId;
 }
 
 export async function uwmJson(url: string, init: RequestInit = {}) {

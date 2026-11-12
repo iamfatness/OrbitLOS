@@ -1201,3 +1201,17 @@ button:disabled { cursor: default; }
   .migration-cutover-heading { flex-wrap: wrap; }
   .migration-cutover-source { display: block; overflow-wrap: anywhere; }
 }
+
+.workspace-feature-settings { border-block-start: 1px solid var(--line); margin-block-start: 16px; padding-block-start: 16px; }
+.workspace-service-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px 20px; margin-block: 12px; }
+.workspace-service-summary dt { color: var(--muted); font-size: 0.8125rem; }
+.workspace-service-summary dd { margin: 4px 0 0; font-weight: 600; }
+.workspace-feature-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.workspace-feature-form label { min-height: 44px; margin: 0; }
+.workspace-feature-form p { flex-basis: 100%; margin: 0 0 4px; }
+.workspace-list-control { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.workspace-list-control .workspace-list-item { flex: 1; min-width: 0; }
+.workspace-row-select { display: grid; flex: 0 0 44px; min-height: 44px; place-items: center; cursor: pointer; }
+.workspace-row-select input { width: 16px; height: 16px; }
+.workspace-list-item { flex-wrap: wrap; }
+.workspace-list-item span { flex-shrink: 1; }

@@ -5,13 +5,14 @@ import { runtimeSetting } from "./staff-auth";
 
 function uwmSettings() {
   return Object.fromEntries(["UWM_BROKERAGE_ID", "UWM_INSIGHTS_CLIENT_ID", "UWM_INSIGHTS_CLIENT_SECRET", "UWM_CLIENT_ID",
-    "UWM_CLIENT_SECRET", "UWM_EQ_CLIENT_ID", "UWM_EQ_CLIENT_SECRET", "ORBIT_PRICING_MODE"].map((key) => [key, runtimeSetting(env, key)]));
+    "UWM_CLIENT_SECRET", "UWM_EQ_CLIENT_ID", "UWM_EQ_CLIENT_SECRET", "ORBIT_PRICING_MODE",
+    "UWM_USER_CLIENT_ID", "UWM_USER_CLIENT_SECRET", "UWM_USER_ENVIRONMENT", "UWM_TOKEN_ENCRYPTION_KEY", "ORBIT_DEPLOYMENT"].map((key) => [key, runtimeSetting(env, key)]));
 }
 export async function loadUwmConnection(staff: WorkspaceStaff | null) { return uwmConnectionSettings(uwmSettings(), staff); }
 export async function verifyUwmConnection(staff: WorkspaceStaff | null) { return checkUwmPublicConnection(uwmSettings(), staff); }
 import type { WorkspaceStaff } from "./staff-store";
 import type { WorkspaceMutationScope } from "./commands";
-import { demoBrokerageId, portalBrokerage } from "./brokerage-model";
+import { demoBrokerageId, portalBrokerage, workspaceFeatures } from "./brokerage-model";
 import { jointLinkUnavailable } from "./joint-application-model";
 import { googleSettings } from "./staff-auth";
 import { fundingDashboardUnavailable } from "./funding-dashboard-model";
@@ -310,7 +311,7 @@ export async function workOnDisclosureTemplates(input: unknown, staff: Workspace
 }
 
 export async function workOnComplianceCases(input: unknown, staff: WorkspaceStaff) {
-  return staff.brokerage.pilot ? staffWorkspace(staff).complianceCases(input, staff) : { error: complianceWorkUnavailable };
+  return workspaceFeatures(staff.brokerage).compliance ? staffWorkspace(staff).complianceCases(input, staff) : { error: complianceWorkUnavailable };
 }
 
 export async function workOnLoanRetention(input: unknown, staff: WorkspaceStaff) {

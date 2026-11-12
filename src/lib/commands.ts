@@ -41,7 +41,7 @@ import { draftChannels } from "./communication-templates";
 import type { TemplateMutationResult } from "./communication-draft-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import { accessEvent, isDemoStaff, loanAccess, scopeWorkspace } from "./workspace-access";
-import { demoBrokerageId, portalToken, portalTokenPattern, type VersionedBrokerageMember } from "./brokerage-model";
+import { demoBrokerageId, portalToken, portalTokenPattern, workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
 import { saveRealtorLinkOwner } from "./realtor-portal";
 import type { RealtorMutationResult } from "./realtor-work-model";
 import type { PlaybookSettingsMutation } from "./manager-exception-model";
@@ -373,10 +373,12 @@ const command = z.discriminatedUnion("type", [
 class WorkspaceError extends Error {}
 class LeadClaimConflict extends WorkspaceError {}
 
-const simulatedLenderActions = new Set<z.infer<typeof command>["type"]>([
+const simulatedUwmActions = new Set<z.infer<typeof command>["type"]>([
   "simulateUwmChanges", "sendApplication", "simulateMissingUwmReceipt", "reconcileMockUwmReceipt",
   "sendConditionDocument", "simulateDeliveryFailure", "refreshMockUwmClearance", "reopenMockUwmCondition", "replayMockUwmConditionDelivery",
   "floatMockRate", "lockMockRate", "extendMockLock", "cancelMockLock",
+]);
+const simulatedUnderwritingActions = new Set<z.infer<typeof command>["type"]>([
   "runMockCredit", "runMockAus", "runMockPairedAus", "retryMockCreditAus", "reconcileMockCreditAus", "reviewMockUnderwritingConflict",
 ]);
 
@@ -599,8 +601,13 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
   try {
     authorizeLoanOfficer(db, data, staff);
     const fictionalUwm = fictionalUwmWorkspace(staff);
-    if (!fictionalUwm && (simulatedLenderActions.has(data.type) || (data.type === "reviewDocument" && data.sendToMockUwm) ||
-      (data.type === "processDocumentBatch" && data.action !== "accept"))) {
+    const simulatesUwm = simulatedUwmActions.has(data.type) || (data.type === "reviewDocument" && data.sendToMockUwm) ||
+      (data.type === "processDocumentBatch" && data.action !== "accept");
+    if (!workspaceFeatures(staff?.brokerage).uwm &&
+        (simulatesUwm || data.type === "sync" || (data.type === "runPricing" && !data.manualLender))) {
+      throw new WorkspaceError("UWM is turned off in this workspace.");
+    }
+    if (!fictionalUwm && (simulatesUwm || simulatedUnderwritingActions.has(data.type))) {
       throw new WorkspaceError("Simulated lender actions are disabled outside fictional workspaces. Use the lender portal while onboarding is pending.");
     }
     if (data.type === "openCampaigns") {

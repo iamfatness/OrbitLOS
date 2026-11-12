@@ -186,6 +186,13 @@ export function workspaceAccessDenied(brokerageId: string | null, guide?: Return
   }, 403);
 }
 
+export function closedReleaseWorkspacePage() {
+  return staffEntryPage({ title: "Release test closed",
+    description: "This temporary workspace has closed and its records are retained.", message: "",
+    primary: { href: "/workspace", label: "Open my workspace" },
+  }, 403);
+}
+
 export function workspaceMaintenancePage(brokerage: Brokerage, alternateId?: string) {
   return staffEntryPage({title:"Workspace paused",description:"Your brokerage is reviewing this workspace before reopening it.",
     message:"Saved work is retained. New workspace actions and portal updates are temporarily unavailable.",

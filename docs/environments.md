@@ -44,3 +44,12 @@ For workspace continuity, run `node scripts/workspace-working-day.mjs` against t
 The stage and dev builds passed artifact-target checks. Sixteen environment/UWM tests, TypeScript and targeted lint passed. Hosted checks verify public page availability, unauthenticated workspace denial, authenticated workspace access, unconfigured webhook rejection and cross-environment rejection. No production data was copied, and no UWM delivery has yet been accepted on either new host.
 
 Reference: [Cloudflare Vite environments](https://developers.cloudflare.com/workers/vite-plugin/reference/cloudflare-environments/).
+
+
+## Workspace configuration and release tests
+
+Team → Workspaces shows the open brokerage, your saved sign-in default when set, and the modes for UWM pricing, pipeline, lender actions, and Compliance. Admin feature changes are scoped to the open brokerage and appear in its access history. Operational Compliance provides internal research and monthly review. The fictional pilot includes sample file review and evidence workflows. UWM account access and brokerage Insights are separate. Enabling UWM preserves the configured provider environment.
+
+Run automated release verification in the isolated Worker rehearsal. For a hosted release that genuinely requires a new workspace, choose **Release test** in Team → Workspaces, use fictional data, and close it from the same panel after verification. It closes after 24 hours if left open. Staff and portal links stop opening when the test closes. Records and membership history are retained, and a release test cannot become a sign-in default. Use a dedicated fictional pilot for ongoing testing. Guided Demo reuses an eligible demo created by the signed-in admin.
+
+To tidy existing fictional workspaces, filter the list, select the fixtures, and use **Hide selected**. Hidden workspaces can be restored. This preference belongs to the signed-in account, and existing links and staff access remain available. The current workspace and saved sign-in default are protected.
