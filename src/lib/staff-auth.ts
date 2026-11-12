@@ -124,12 +124,12 @@ export function workspaceAccessDenied(brokerageId: string | null, guide?: Return
   }, 403);
 }
 
-export function workspaceMaintenancePage(brokerage: Brokerage, canSwitch = false) {
+export function workspaceMaintenancePage(brokerage: Brokerage, alternateId?: string) {
   return staffEntryPage({title:"Workspace paused",description:"Your brokerage is reviewing this workspace before reopening it.",
     message:"Saved work is retained. New workspace actions and portal updates are temporarily unavailable.",
     primary:brokerage.role === "Admin" && brokerage.pilot ? {href:`/workspace-maintenance?brokerage=${brokerage.id}`,label:"Open maintenance review"} :
       {href:brokerageUrl(brokerage.id),label:"Check again"},
-    secondary:canSwitch ? {href:"/workspace?available=1",label:"Open another available workspace"} : undefined},503);
+    secondary:alternateId ? {href:brokerageUrl(alternateId),label:"Open another available workspace"} : undefined},503);
 }
 
 function staffEntryPage({ title, description, message, primary, secondary }: {

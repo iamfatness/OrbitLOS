@@ -1945,8 +1945,9 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
             const { identity, preferredWorkspace } = access;
             brokerages = access.brokerages;
             const available = url.searchParams.get("available") === "1";
-            const remembered = dailyEntry && requested === null && !available
+            const savedChoice = dailyEntry && requested === null
               ? preferredWorkspace ?? await rememberedStaffWorkspace(request, identity.email) : null;
+            const remembered = available ? null : savedChoice;
             const choice = requested ?? remembered;
             const brokerage = choice !== null ? brokerages.find((entry) => entry.id === choice) :
               dailyEntry ? defaultWorkspace(brokerages, runtimeSetting(env, "UWM_BROKERAGE_ID")) : brokerages.find((entry) => !entry.maintenance) ?? brokerages[0];
@@ -1957,7 +1958,8 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
             }
             if (brokerage) staff = { ...identity, brokerage };
             if (staff && requested === null && openingWorkspace && (dailyEntry || staff.brokerage.id !== demoBrokerageId)) {
-              const recoverWorkspace = chooseWorkspace && available;
+              const recoverWorkspace = chooseWorkspace && available && savedChoice !== null &&
+                !brokerages.some(({ id }) => id === savedChoice);
               const establishWorkspace = !available && !preferredWorkspace && (remembered ? chooseWorkspace : workspaceNavigation);
               if (recoverWorkspace || establishWorkspace) {
                 const saved = await directory.rememberStaffWorkspace(tokenHash, Date.now(), bootstrapEmails, staff.brokerage.id, available);
@@ -1972,7 +1974,7 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
                 }
               }
               const headers = new Headers({ Location: brokerageUrl(staff.brokerage.id, guide), "Cache-Control": "no-store" });
-              if (chooseWorkspace || establishWorkspace) {
+              if (recoverWorkspace || establishWorkspace || (chooseWorkspace && !available)) {
                 headers.set("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
               }
               return new Response(null, { status: 303, headers });
@@ -2108,8 +2110,9 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       return new Response(null,{status:405,headers:{...headers,Allow:"GET, POST"}});
     }
     if (staff && url.pathname !== "/workspace-maintenance" && staff.brokerage.maintenance) {
-      return reading && url.pathname === "/workspace" ? workspaceMaintenancePage(staff.brokerage,
-        brokerages.some((entry) => entry.id !== staff?.brokerage.id && !entry.maintenance)) :
+      const alternate = defaultWorkspace(brokerages.filter((entry) => !entry.maintenance),
+        runtimeSetting(env, "UWM_BROKERAGE_ID"));
+      return reading && url.pathname === "/workspace" ? workspaceMaintenancePage(staff.brokerage, alternate?.id) :
         Response.json({error:maintenanceMessage},{status:503,headers:{"Cache-Control":"private, no-store","Retry-After":"60"}});
     }
     if (["/api/uwm-file", "/api/uwm-file/read"].includes(url.pathname)) {

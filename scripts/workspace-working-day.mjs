@@ -4044,6 +4044,14 @@ try {
     const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;
     const get=async(actor=owner)=>runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${actor.token}`}});
     assert.equal((await get(officer)).status,403);assert.equal((await get(processor)).status,403);
+    const ownerHash = createHash("sha256").update(owner.token).digest("base64url");
+    const entry = (path, actor = owner) => runtime.dispatchFetch(origin + path, {
+      redirect: "manual", headers: { Cookie: `__Host-orbit-session=${actor.token}`, Accept: "text/html",
+        "Sec-Fetch-Mode": "navigate", "Sec-Fetch-User": "?1", "Sec-Fetch-Site": "same-origin" },
+    });
+    const scoped = `/workspace?brokerage=${brokerage}`;
+    assert.equal((await entry(scoped + "&default=1")).headers.get("location"), scoped);
+    assert.equal((await entry("/workspace")).headers.get("location"), scoped);
     const original=await (await get()).json();assert.equal(original.mode,"Open");
     const inspect=async(revision,actor=owner)=>runtime.dispatchFetch(origin+endpoint+`&inspect=1&revision=${revision}`,{headers:{Cookie:`__Host-orbit-session=${actor.token}`}});
     assert.equal((await inspect(original.revision)).status,403);
@@ -4073,6 +4081,20 @@ try {
       const response=await runtime.dispatchFetch(`${origin}/workspace?brokerage=${brokerage}`,{headers:{Cookie:`__Host-orbit-session=${actor.token}`}});
       assert.equal(response.status,503);assert.match(await response.text(),/Workspace paused/);
     }
+    const pausedEntry = await entry(scoped);
+    const pausedHtml = await pausedEntry.text();
+    const alternate = pausedHtml.match(/href="(\/workspace\?brokerage=[^"]+)">Open another available workspace/)?.[1];
+    assert.ok(alternate, "The paused workspace offers a scoped temporary visit");
+    assert.notEqual(alternate, scoped);
+    const visit = await entry(alternate);
+    assert.equal(visit.status, 200);
+    assert.equal(visit.headers.get("set-cookie"), null);
+    await visit.body?.cancel();
+    const legacyVisit = await entry("/workspace?available=1");
+    assert.equal(legacyVisit.headers.get("location"), alternate);
+    assert.equal(legacyVisit.headers.get("set-cookie"), null);
+    assert.equal((await directory.staffSessionAccess(ownerHash, Date.now(), [owner.email])).preferredWorkspace, brokerage);
+    assert.equal((await entry("/workspace")).headers.get("location"), scoped);
     assert.equal((await postResponse("/api/demo-application",{token,type:"read"})).status,503);
     assert.equal((await postResponse("/api/borrower-documents/verify",{token,type:"sendCode"})).status,503);
     assert.equal((await postResponse("/api/realtor-referrals",{token:realtor.token,type:"read"})).status,503);
@@ -4113,6 +4135,10 @@ try {
     assert.equal((await postResponse(endpoint,{type:"reopen",revision:paused.revision,confirmation:"Fictional Working Day"},owner)).status,409);
     const opened=await post(endpoint,{type:"reopen",revision:finalReview.revision,confirmation:"Fictional Working Day"},owner);
     assert.equal(opened.mode,"Open");assert.equal(opened.history.length,6);
+    const freshOwner = { ...owner, token: randomBytes(32).toString("base64url") };
+    await signIn(freshOwner);
+    assert.equal((await entry("/workspace", freshOwner)).headers.get("location"), scoped);
+    assert.equal((await entry(scoped, freshOwner)).status, 200);
     assert.equal((await inspect(paused.revision)).status,403);
     assert.deepEqual((await file(owner,loanId)).applications[0].draft,initial.applications[0].draft);
     assert.ok((await borrower(token,{type:"read"})).draft);
