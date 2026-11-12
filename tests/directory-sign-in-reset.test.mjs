@@ -26,27 +26,30 @@ function fixture(t) {
   };
   db.exec(`CREATE TABLE staff_sessions(tokenHash TEXT PRIMARY KEY,email TEXT);
     CREATE TABLE staff_google_attempts(state TEXT PRIMARY KEY,verifier TEXT);
+    CREATE TABLE staff_email_codes(email TEXT PRIMARY KEY,codeHash TEXT);
     CREATE TABLE brokerage_members(id TEXT PRIMARY KEY);
     INSERT INTO staff_sessions VALUES ('fictional-session','owner@example.test');
     INSERT INTO staff_google_attempts VALUES ('fictional-state','fictional-verifier');
+    INSERT INTO staff_email_codes VALUES ('new-staff@example.test','fictional-code-hash');
     INSERT INTO brokerage_members VALUES ('fictional-member');`);
   const review = previewDirectorySignInReset(db);
   const intent = { id:crypto.randomUUID(), fingerprint:review.fingerprint, incident:"QA", markerVersion:"marker", deployment:"fixture" };
   return { db, review, intent };
 }
 
-test("directory reset clears sessions and OAuth attempts atomically and retries without clearing new rows", t => {
+test("directory reset clears sessions and both sign-in methods atomically and retries without clearing new rows", t => {
   const { db, review, intent } = fixture(t);
   assert.equal(review.sessions,1);
-  assert.equal(review.attempts,1);
+  assert.equal(review.attempts,2);
   assert(!JSON.stringify(review).includes("fictional-session"));
   assert(!JSON.stringify(review).includes("fictional-verifier"));
-  assert.deepEqual(commitDirectorySignInReset(db,intent),{sessions:1,attempts:1});
+  assert(!JSON.stringify(review).includes("fictional-code-hash"));
+  assert.deepEqual(commitDirectorySignInReset(db,intent),{sessions:1,attempts:2});
   assert.equal(previewDirectorySignInReset(db).sessions,0);
   assert.equal(previewDirectorySignInReset(db).attempts,0);
   assert.equal(db.prepare("SELECT count(*) AS n FROM brokerage_members").get().n,1);
   db.exec("INSERT INTO staff_sessions VALUES ('fresh-session','owner@example.test')");
-  assert.deepEqual(commitDirectorySignInReset(db,intent),{sessions:1,attempts:1});
+  assert.deepEqual(commitDirectorySignInReset(db,intent),{sessions:1,attempts:2});
   assert.equal(previewDirectorySignInReset(db).sessions,1);
 });
 
@@ -55,5 +58,5 @@ test("same-count replacement invalidates a reviewed sign-in reset", t => {
   db.exec("UPDATE staff_google_attempts SET verifier='different-verifier'");
   assert.equal(commitDirectorySignInReset(db,intent),null);
   assert.equal(previewDirectorySignInReset(db).sessions,1);
-  assert.equal(previewDirectorySignInReset(db).attempts,1);
+  assert.equal(previewDirectorySignInReset(db).attempts,2);
 });

@@ -708,7 +708,8 @@ export function initializeStore(db: Store, seedDemo = true) {
       expiresAt INTEGER NOT NULL, brokerageId TEXT, guide TEXT
     );
     CREATE TABLE IF NOT EXISTS staff_sessions (
-      tokenHash TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL, expiresAt INTEGER NOT NULL
+      tokenHash TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL, expiresAt INTEGER NOT NULL,
+      method TEXT NOT NULL DEFAULT 'google'
     );
   `);
   db.transaction(() => {
@@ -1147,6 +1148,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     if (!googleAttemptColumns.some((column) => column.name === "guide")) {
       db.exec("ALTER TABLE staff_google_attempts ADD COLUMN guide TEXT");
+    }
+    if (!db.prepare("PRAGMA table_info(staff_sessions)").all().some((column) => column.name === "method")) {
+      db.exec("ALTER TABLE staff_sessions ADD COLUMN method TEXT NOT NULL DEFAULT 'google'");
     }
     if (!db.prepare("PRAGMA table_info(activity)").all().some((column) => column.name === "kind")) {
       db.exec("ALTER TABLE activity ADD COLUMN kind TEXT NOT NULL DEFAULT 'Note'");

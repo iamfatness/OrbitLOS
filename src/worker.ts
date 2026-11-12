@@ -58,10 +58,10 @@ import { readLeadInbox } from "./lib/lead-inbox-query";
 import { leadInboxUnavailable } from "./lib/lead-inbox-model";
 import { contactsUnavailable } from "./lib/contact-directory-model";
 import { loanContactPickerUnavailable } from "./lib/loan-contact-picker-model";
-import { googleSettings, handleStaffAuth, rememberedStaffWorkspace, runtimeSetting, staffLoginUrl, staffSessionHash, staffWorkspaceCookie, workspaceAccessDenied } from "./lib/staff-auth";
+import { googleSettings, handleStaffAuth, rememberedStaffWorkspace, runtimeSetting, staffLoginUrl, staffSessionHash, staffWorkspaceCookie, workspaceAccessDenied, type StaffEmailAuth } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
 import { defaultWorkspace, brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
-import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, departureRoster, history as recordBrokerageHistory, initializeBrokerages, readStaffAccess, rememberWorkspace, selectedActiveMembers } from "./lib/brokerages";
+import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, consumeStaffEmailCode, departureRoster, history as recordBrokerageHistory, initializeBrokerages, readStaffAccess, rememberWorkspace, reserveStaffEmailCode, selectedActiveMembers } from "./lib/brokerages";
 import { readPilotSupport, readPilotSupportWork, readSupportRecovery } from "./lib/pilot-support";
 import { supportChanged, supportUnavailable, supportWorkChanged, supportWorkGroup, supportWorkOffset, supportWorkPaused,
   type SupportRecoveryState, type SupportWorkGroup } from "./lib/pilot-support-model";
@@ -1435,6 +1435,8 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
 
   activateStaff(staff: StaffIdentity, emails: string[]) { return activateBrokerages(this.#store, staff, emails); }
+  reserveStaffEmail(...args: Parameters<StaffEmailAuth["reserve"]>) { return reserveStaffEmailCode(this.#store, ...args); }
+  consumeStaffEmail(...args: Parameters<StaffEmailAuth["consume"]>) { return consumeStaffEmailCode(this.#store, ...args); }
   staffSessionAccess(tokenHash: string, now: number, emails: string[]) {
     if (this.#id !== demoBrokerageId) return null;
     const access=readStaffAccess(this.#store,tokenHash,now,emails);
@@ -1918,8 +1920,17 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       }, filesEnv.DOCUMENTS);
     }
     const tokenPage = reading && ["/apply", "/co-borrower", "/referrals", "/quote", "/lender-package", "/lead-documents"].includes(url.pathname);
-    if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/logout"].includes(url.pathname)) {
-      return handleStaffAuth(request, url, google, directory, (staff) => directory.activateStaff(staff, bootstrapEmails));
+    if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/email/request", "/auth/email/verify", "/auth/logout"].includes(url.pathname)) {
+      const emailAuth: StaffEmailAuth | undefined = env.STAFF_EMAIL && env.DEMO_RATE_LIMIT ? {
+        reserve: (...args) => directory.reserveStaffEmail(...args),
+        consume: (...args) => directory.consumeStaffEmail(...args),
+        allowRequest: async () => (await env.DEMO_RATE_LIMIT.limit({ key: `staff-email:${request.headers.get("CF-Connecting-IP") ?? "local"}` })).success,
+        send: (email, code) => context.waitUntil(env.STAFF_EMAIL.send({
+          to: email, from: { email: "login@orbitlos.com", name: "OrbitLOS" }, subject: "Your OrbitLOS sign-in code",
+          text: `Your OrbitLOS sign-in code is ${code}. It expires in 10 minutes.\n\nIf you didn’t request this code, you can ignore this email.`,
+        }).catch(() => console.error("OrbitLOS staff sign-in email delivery failed"))),
+      } : undefined;
+      return handleStaffAuth(request, url, google, directory, (staff) => directory.activateStaff(staff, bootstrapEmails), emailAuth);
     }
     let staff: WorkspaceStaff | null = null;
     let brokerages: WorkspaceStaff["brokerage"][] = [];

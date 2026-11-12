@@ -1,20 +1,34 @@
+import { randomInt } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { GoogleAttempt, StaffAuthStore, StaffIdentity } from "./staff-store";
+import type { GoogleAttempt, StaffAuthStore, StaffEmailProof, StaffIdentity } from "./staff-store";
 import { brokerageIdPattern, brokerageUrl, demoBrokerageId, workspaceGuide, type Brokerage } from "./brokerage-model";
 
+import { staffEmail } from "./brokerages";
+
 const attemptCookie = "__Host-orbit-google";
+const emailCookie = "__Host-orbit-email";
+const emailSessionCookie = "__Host-orbit-email-session";
 const sessionCookie = "__Host-orbit-session";
 const workspaceCookie = "__Host-orbit-workspace";
 const attemptSeconds = 10 * 60;
 const sessionSeconds = 8 * 60 * 60;
 const opaqueToken = /^[A-Za-z0-9_-]{43}$/;
 const googleCallback = "/auth/google/callback";
+const emailRequest = "/auth/email/request";
+const emailVerify = "/auth/email/verify";
 const noStore = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex" };
 
 export interface GoogleSettings {
   clientId: string;
   clientSecret: string;
   allowedEmails: Set<string>;
+}
+
+export interface StaffEmailAuth {
+  reserve(proof: StaffEmailProof): Promise<boolean>;
+  consume(proof: StaffEmailProof): Promise<{ brokerageId: string; identity: StaffIdentity } | null>;
+  allowRequest(): Promise<boolean>;
+  send(email: string, code: string): void;
 }
 
 export function runtimeSetting(env: object, key: string) {
@@ -94,7 +108,13 @@ export function staffLoginUrl(brokerageId: string | null = null, error?: "denied
   return search.size ? `/login?${search}` : "/login";
 }
 
-function loginPage(settings: GoogleSettings, url: URL) {
+function escapeHtml(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function loginPage(settings: GoogleSettings, url: URL, emailEnabled: boolean, options: {
+  emailForm?: boolean; address?: string; problem?: string; status?: number; cookie?: string;
+} = {}) {
   const ready = configured(settings);
   const error = url.searchParams.get("error");
   const brokerageId = safeBrokerageId(url.searchParams.get("brokerage"));
@@ -102,16 +122,58 @@ function loginPage(settings: GoogleSettings, url: URL) {
   const start = new URLSearchParams();
   if (brokerageId) start.set("brokerage", brokerageId);
   if (guide) start.set("guide", guide);
-  const startUrl = start.size ? `/auth/google?${start.toString().replaceAll("&", "&amp;")}` : "/auth/google";
-  const message = !ready ? "Orbit staff sign-in is being configured."
+  const context = start.size ? `?${escapeHtml(start.toString())}` : "";
+  const emailLink = `/login?${context ? `${context.slice(1)}&amp;` : ""}method=email`;
+  const emailForm = ready && emailEnabled && (options.emailForm || url.searchParams.get("method") === "email");
+  const address = options.address ? escapeHtml(options.address) : "";
+  const enteringCode = emailForm && !!address;
+  const message = options.problem ?? (!ready ? "Orbit staff sign-in is being configured."
     : error === "denied" ? (brokerageId ? "This Google account doesn’t have access to this brokerage." : "This Google account hasn’t been approved for Orbit.")
-    : error ? "The sign-in attempt ended. Start again to continue." : "";
-  return staffEntryPage({ title: "Sign in to OrbitLOS",
-    description: brokerageId ? "Use the exact Google email your brokerage invited. Your invitation activates when you sign in." : "Use the Google account approved by your brokerage.",
-    message: error === "denied" ? `${message} Ask your brokerage admin to confirm your invitation, or choose a different Google account.` : message,
-    primary: ready ? { href: startUrl, label: error === "denied" ? "Choose another Google account" : "Continue with Google" } : undefined,
-    secondary: brokerageId ? { href: "/workspace", label: "Open my available workspace" } : undefined,
-  }, ready ? 200 : 503);
+    : error ? "The sign-in attempt ended. Start again to continue." : "");
+  const recoveryMessage = error === "denied" && !options.problem ? `${message} Ask your brokerage admin to confirm your invitation.` : message;
+  const methods = ready ? (emailForm ? `
+<form method="post" action="${enteringCode ? emailVerify : emailRequest}${context}">
+${enteringCode ? `<input type="hidden" name="email" value="${address}">
+<label for="code">Verification code</label>
+<input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus>
+<button type="submit">Verify and sign in</button>
+<div class="recovery"><button type="submit" class="text-action" formnovalidate formaction="${emailRequest}${context}">Resend code</button><a href="${emailLink}">Use a different email</a></div>` : `
+<label for="email">Email address</label>
+<input id="email" name="email" type="email" autocomplete="email" maxlength="254" required autofocus>
+<button type="submit">Send sign-in code</button>`}
+</form>
+<a class="secondary" href="/auth/google${context}">Continue with Google</a>` : `
+<a class="primary" href="/auth/google${context}">${error === "denied" ? "Choose another Google account" : "Continue with Google"}</a>
+${emailEnabled ? `<a class="secondary" href="${emailLink}">Sign in with an email code</a>` : ""}
+${brokerageId ? `<div class="recovery"><a href="/workspace">Open my available workspace</a></div>` : ""}`) : "";
+  const headers = new Headers({
+    ...noStore, "Content-Type": "text/html; charset=utf-8",
+    "Referrer-Policy": "same-origin",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  });
+  if (options.cookie) headers.append("Set-Cookie", options.cookie);
+  return new Response(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · OrbitLOS</title>
+<style>
+@font-face{font-family:Inter;src:url('/fonts/InterVariable.woff2') format('woff2');font-style:normal;font-weight:100 900;font-display:swap}
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;background:#211833;color:#2d1b4b;font:16px/1.5 Inter,'Segoe UI',system-ui,sans-serif;padding:16px}
+main{width:min(100%,440px);background:#fff;border-radius:12px;padding:clamp(20px,6vw,32px);box-shadow:0 18px 50px #120a2560}
+h1{margin:0;font-size:clamp(26px,7vw,32px);font-weight:650;letter-spacing:-.03em}p{color:#686177;margin:8px 0 16px;overflow-wrap:anywhere}
+label{display:block;font-weight:600;margin-bottom:4px}input,button{font:inherit}input{width:100%;min-height:44px;padding:8px 12px;border:1px solid #81768f;border-radius:8px;color:#252235}
+.primary,.secondary,button{display:block;width:100%;min-height:44px;text-align:center;text-decoration:none;border:1px solid transparent;border-radius:8px;font-weight:600;padding:9px 12px;margin-top:12px;cursor:pointer}
+.primary,button{background:#6749d3;color:white}.primary:hover,button:hover{background:#5539b9}
+.secondary{border-color:#81768f;color:#2d1b4b}.secondary:hover{background:#f4efff}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #6749d3;outline-offset:3px}
+.status{border-radius:8px;background:#f4efff;padding:8px 12px;color:#2d1b4b}
+.address{display:block;margin-bottom:8px;color:#2d1b4b}
+.recovery{display:flex;flex-wrap:wrap;gap:0 16px;align-items:center;margin-top:4px}
+.recovery a,.text-action{display:inline-flex;align-items:center;width:auto;min-height:44px;margin:0;padding:0;color:#5134ad;background:transparent;border:0;text-decoration:underline;font-size:14px;font-weight:600}
+.text-action:hover{background:transparent;color:#2d1b4b}
+</style></head><body><main><h1>${enteringCode ? "Check your email" : "Sign in to OrbitLOS"}</h1>
+<p>${enteringCode ? `<strong class="address">${address}</strong>If this address has Orbit access, a code will arrive shortly. It expires in 10 minutes. Wait a minute before resending.`
+    : emailForm ? "Enter the email address your brokerage invited." : "Use the account approved by your brokerage."}</p>
+${recoveryMessage ? `<p class="status" role="alert">${recoveryMessage}</p>` : ""}
+${methods}</main></body></html>`, { status: options.status ?? (ready ? 200 : 503), headers });
 }
 
 export function workspaceAccessDenied(brokerageId: string | null, guide?: ReturnType<typeof workspaceGuide>, remembered = false) {
@@ -196,6 +258,28 @@ export async function googleIdentity(token: string, nonce: string, settings: Goo
 
 type Authorize = (staff: StaffIdentity) => Promise<Brokerage[]>;
 
+async function clearStaffSessions(request: Request, store: StaffAuthStore) {
+  for (const tokenHash of await staffSessionHashes(request)) await store.removeStaffSession(tokenHash);
+}
+
+async function staffSessionHashes(request: Request) {
+  const google = readCookie(request, sessionCookie);
+  const email = readCookie(request, emailSessionCookie);
+  // A Worker rolled back to Google-only sign-in cannot resolve email sessions.
+  return Promise.all([...(google ? [hash(google)] : []), ...(email ? [hash(`email-session:${email}`)] : [])]);
+}
+
+async function signIn(request: Request, store: StaffAuthStore, identity: StaffIdentity, location: string, method: "google" | "email") {
+  const session = randomToken();
+  const now = Date.now();
+  await clearStaffSessions(request, store);
+  const google = method === "google";
+  await store.createStaffSession(await hash(google ? session : `email-session:${session}`), identity, now + sessionSeconds * 1000, now, method);
+  return redirect(location, [cookie(attemptCookie, "", 0), cookie(emailCookie, "", 0),
+    cookie(google ? emailSessionCookie : sessionCookie, "", 0), cookie(google ? sessionCookie : emailSessionCookie, session, sessionSeconds)]);
+}
+
+
 async function completeGoogle(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: Authorize) {
   const cleared = cookie(attemptCookie, "", 0);
   const restart = (brokerageId: string | null = null, guide?: ReturnType<typeof workspaceGuide>) =>
@@ -226,34 +310,87 @@ async function completeGoogle(request: Request, url: URL, settings: GoogleSettin
     if (!identity || !brokerages.length || (brokerageId && !brokerages.some((item) => item.id === brokerageId))) {
       return redirect(staffLoginUrl(brokerageId, "denied", guide), [cleared]);
     }
-    const session = randomToken();
-    const now = Date.now();
-    const previous = readCookie(request, sessionCookie);
-    if (previous) await store.removeStaffSession(await hash(previous));
-    await store.createStaffSession(await hash(session), identity, now + sessionSeconds * 1000, now);
-    return redirect(brokerageId || guide ? brokerageUrl(brokerageId ?? demoBrokerageId, guide) : "/workspace", [cleared, cookie(sessionCookie, session, sessionSeconds)]);
+    return await signIn(request, store, identity, brokerageId || guide ? brokerageUrl(brokerageId ?? demoBrokerageId, guide) : "/workspace", "google");
   } catch {
     return restart(brokerageId, guide);
   }
 }
 
-export async function staffSessionHash(request: Request, settings: GoogleSettings): Promise<string | null> {
-  const token = readCookie(request, sessionCookie);
-  if (!token || !configured(settings)) return null;
-  return hash(token);
+async function readEmailForm(request: Request) {
+  if (request.headers.get("Content-Type")?.split(";")[0] !== "application/x-www-form-urlencoded") return null;
+  const reader = request.body?.getReader();
+  if (!reader) return null;
+  const decoder = new TextDecoder();
+  let body = "";
+  let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return new URLSearchParams(body + decoder.decode());
+      bytes += value.byteLength;
+      if (bytes > 4096) { await reader.cancel(); return null; }
+      body += decoder.decode(value, { stream: true });
+    }
+  } finally { reader.releaseLock(); }
 }
 
-export async function handleStaffAuth(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: Authorize) {
-  if (url.pathname === "/login" && request.method === "GET") return loginPage(settings, url);
+async function emailSignIn(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, emailAuth: StaffEmailAuth) {
+  if (request.headers.get("Origin") !== url.origin) return new Response("Open the sign-in form on Orbit.", { status: 403, headers: noStore });
+  const form = await readEmailForm(request);
+  const address = staffEmail.safeParse(form?.get("email"));
+  if (!address.success) return loginPage(settings, url, true, { emailForm: true, problem: "Enter a valid email address.", status: 400 });
+
+  const brokerageId = safeBrokerageId(url.searchParams.get("brokerage"));
+  const browser = readCookie(request, emailCookie);
+  const now = Date.now();
+  if (url.pathname === emailRequest) {
+    if (!await emailAuth.allowRequest()) return loginPage(settings, url, true, {
+      emailForm: true, address: browser ? address.data : undefined, problem: "Too many requests. Wait a minute and try again.", status: 429,
+    });
+    const token = browser ?? randomToken();
+    const code = String(randomInt(1_000_000)).padStart(6, "0");
+    // The browser token stays out of storage, so a stored digest cannot be searched for all six-digit codes.
+    const [browserHash, codeHash] = await Promise.all([hash(token), hash(`${token}:${code}`)]);
+    if (await emailAuth.reserve({ email: address.data, brokerageId, browserHash, codeHash, now })) emailAuth.send(address.data, code);
+    return loginPage(settings, url, true, { emailForm: true, address: address.data, cookie: cookie(emailCookie, token, attemptSeconds) });
+  }
+
+  const code = form?.get("code")?.trim() ?? "";
+  if (browser && /^[0-9]{6}$/.test(code)) {
+    const [browserHash, codeHash] = await Promise.all([hash(browser), hash(`${browser}:${code}`)]);
+    const result = await emailAuth.consume({ email: address.data, brokerageId, browserHash, codeHash, now });
+    if (result) {
+      const guide = workspaceGuide(url.searchParams.get("guide"));
+      const destination = brokerageId || guide ? brokerageUrl(result.brokerageId, guide) : "/workspace";
+      return signIn(request, store, result.identity, destination, "email");
+    }
+  }
+  return loginPage(settings, url, true, {
+    emailForm: true, address: address.data, problem: "This code couldn’t be verified. Check the latest code in your inbox or request a new one.", status: 400,
+  });
+}
+
+export async function staffSessionHash(request: Request, settings: GoogleSettings): Promise<string | null> {
+  if (!configured(settings)) return null;
+  return (await staffSessionHashes(request))[0] ?? null;
+}
+
+export async function handleStaffAuth(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: Authorize, emailAuth?: StaffEmailAuth) {
+  if (url.pathname === "/login" && request.method === "GET") return loginPage(settings, url, !!emailAuth);
   if (!configured(settings)) return redirect("/login");
+  if (url.pathname === emailRequest || url.pathname === emailVerify) {
+    if (request.method !== "POST") return new Response("Method not allowed.", { status: 405, headers: { ...noStore, Allow: "POST" } });
+    if (!emailAuth) return redirect(staffLoginUrl(safeBrokerageId(url.searchParams.get("brokerage")), undefined, workspaceGuide(url.searchParams.get("guide"))));
+    try { return await emailSignIn(request, url, settings, store, emailAuth); }
+    catch { return loginPage(settings, url, true, { emailForm: true, problem: "Email sign-in is temporarily unavailable. Try again in a minute.", status: 503 }); }
+  }
   try {
     if (url.pathname === "/auth/google" && request.method === "GET") return await beginGoogle(settings, url, store);
     if (url.pathname === googleCallback && request.method === "GET") return await completeGoogle(request, url, settings, store, authorize);
     if (url.pathname === "/auth/logout" && request.method === "POST") {
       if (request.headers.get("Origin") !== url.origin) return new Response("This action must come from Orbit.", { status: 403, headers: noStore });
-      const token = readCookie(request, sessionCookie);
-      if (token) await store.removeStaffSession(await hash(token));
-      return redirect("/login", [cookie(sessionCookie, "", 0)]);
+      await clearStaffSessions(request, store);
+      return redirect("/login", [cookie(sessionCookie, "", 0), cookie(emailSessionCookie, "", 0), cookie(emailCookie, "", 0)]);
     }
   } catch {
     if (url.pathname === "/auth/logout") return new Response("Orbit could not sign out. Try again.", { status: 503, headers: noStore });

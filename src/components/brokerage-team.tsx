@@ -157,7 +157,9 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   }
 
   async function copyInvitation(email: string) {
-    const url = new URL(brokerageUrl(staff.brokerage.id), window.location.origin).href;
+    const signIn = new URL("/login", window.location.origin);
+    signIn.searchParams.set("brokerage", staff.brokerage.id);
+    const url = signIn.href;
     try {
       await navigator.clipboard.writeText(url);
       setInvitationCopy({ email, url, copied: true });
@@ -343,22 +345,22 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       <section className="pipeline relationship-panel team-access-panel" aria-label="Staff access">
         <div className="section-heading team-access-heading"><h2>Staff access</h2>
           <Button size="sm" className="min-h-11" variant="outline" aria-disabled={busy} onClick={() => { if (!busy) void refreshAccess(); }}>Refresh staff access</Button></div>
-        <p className="muted">Invite staff using their Google email. Share the sign-in link after saving.</p>
-        <form className="brokerage-form" onSubmit={(event) => {
+        <p className="muted">Invite staff using their existing email address. Share the sign-in link after saving.</p>
+        <form className="brokerage-form staff-invite-form" onSubmit={(event) => {
           event.preventDefault();
           const form = event.currentTarget;
           const data = new FormData(form);
           void change({ type: "invite", email: data.get("email"), role: data.get("role") }, () => form.reset());
         }}>
-          <label className="field">Google email<input name="email" type="email" required maxLength={254} /></label>
+          <label className="field staff-invite-address">Email address<input name="email" type="email" autoComplete="off" required maxLength={254} /></label>
           <label className="field">Invite role<select name="role" defaultValue="LO" aria-describedby="invite-role-help">{brokerageRoles.map((role) => <option key={role}>{role}</option>)}</select></label>
-          <Button type="submit" size="sm" disabled={busy}>Save invitation</Button>
+          <Button type="submit" size="sm" className="min-h-10" disabled={busy}>Save invitation</Button>
         </form>
         <p id="invite-role-help" className="muted">LOs start in Today. Processors start in Processing with their assigned files. Admins start in the brokerage overview and can manage staff access.</p>
         {invitation && !settings.members.some((member) => member.email === invitation.email && member.status !== "Invited") &&
-          <section className="document-item record-form" aria-label="Saved invitation">
+          <section className="document-item record-form staff-invite-feedback" aria-label="Saved invitation">
             <p ref={inviteFeedback} tabIndex={-1} role="status"><strong>Invitation saved</strong> · {invitation.email} · {invitation.role}</p>
-            <p className="muted">Access activates when they sign in with this Google account.</p>
+            <p className="muted">Access activates when they sign in with the invited email address.</p>
             {invitationLink(invitation.email, true)}
           </section>}
         <ul className="document-list">{settings.members.map((member) => <li className="document-item" key={member.email}>
