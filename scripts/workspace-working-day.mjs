@@ -1781,6 +1781,13 @@ try {
     const occurrence=await suite(owner,"obligations",{operation:"generate",entityId:entity.id,id:obligationId,expectedRevision:1,requestId:randomUUID(),period:"2026-11"});
     assert.equal(occurrence.occurrence.status,"Applicability review gap");
     assert.equal((await suite(owner,"obligations",{operation:"occurrences",entityId:entity.id,id:obligationId})).items.length,1);
+    const planPeriod={operation:"planWork",entityId:entity.id,id:obligationId,period:"2026-11",requestId:randomUUID()};
+    const planned=await suite(owner,"obligations",planPeriod);
+    assert.equal(planned.kind,"obligationWorkPlanned");
+    assert.equal((await suite(owner,"obligations",{...planPeriod,requestId:randomUUID()})).workId,planned.workId);
+    const plannedMonth=await program(owner,{operation:"month",entityId:entity.id,month:planned.month});
+    assert.equal(plannedMonth.items.filter(i=>i.id===planned.workId).length,1);
+    assert.match(plannedMonth.items.find(i=>i.id===planned.workId).instructions,/Applicability review gap/);
     const draftPolicy={operation:"createVersion",requestId:randomUUID(),contentId:randomUUID(),previousVersionId:null,kind:"Policy",title:"Fictional evidence handling policy",
       body:"Fictional exercise only. Retain evidence and escalate missing facts.",sourceReferences:"Synthetic rehearsal; no real legal review",questions:[],passPercent:100};
     const policy=await suite(owner,"learning",draftPolicy);

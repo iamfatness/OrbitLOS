@@ -69,12 +69,14 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
      const r=await accessComplianceCases({type:"obligations",input:{...input,requestId:retry.current.id}},brokerageId);
      if(!alive.current)return;
      if("error" in r)throw new Error(r.error);
-     const result=z.object({error:z.string().optional(),kind:z.string().optional()}).parse(r.kind==="obligations"?r.result:{});
+     const result=z.object({error:z.string().optional(),kind:z.string().optional(),month:z.string().optional()}).parse(r.kind==="obligations"?r.result:{});
      if(result.error)throw new Error(result.error);
-     if(!["obligationSaved","obligationOccurrence"].includes(result.kind??""))throw new Error("Save could not be confirmed. Retry the unchanged form.");
+     if(!["obligationSaved","obligationOccurrence","obligationWorkPlanned"].includes(result.kind??""))throw new Error("Save could not be confirmed. Retry the unchanged form.");
      retry.current=undefined;
      if(close)back();
-     setNotice(close?"Saved a new obligation version.":"Period recorded. Existing period evidence is preserved.");
+     const message = result.kind === "obligationWorkPlanned" ? `Review work is in Monthly review for ${result.month}.` :
+       close ? "Saved a new obligation version." : "Period recorded. Existing period evidence is preserved.";
+     setNotice(message);
      if(!close)refresh(v=>v+1);
    }catch(e){if(alive.current)setError(e instanceof Error?e.message:"Save could not be confirmed. Retry the unchanged form.");}
    finally{if(alive.current)setBusy(false);}
@@ -116,7 +118,19 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
        <div className="loan-application-actions"><Button type="submit">{busy?"Saving…":"Save new version"}</Button><Button type="button" variant="outline" onClick={back}>Back to obligations</Button></div>
      </fieldset></form>
      {selected&&<><form className="record-form" onSubmit={e=>{e.preventDefault();void mutate({operation:"generate",entityId,id:selected.id,expectedRevision:selected.revision,period:text(new FormData(e.currentTarget),"period")},false);}}><h3>Record an internal period</h3><p>Uses saved version {selected.revision}; unsaved edits above are not included. Choose January for annual work or January, April, July or October for quarterly work.</p><label className="field">Period first month<input type="month" name="period" required min="2000-01" max="2099-12"/></label><Button type="submit" disabled={busy}>Record period</Button></form>
-       <h3>Period history</h3>{!history?(error?null:<p role="status">Loading history…</p>):<><ul className="document-list">{history.items.map(p=><li className="document-item" key={p.period}><div><strong>{p.period} · Version {p.version}</strong><p>{p.status}</p><p>Internal target: {p.internalTarget} · Recorded by {p.createdBy}</p></div></li>)}</ul>{!history.items.length&&<p>No periods recorded.</p>}<div className="loan-application-actions"><Button variant="outline" disabled={!historyOffset||busy} onClick={()=>{setHistory(undefined);setHistoryOffset(v=>Math.max(0,v-50));}}>Newer periods</Button><Button variant="outline" disabled={!history.more||busy} onClick={()=>{setHistory(undefined);setHistoryOffset(v=>v+50);}}>Older periods</Button></div></>}
+       <h3>Period history</h3>
+       {!history ? (error ? null : <p role="status">Loading history…</p>) : <>
+         <ul className="document-list">{history.items.map(period => <li className="document-item" key={period.period}>
+           <div><strong>{period.period} · Version {period.version}</strong><p>{period.status}</p>
+             <p>Internal target: {period.internalTarget} · Recorded by {period.createdBy}</p></div>
+           <Button variant="outline" disabled={busy} onClick={() => void mutate({operation:"planWork",entityId,id:selected.id,period:period.period},false)}>Plan review work</Button>
+         </li>)}</ul>
+         {!history.items.length && <p>No periods recorded.</p>}
+         <div className="loan-application-actions">
+           <Button variant="outline" disabled={!historyOffset||busy} onClick={() => {setHistory(undefined);setHistoryOffset(v=>Math.max(0,v-50));}}>Newer periods</Button>
+           <Button variant="outline" disabled={!history.more||busy} onClick={() => {setHistory(undefined);setHistoryOffset(v=>v+50);}}>Older periods</Button>
+         </div>
+       </>}
      </>}
    </>}
  </section>;

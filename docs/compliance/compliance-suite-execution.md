@@ -63,6 +63,12 @@ The suite remains incomplete. Statutory cadence validation, reminders, reviewed 
 
 ### User workflow follow-up
 
+### Obligation-to-work follow-up
+
+Period history now offers Plan review work. It creates exactly one monthly review item from the immutable occurrence basis, including applicability gaps, source, original rule version, owner and internal target. Retries and separate requests return the same work item. Later obligation edits do not change that basis. Unavailable original owners are rejected with instructions to review and manually reassign the work; exclusions remain reviewable and are never silently completed. The new `compliance_obligation_work` linkage is transactionally audited and restore-protected. This is explicit internal planning, not an automatic statutory scheduler or reminder service.
+
+Validation: 546 tests, typecheck, lint, production-target build and the expanded authenticated built-Worker rehearsal passed. Source-only design scan ran; visual acceptance remains pending with the release agent. The release agent confirmed integration of the earlier three commits is next after its current offboarding release, with separate admin/staff browser acceptance before promotion. Current live reporting includes quarterly readiness; separate FV7 workpaper commits are not confirmed in the published source.
+
 Local Obligations now supports entity selection, paginated internal applicability review, version creation, explicit period generation and history retaining the original rule version. Local Training & policies supports draft policy/course authoring, recorded user/lawyer review evidence, internal publication and assignment. The daily compliance work panel exposes My training & policies, including current employees' own assignments, acknowledgments and assessments. Admins can also retrieve their own assignments without receiving the entire library in that view.
 
 The course editor currently creates two-answer questions (up to 20). Version replacement remains a backend capability without a dedicated editor. Admins can inspect paginated assignment completion and revoke assignments with a reason; completed evidence is retained after revocation. No production content or lawyer review was fabricated; rehearsal attestations are explicitly synthetic. No automatic notification or filing is performed.

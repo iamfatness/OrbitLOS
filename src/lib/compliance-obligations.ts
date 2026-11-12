@@ -1,4 +1,5 @@
 import type { Store } from "./store";
+import { complianceProgramWork } from "./compliance-program";
 import type { WorkspaceStaff } from "./staff-store";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import { obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest } from "./compliance-obligations-model";
@@ -17,7 +18,11 @@ export function initializeComplianceObligations(db: Store) {
   CREATE TABLE IF NOT EXISTS compliance_obligation_events (
     brokerageId TEXT NOT NULL, requestId TEXT NOT NULL, entityId TEXT NOT NULL, actor TEXT NOT NULL,
     at TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL,
-    PRIMARY KEY(brokerageId,requestId));`);
+    PRIMARY KEY(brokerageId,requestId));
+  CREATE TABLE IF NOT EXISTS compliance_obligation_work (
+    brokerageId TEXT NOT NULL,entityId TEXT NOT NULL,obligationId TEXT NOT NULL,period TEXT NOT NULL,
+    workId TEXT NOT NULL,month TEXT NOT NULL,createdAt TEXT NOT NULL,
+    PRIMARY KEY(brokerageId,entityId,obligationId,period));`);
 }
 
 /** Call ONLY inside the existing authenticated transaction, after current roster lookup.
@@ -54,6 +59,32 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   }
   const replay = db.prepare("SELECT actor,request,result FROM compliance_obligation_events WHERE brokerageId=? AND requestId=?").get(tenant, data.requestId);
   if (replay) return replay.actor === staff.email && replay.request === JSON.stringify(data) ? JSON.parse(String(replay.result)) : changed;
+  if (data.operation === "planWork") {
+    const occurrence = db.prepare("SELECT * FROM compliance_obligation_occurrences WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?")
+      .get(tenant,data.entityId,data.id,data.period);
+    if (!occurrence) return unavailable;
+    const linked = db.prepare("SELECT workId,month FROM compliance_obligation_work WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?")
+      .get(tenant,data.entityId,data.id,data.period);
+    const snapshot = JSON.parse(String(occurrence.snapshot)) as {draft:ObligationDraft;ownerRevision:number;revision:number};
+    const owner = active(snapshot.draft.ownerEmail);
+    if (!linked && (!owner || (owner.accessRevision ?? 0) !== snapshot.ownerRevision))
+      return {error:"The period's original owner is unavailable. Review the period and assign manual monthly work to a current admin."};
+    const month = String(occurrence.internalTarget).slice(0,7);
+    let workId = linked ? String(linked.workId) : "";
+    if (!linked) {
+      const requestId = crypto.randomUUID();
+      const result = complianceProgramWork(db,{operation:"schedule",requestId,entityId:data.entityId,month,
+        title:snapshot.draft.title,category:"Management review",ownerEmail:snapshot.draft.ownerEmail,
+        internalTarget:String(occurrence.internalTarget),instructions:
+          `Period ${data.period}; obligation version ${snapshot.revision}. ${String(occurrence.status)}. Review applicability, evidence and next steps. Source: ${snapshot.draft.sourceUrl}`.slice(0,1500)},staff,roster,now);
+      if ("error" in result) return result;
+      workId=String(db.prepare("SELECT id FROM compliance_program_events WHERE brokerageId=? AND requestId=?").get(tenant,requestId)!.id);
+      db.prepare("INSERT INTO compliance_obligation_work VALUES (?,?,?,?,?,?,?)").run(tenant,data.entityId,data.id,data.period,workId,month,now);
+    }
+    const result={kind:"obligationWorkPlanned",workId,month:linked?String(linked.month):month,reused:Boolean(linked),notice:obligationPlanningNotice};
+    db.prepare("INSERT INTO compliance_obligation_events VALUES (?,?,?,?,?,?,?)").run(tenant,data.requestId,data.entityId,staff.email,now,JSON.stringify(data),JSON.stringify(result));
+    return result;
+  }
   const latest = db.prepare("SELECT * FROM compliance_obligation_versions WHERE brokerageId=? AND entityId=? AND id=? ORDER BY revision DESC LIMIT 1")
     .get(tenant, data.entityId, data.id);
   if ((latest?.revision ?? 0) !== data.expectedRevision) return changed;
