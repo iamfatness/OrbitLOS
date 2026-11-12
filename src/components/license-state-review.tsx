@@ -37,27 +37,29 @@ export function LeadLicenseStateReview({ brokerageId }: { brokerageId: string })
     finally { setChecking(false); }
   }
 
-  return <details className="document-form">
+  return <details className="document-form license-state-review">
     <summary>Check state licenses</summary>
     <div className="record-form">
       <p className="muted">Choose the property state to review company license records before assigning the lead.</p>
-      <form className="loan-application-actions licensing-controls" onSubmit={check}>
-        <label className="field">Property state<select required value={jurisdiction} disabled={checking} onChange={event => {
-          setJurisdiction(event.target.value);
-          setResult(undefined);
-          setError("");
-        }}>
-          <option value="">Select a state</option>
-          {licenseJurisdictions.map(code => <option key={code} value={code}>{code} · {licenseStateName(code)}</option>)}
-        </select></label>
-        <Button type="submit" size="sm" className="min-h-11" variant="outline" aria-disabled={checking || !jurisdiction}>
-          {checking ? "Checking…" : result ? "Refresh check" : "Check records"}
-        </Button>
+      <form onSubmit={check}>
+        <div className="loan-application-actions licensing-controls license-state-controls">
+          <label className="field">Property state<select required value={jurisdiction} disabled={checking} onChange={event => {
+            setJurisdiction(event.target.value);
+            setResult(undefined);
+            setError("");
+          }}>
+            <option value="">Select a state</option>
+            {licenseJurisdictions.map(code => <option key={code} value={code}>{code} · {licenseStateName(code)}</option>)}
+          </select></label>
+          <Button type="submit" size="sm" className="min-h-10" variant="outline" aria-disabled={checking || !jurisdiction}>
+            {checking ? "Checking…" : result ? "Refresh check" : "Check records"}
+          </Button>
+        </div>
       </form>
       {checking && <p className="muted" role="status">Checking license records…</p>}
       {error && <p role="alert">{error}</p>}
-      {result && <div className="work-queue" aria-label="Company license check" role="status">
-        <h4>{licenseStateName(result.jurisdiction)} company records</h4>
+      {result && <div className="work-queue license-state-result" aria-label="Company license check" role="status">
+        <h4 className="font-semibold">{licenseStateName(result.jurisdiction)} company records</h4>
         {result.entities.length ? <ul>{result.entities.map(entity => <li key={entity.id}>
           <strong>{entity.name}</strong> · <LicenseRecordStatus counts={entity.company} />
         </li>)}</ul> : <p>No legal entities on file. Add one in Compliance → Licensing.</p>}

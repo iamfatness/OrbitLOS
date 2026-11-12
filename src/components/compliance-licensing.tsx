@@ -272,8 +272,8 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
       {!filter && !renewalOnly && <p className="muted">{currentCompanyStates.length
         ? `Current company records on file in ${currentCompanyStates.join(", ")}.`
         : "No current company license records on file for this entity."}</p>}
-      {filter && !renewalOnly && current && <section className="work-queue" aria-label={`${stateName(filter)} license records`}>
-        <h3>{stateName(filter)} license records</h3>
+      {filter && !renewalOnly && current && <section className="work-queue license-state-result" aria-label={`${stateName(filter)} license records`}>
+        <h3 className="font-semibold">{stateName(filter)} license records</h3>
         {licenseHolderKinds.map(kind => <p key={kind}><strong>{kind}</strong> · <LicenseRecordStatus counts={countLicenseRecords(
           licenses.filter(license => license.jurisdiction === filter && license.holder.kind === kind), current.asOf)} /></p>)}
       </section>}
