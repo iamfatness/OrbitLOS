@@ -1315,3 +1315,7 @@ Worker `1f6fb9e7-dd3d-43ed-af10-ac7a6a496f1c` serves app `52d4a57a0333`. The bro
 ### Guided FV7 evidence entry
 
 Worker `9cdbc694-af00-4c97-bb3d-f6c8f93a4b7f` serves app `9b6f744d1bcd`. A fictional owner selected review v1, entered reviewed prior balances for Michigan and Ohio, preserved inputs when switching state and visiting loan facts, corrected a missing dated change, and saved and reopened the reconciled result. A separate scope removal produced the correct signed adjustment while preserving the earlier workpaper. The public Demo and sign-in passed staged and live. No filing or provider action occurred.
+
+### Shared processor fee terms
+
+Worker `a4e25303-280f-4cf2-bcb7-44f35de041a9` serves app `c2db7db04b7a`. An admin and a shared processor used two fictional brokerages. A concurrent change rejected a stale draft and preserved it for review. The processor declined one revision, accepted another and viewed the prior exact amount. Removing the processor on the first loan ended access there and kept the second assignment and its fee available. The live Demo and signed-out routes passed. The rehearsal created no payments and called no providers.

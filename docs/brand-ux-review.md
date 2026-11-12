@@ -581,3 +581,7 @@ Reused Orbit’s native disclosure, result, history list and download patterns. 
 ### Guided FV7 evidence entry
 
 Reused Orbit’s native disclosures and labeled numeric, selection and evidence fields. Impeccable Polish informed keeping one state or loan in view at a time. UI UX Pro Max form guidance informed focus on the first incomplete group and explicit save feedback. The populated state, selected loan, amount changes and saved workpaper were inspected on desktop, portrait and phone.
+
+### Shared processor fee terms
+
+Reused Orbit’s native disclosure, evidence history and draft recovery patterns. Impeccable Polish informed the separation between the agreed fee and latest offer. UI UX Pro Max feedback guidance informed focus after stale-save rejection. The final form wraps long agreement references. Populated admin, assigned processor and history states were inspected at desktop, portrait and phone widths.
