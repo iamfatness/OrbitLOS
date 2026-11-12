@@ -1,26 +1,22 @@
 import { demoBrokerageId } from "./brokerage-model";
 import { easternDate } from "./client-retention";
+import { feeEstimateWork, feeProperty } from "./fee-provider";
+import type { FeeProviderResponse } from "./fee-provider-model";
 import { feeTemplateChanged, feeTemplateConfig, feeTemplateRequest, feeTemplatesUnavailable,
   type FeeTemplate, type FeeTemplatePage } from "./fee-template-model";
 import { pricingInputError } from "./income-review-freshness";
 import type { PricingScenario } from "./pricing-model";
-import { propertyStateCodes, propertyStateName } from "./property-state";
-import { feeAllocationIssue, feeKeys, type FeePropertyLocation, type FeeTemplateOrigin } from "./quote-worksheet";
+import { propertyStateName } from "./property-state";
+import { feeAllocationIssue, feeKeys, type FeeTemplateOrigin } from "./quote-worksheet";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
-import { zipCityState } from "./zip-city-state";
 
 const activeLimit = 24;
 const pageSize = 30;
 const templateState = "coalesce(json_extract(config, '$.state'), '')";
 const compatibleFees = `archived = 0 AND effectiveOn <= ? AND (purpose = 'Any loan purpose' OR purpose = ?)
   AND (zip = '' OR zip = ?) AND ${templateState} IN ('', ?)`;
-
-function feeProperty(zip: string): FeePropertyLocation {
-  const state = zipCityState(zip)?.state;
-  return state && propertyStateCodes.includes(state) ? { zip, state } : { zip };
-}
 
 function readTemplate(row: Record<string, SqlValue>): FeeTemplate {
   return { ...feeTemplateConfig.parse(JSON.parse(String(row.config))), id: String(row.id),
@@ -66,7 +62,7 @@ function canActivate(db: Store, id: string, title: string) {
 }
 
 export function feeTemplateWork(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
-  now = new Date()): FeeTemplatePage | { error: string } {
+  now = new Date()): FeeTemplatePage | FeeProviderResponse | { error: string } {
   if (brokerageId !== (staff?.brokerage.id ?? demoBrokerageId) || staff?.brokerage.role === "Processor") {
     return { error: feeTemplatesUnavailable };
   }
@@ -76,6 +72,7 @@ export function feeTemplateWork(db: Store, input: unknown, staff: WorkspaceStaff
     return { error: feeError?.message ?? "Enter a title, source, effective date, and at least one valid fee. Use five digits for a ZIP restriction." };
   }
   const data = parsed.data;
+  if (data.type === "requestFeeEstimate" || data.type === "recentFeeEstimate") return feeEstimateWork(db, data, staff, now.toISOString());
   const asOf = easternDate(now);
   if (data.type === "forQuote") {
     if (staff && !loanAccess(db, staff, data.loanId)) return { error: feeTemplatesUnavailable };

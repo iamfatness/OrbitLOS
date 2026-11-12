@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import { addApplicationActivity } from "./applications";
 import { easternDate } from "./client-retention";
+import { savedFeeProviderOrigin } from "./fee-provider";
 import { feeTemplateChanged } from "./fee-template-model";
 import { feeOriginForQuote } from "./fee-templates";
 import { pricingInputError } from "./income-review-freshness";
@@ -38,8 +39,13 @@ export function saveFeeWorksheet(db: Store, data: SaveFeeWorksheet, now: string)
     return { error: option.scenario.purpose === "Purchase" ? "Enter a purchase price at or above the loan amount." : "Enter estimated refinance payoffs, including zero if applicable." };
   }
   const before = quoteFeeWorksheet(db, loanId, runId, offerId);
+  const estimateId = data.type === "saveAllocatedFeeWorksheet" ? data.estimateId : undefined;
+  if (template && estimateId) return { error: "Choose one source for the fee worksheet." };
   let origin = template === null ? undefined : before?.origin;
-  if (template && (template.id !== origin?.id || template.revision !== origin.revision)) {
+  if (estimateId) {
+    origin = savedFeeProviderOrigin(db, estimateId, runId, offerId);
+    if (!origin) return { error: "Request an available fee estimate for this pricing option." };
+  } else if (template && (template.id !== origin?.id || template.revision !== origin.revision || origin.providerEstimate)) {
     const resolved = feeOriginForQuote(db, template, option.scenario, easternDate(new Date(now)));
     if (!resolved) return { error: feeTemplateChanged };
     if ("error" in resolved) return resolved;
@@ -47,7 +53,7 @@ export function saveFeeWorksheet(db: Store, data: SaveFeeWorksheet, now: string)
   }
   const basisIssue = feeBasisIssue(origin, worksheet.purchasePrice);
   if (basisIssue) return { error: basisIssue };
-  if (data.type === "saveFeeWorksheet" && (before?.inputs.allocations || worksheet.allocations || origin?.allocations)) {
+  if (data.type === "saveFeeWorksheet" && (before?.origin?.providerEstimate || before?.inputs.allocations || worksheet.allocations || origin?.allocations)) {
     return { error: "Refresh pricing before editing payer and payee details on this worksheet." };
   }
   if (JSON.stringify(before?.inputs) === JSON.stringify(worksheet) && JSON.stringify(before?.origin) === JSON.stringify(origin)) {
@@ -58,7 +64,9 @@ export function saveFeeWorksheet(db: Store, data: SaveFeeWorksheet, now: string)
     ON CONFLICT (runId, offerId) DO UPDATE SET inputs = excluded.inputs, origin = excluded.origin, revision = revision + 1`)
     .run(runId, offerId, JSON.stringify(worksheet), origin ? JSON.stringify(origin) : null);
   if (origin && (origin.id !== before?.origin?.id || origin.revision !== before.origin.revision)) {
-    addApplicationActivity(db, loanId, `Saved sample fees from ${origin.title} · Version ${origin.revision} · Effective ${origin.effectiveOn}`, now);
+    const source = origin.providerEstimate ? `Saved simulated fee estimate from ${origin.title}`
+      : `Saved sample fees from ${origin.title} · Version ${origin.revision} · Effective ${origin.effectiveOn}`;
+    addApplicationActivity(db, loanId, source, now);
   }
   return { message: "Sample fee worksheet saved.", revision: feeRevision + 1 };
 }

@@ -7,7 +7,8 @@ import { compareQuoteCosts } from "@/lib/quote-cost-comparison";
 import { allocatedFeeLine, blankFees, estimateFees, feeAllocationIssue, feeAllocationLabel, feeAllocations, feeBasisIssue, feeCalculationLabel, feeContributionKeys, feeLocationLabel,
   feeContributionLabels, feeKeys, feeLabels, missingFees,
   type FeeInputs, type FeeKey, type FeeTemplateOrigin, type FeeWorksheet, type QuoteOption, type QuotePresentation } from "@/lib/quote-worksheet";
-import { FeeTemplatePicker } from "./fee-templates";
+import { dateTime } from "@/lib/utils";
+import { FeeProviderEstimatePicker, FeeTemplatePicker } from "./fee-templates";
 import { Button } from "./ui/button";
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -34,6 +35,7 @@ function allocationDraft(allocations: FeeInputs["allocations"]): AllocationDraft
 }
 
 function FeeSource({ origin, inputs }: { origin: FeeTemplateOrigin; inputs: Pick<FeeInputs, "fees" | "allocations"> }) {
+  const provider = origin.providerEstimate;
   const overrides = feeKeys.filter((key) => {
     const current = inputs.allocations?.[key];
     const original = origin.allocations?.[key];
@@ -41,8 +43,9 @@ function FeeSource({ origin, inputs }: { origin: FeeTemplateOrigin; inputs: Pick
       feeContributionKeys.some((party) => (current?.[party] ?? 0) !== (original?.[party] ?? 0));
   });
   return <div className="document-item">
-    <p className="fee-template-selection"><strong>{origin.title} · Version {origin.revision}</strong></p>
-    <p className="muted">{origin.source} · Effective {origin.effectiveOn} · {feeLocationLabel(origin)}</p>
+    <p className="fee-template-selection"><strong>{origin.title}{provider ? " · Simulated" : ` · Version ${origin.revision}`}</strong></p>
+    {provider ? <p className="muted fee-template-selection">Reference {provider.reference} · {dateTime(provider.receivedAt)} ET</p>
+      : <p className="muted">{origin.source} · Effective {origin.effectiveOn} · {feeLocationLabel(origin)}</p>}
     {origin.property && <p className="muted">Priced property · {origin.property.state ? feeLocationLabel(origin.property) : `ZIP ${origin.property.zip}`}</p>}
     {feeKeys.map((key) => {
       const calculation = origin.calculations?.[key];
@@ -52,9 +55,9 @@ function FeeSource({ origin, inputs }: { origin: FeeTemplateOrigin; inputs: Pick
   </div>;
 }
 
-export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId, current, focused, stageBlocked }: {
+export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId, current, focused, stageBlocked, canRequestEstimate }: {
   run: PricingRun; offer: PricingOffer; saved?: FeeWorksheet; busy: boolean; save: (input: unknown) => Promise<void>;
-  brokerageId: string; current: boolean; focused?: string; stageBlocked: boolean;
+  brokerageId: string; current: boolean; focused?: string; stageBlocked: boolean; canRequestEstimate?: boolean;
 }) {
   const purchase = run.scenario.purpose === "Purchase";
   const canEdit = current && !stageBlocked;
@@ -105,6 +108,11 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
       purchasePrice: fields.purchasePrice || String(run.scenario.purchasePrice ?? run.scenario.propertyValue),
       payoffs: fields.payoffs || String(Math.max(0, run.scenario.loanAmount - 10_000)) });
   }
+  function loadFees(source: FeeTemplateOrigin) {
+    setOrigin(source);
+    setAllocations(allocationDraft(source.allocations));
+    setFields((last) => ({ ...last, ...Object.fromEntries(feeKeys.map((key) => [key, amountText(source.fees[key])])) }));
+  }
 
   return <details className="document-form" id={focused ? preflightFeesTarget : undefined} open={focused ? true : undefined}>
     <summary>Fee worksheet · {label}</summary>
@@ -113,13 +121,12 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
     <form className="record-form" onSubmit={(event) => {
       event.preventDefault();
       if (estimate && valid && canEdit) void save({ type: "saveAllocatedFeeWorksheet", loanId: run.loanId, runId: run.id, offerId: offer.id,
-        feeRevision: saved?.revision ?? 0, worksheet: inputs, template: origin ? { id: origin.id, revision: origin.revision } : null });
+        feeRevision: saved?.revision ?? 0, worksheet: inputs,
+        ...(origin?.providerEstimate ? { estimateId: origin.id } : { template: origin ? { id: origin.id, revision: origin.revision } : null }) });
     }}>
-      {canEdit && <FeeTemplatePicker brokerageId={brokerageId} loanId={run.loanId} runId={run.id} disabled={busy} onLoad={(template) => {
-        setOrigin(template);
-        setAllocations(allocationDraft(template.allocations));
-        setFields((last) => ({ ...last, ...Object.fromEntries(feeKeys.map((key) => [key, amountText(template.fees[key])])) }));
-      }} />}
+      {canEdit && canRequestEstimate && <FeeProviderEstimatePicker brokerageId={brokerageId} loanId={run.loanId} runId={run.id}
+        offerId={offer.id} disabled={busy} appliedId={origin?.providerEstimate ? origin.id : undefined} onLoad={loadFees} />}
+      {canEdit && <FeeTemplatePicker brokerageId={brokerageId} loanId={run.loanId} runId={run.id} disabled={busy} onLoad={loadFees} />}
       {origin && <FeeSource origin={origin} inputs={inputs} />}
       <div className="form-grid">
         {purchase ? field("purchasePrice", additionalFields.purchasePrice, true) : field("payoffs", additionalFields.payoffs, true)}

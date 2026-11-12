@@ -2,6 +2,7 @@ import { z } from "zod";
 import { feeAllocationIssue, feeAllocations, feeAmounts, feeKeys, feeLabels, feePercentageBases, feeTemplateChoice } from "./quote-worksheet";
 import type { FeePropertyLocation, FeeTemplateOrigin } from "./quote-worksheet";
 import { propertyStateCodes } from "./property-state";
+import { feeEstimateLookup, feeEstimateRequest } from "./fee-provider-model";
 
 export const feeTemplatesUnavailable = "Fee templates are unavailable in this workspace.";
 export const feeTemplateChanged = "The fee template changed or no longer applies. Reload the templates and review the fees.";
@@ -44,6 +45,7 @@ export interface FeeTemplate extends FeeTemplateOrigin {
 }
 
 export const feeTemplateRequest = z.discriminatedUnion("type", [
+  feeEstimateLookup, feeEstimateRequest,
   z.object({ type: z.literal("manage"), search: z.string().trim().max(80).default("") }),
   z.object({ type: z.literal("forQuote"), loanId: z.string().min(1).max(100), runId: z.string().min(1).max(100) }),
   z.object({ type: z.literal("publish"), ...feeTemplateChoice.shape, revision: z.number().int().nonnegative(), config: feeTemplateConfig }),

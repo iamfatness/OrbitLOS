@@ -196,6 +196,34 @@ test("fee templates scope use and preserve the original fee and source snapshot"
   assert.deepEqual(unresolved.property, { zip: "00000" });
   assert.deepEqual(unresolved.templates.map(({ id }) => id), [unknownZip.id, broad.id]);
   assert.match((await send({ ...regionalSave, feeRevision: 5, template: { id: exact.id, revision: 1 } })).error, /no longer applies/);
+  db.prepare("UPDATE pricing_runs SET scenario = ?, offers = ? WHERE id = ?")
+    .run(JSON.stringify(scenario), JSON.stringify([offer, { ...offer, id: "alternate" }]), runId);
+  const request = { type: "requestFeeEstimate", loanId, runId, offerId, requestId: randomUUID(), scenario: "Temporary error" };
+  assert.match(manage(request, { ...officer, brokerage: { ...officer.brokerage, pilot: false } }).error, /unavailable/);
+  assert.match(manage(request, { ...officer, email: "other@example.test" }).error, /unavailable/);
+  const failed = manage(request, officer).estimate;
+  assert.equal(failed.status, "Failed");
+  assert.deepEqual(manage(request, officer).estimate, failed);
+  assert.match(manage({ ...request, offerId: "alternate" }, officer).error, /different fee estimate/);
+  const retry = { ...request, requestId: randomUUID(), retryOf: request.requestId };
+  const available = manage(retry, officer).estimate;
+  assert.equal(available.status, "Available");
+  assert.equal(available.retryOf, failed.requestId);
+  assert.equal(available.fees.appraisal, 67500);
+  assert.equal(available.fees.origination, null);
+  assert.deepEqual(manage({ type: "recentFeeEstimate", loanId, runId, offerId }, officer).estimate, available);
+  assert.equal(manage({ ...request, requestId: randomUUID(), scenario: "No coverage" }, officer).estimate.status, "Unavailable");
+  assert.equal(manage(forQuote, officer).templates[0].id, exact.id);
+  const fromProvider = { ...regionalSave, template: null, feeRevision: 5, estimateId: available.requestId,
+    worksheet: { ...worksheet, fees: { ...available.fees, appraisal: 68000 } } };
+  assert.match((await send({ ...fromProvider, estimateId: failed.requestId })).error, /available fee estimate/);
+  assert.match((await send({ ...fromProvider, offerId: "alternate" })).error, /available fee estimate/);
+  assert.match((await send({ ...fromProvider, template: regionalSave.template })).error, /one source/);
+  const providerWorksheet = (await send(fromProvider)).loanWork.feeWorksheets[0];
+  assert.equal(providerWorksheet.origin.providerEstimate.reference, available.reference);
+  assert.equal(providerWorksheet.origin.fees.appraisal, 67500);
+  assert.equal(providerWorksheet.inputs.fees.appraisal, 68000);
+  assert.equal((await send(fromProvider)).loanWork.feeWorksheets[0].revision, 6);
   db.prepare("UPDATE applications SET revision = 4 WHERE loanId = ?").run(loanId);
   assert.match((await send({ ...save, feeRevision: 4 })).error, /Reprice/);
 });
