@@ -188,13 +188,14 @@ export function FeeTemplatePicker({ brokerageId, loanId, runId, disabled, onLoad
 }) {
   const { page, busy, request, notice } = useFeeTemplates(brokerageId);
   const [selectedId, setSelectedId] = useState("");
+  const templateSelect = useRef<HTMLSelectElement>(null);
   const selected = page?.templates.find((template) => template.id === selectedId);
   return <div className="document-item record-form">
     <div className="loan-application-actions">
       <Button size="sm" variant="outline" type="button" disabled={busy || disabled} onClick={() => {
         void request({ type: "forQuote", loanId, runId });
       }}>{busy ? "Opening fee templates…" : page ? "Reload fee templates" : "Find brokerage fee templates"}</Button>
-      {!!page?.templates.length && <label className="field">Brokerage fee template<select value={selectedId}
+      {!!page?.templates.length && <label className="field">Brokerage fee template<select ref={templateSelect} value={selectedId}
         disabled={busy || disabled} onChange={(event) => setSelectedId(event.target.value)}>
         <option value="">Choose a template</option>
         {page.templates.map((template) => <option key={template.id} value={template.id}>{template.title} · v{template.revision}</option>)}
@@ -211,7 +212,11 @@ export function FeeTemplatePicker({ brokerageId, loanId, runId, disabled, onLoad
         })}
         {allocatedFeeLines(selected).map((line) => <p key={line.key}>{feeLabels[line.key]} · {feeAllocationLabel(line)}</p>)}
       </>}
-      <div><Button size="sm" type="button" disabled={busy || disabled || !!selected.blocked} onClick={() => onLoad(selected)}>Load fee template</Button></div>
+      <div><Button size="sm" type="button" disabled={busy || disabled || !!selected.blocked} onClick={() => {
+        onLoad(selected);
+        setSelectedId("");
+        templateSelect.current?.focus();
+      }}>Load fee template</Button></div>
     </>}
   </div>;
 }
