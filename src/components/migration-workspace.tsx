@@ -26,7 +26,8 @@ function ChannelEvidence({ requested, blocked, projected }: { requested: number;
 }
 
 function PipelineMigration({ busy, save, brokerageId, openRecord, reviewCutover }: {
-  busy: boolean; save: Save; brokerageId: string; openRecord: (destination: MigrationDestination) => void; reviewCutover: () => void;
+  busy: boolean; save: Save; brokerageId: string; openRecord: (destination: MigrationDestination) => void;
+  reviewCutover: (origin: string) => void;
 }) {
   const [file, setFile] = useState<ReturnType<typeof migrationFile>>();
   const [mapping, setMapping] = useState<ReturnType<typeof migrationFile>["mapping"]>({});
@@ -277,7 +278,8 @@ function PipelineMigration({ busy, save, brokerageId, openRecord, reviewCutover 
             </select>}
           </div>}</td>
         </tr>)}</tbody></table></div>
-      {applied && <div><Button variant="outline" onClick={reviewCutover}>Review cutover checklist</Button></div>}
+      {applied && reportOrigin && <div><Button variant="outline" disabled={busy}
+        aria-label={`Review cutover checklist for ${reportOrigin}`} onClick={() => reviewCutover(reportOrigin)}>Review cutover checklist</Button></div>}
       {!applied && <div className="record-form">
         {stale ? <p className="muted">Preview again to apply your choices and check related records.</p>
           : report.rows.some((row) => row.status === "Review") && <p className="muted">Resolve or skip the {report.rows.filter((row) => row.status === "Review").length} records marked Review, then preview again before importing.</p>}
@@ -448,6 +450,7 @@ export function MigrationWorkspace({ busy, save, openLinkedLoan, openRecord, bro
   const [view, setView] = useState<(typeof views)[number]>("CRM import and export");
   const navigation = useRef<HTMLElement>(null);
   const [visit, setVisit] = useState(0);
+  const [cutoverEntry, setCutoverEntry] = useState<{ origin: string; visit: number }>();
   useEffect(() => { if (visit) navigation.current?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus(); }, [visit]);
   function navigate(next: (typeof views)[number]) { setView(next); setVisit(value => value + 1); }
   return <div className="record-form">
@@ -456,10 +459,14 @@ export function MigrationWorkspace({ busy, save, openLinkedLoan, openRecord, bro
         aria-current={view === item ? "page" : undefined} disabled={busy} onClick={() => navigate(item)}>{item}</Button>)}
     </nav>
     <Activity mode={view === "CRM import and export" ? "visible" : "hidden"}>
-      <PipelineMigration busy={busy} save={save} brokerageId={brokerageId} openRecord={openRecord} reviewCutover={() => navigate("Cutover checklist")} />
+      <PipelineMigration busy={busy} save={save} brokerageId={brokerageId} openRecord={openRecord} reviewCutover={(origin) => {
+        setCutoverEntry({ origin, visit: visit + 1 });
+        navigate("Cutover checklist");
+      }} />
     </Activity>
     <Activity mode={view === "Cutover checklist" ? "visible" : "hidden"}>
-      <MigrationCutoverChecklist key={brokerageId} brokerageId={brokerageId} version={version} busy={busy} openLoan={openLinkedLoan} openRecord={openRecord} save={save} />
+      <MigrationCutoverChecklist key={`${brokerageId}:${cutoverEntry?.visit ?? 0}`} initialOrigin={cutoverEntry?.origin}
+        brokerageId={brokerageId} version={version} busy={busy} openLoan={openLinkedLoan} openRecord={openRecord} save={save} />
     </Activity>
     <Activity mode={view === "Import recovery" ? "visible" : "hidden"}>
       <MigrationRecovery key={brokerageId} brokerageId={brokerageId} busy={busy} save={save} openRecord={openRecord} />

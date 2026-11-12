@@ -128,12 +128,13 @@ function CallbackSignoff({ callbacks, review, complete, disabled, after, page, b
   </section>;
 }
 
-export function MigrationCutoverChecklist({ brokerageId, version, busy, openLoan, openRecord, save }: {
+export function MigrationCutoverChecklist({ brokerageId, version, busy, openLoan, openRecord, save, initialOrigin }: {
   brokerageId: string; version: object; busy: boolean; openLoan: (id: string, target: string) => void;
   openRecord: (destination: MigrationDestination) => void;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce?: boolean) => Promise<void>;
+  initialOrigin?: string;
 }) {
-  const [request, setRequest] = useState<{ origin?: string; after?: CutoverDraftCursor; callbackAfter?: string }>({});
+  const [request, setRequest] = useState<{ origin?: string; after?: CutoverDraftCursor; callbackAfter?: string }>({ origin: initialOrigin });
   const [result, setResult] = useState<{ request: object; version: object; data: CutoverResult }>();
   const [notice, setNotice] = useState<{ message: string } | { error: string }>();
   const [workReceipt, setWorkReceipt] = useState<{ loanId: string; message: string; target: string }>();
