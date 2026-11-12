@@ -245,3 +245,68 @@ test("recipient changes require explicit publication against the new portal link
   db.exec("DELETE FROM loans");
   assert.equal(db.prepare("SELECT count(*) AS total FROM sample_preapproval_shares").get().total, 0);
 });
+
+test("brokerage policy enforces limits and independent approval of the exact current letter", (t) => {
+  const { db, staff, loanId, issue, work } = fixture(t);
+  const admin = { ...staff, name: "Sample Admin", email: "admin@example.test", brokerage: { ...staff.brokerage, role: "Admin" } };
+  const secondAdmin = { ...admin, email: "second-admin@example.test" };
+  const config = { maxAmountCents: 34_000_000, maxExpiryDays: 10, requireApproval: true };
+  const settings = { type: "policySave", revision: 0, config };
+  const readPolicy = { type: "policyRead" };
+  assert.match(work(settings).error, /Only brokerage admins/);
+  assert.match(work(readPolicy).error, /Only brokerage admins/);
+  assert.equal(work(settings, admin).policy.revision, 1);
+  assert.equal(work(settings, admin).policy.revision, 1);
+  assert.match(work({ ...settings, config: { ...config, maxExpiryDays: 8 } }, admin).error, /policy changed/);
+  assert.equal(work().page.issue.amountCents, 34_000_000);
+  assert.equal(work().page.issue.latestExpiry, "2026-11-19");
+  assert.match(work(issue).error, /brokerage limit/);
+  const terms = { ...issue, amountCents: 34_000_000 };
+  assert.match(work({ ...terms, expiresOn: "2026-11-20" }).error, /1 to 10/);
+  const preview = work({ ...terms, type: "preview" }).preview;
+  assert.equal(preview.requiresApproval, true);
+  assert.match(work(terms).error, /Preview the letter again/);
+  assert.equal(work({ ...terms, previewStamp: preview.stamp }).issuedVersion, 1);
+  const initial = work().page.sharing;
+  assert.equal(initial.canPublish, false);
+  assert.equal(initial.review.canDecide, false);
+  const recipient = initial.audiences[0].recipient;
+  const grant = { type: "publish", loanId, version: 1, audience: "Borrower", grantId: crypto.randomUUID(),
+    previousGrantId: null, recipientStamp: recipient.stamp, confirmed: true };
+  assert.match(work(grant).error, /independent brokerage admin/);
+  assert.equal(work({ ...readPolicy, search: "sample officer" }, admin).pending[0].loanId, loanId);
+  assert.equal(work({ ...readPolicy, search: "no matching name" }, admin).pending.length, 0);
+  const review = { type: "reviewLetter", loanId, version: 1, revision: 1, decision: "Approved", note: "Verified the exact letter." };
+  assert.match(work(review).error, /Only brokerage admins/);
+  assert.match(work({ ...review, revision: 0 }, admin).error, /policy changed/);
+  assert.match(work({ ...review, decision: "Changes requested", note: "" }, admin).error, /Add a reason/);
+  assert.match(work(review, { ...admin, email: staff.email }).error, /another brokerage admin/);
+  assert.equal(work(review, admin).page.sharing.review.receipt.note, review.note);
+  assert.equal(work(review, admin).page.sharing.canPublish, true);
+  assert.match(work(review, secondAdmin).error, /already has a decision/);
+  assert.equal(work(readPolicy, admin).pending.length, 0);
+  assert.ok(work(grant).shareMessage);
+
+  const tighten = { ...settings, revision: 1, config: { ...config, maxExpiryDays: 8 } };
+  const replacement = { ...terms, requestId: crypto.randomUUID(), previousVersion: 1 };
+  const oldPreview = work({ ...replacement, type: "preview" }).preview;
+  assert.equal(work(tighten, admin).policy.revision, 2);
+  assert.equal(work().page.sharing.canPublish, false);
+  assert.equal(work().page.sharing.audiences[0].visible, true);
+  assert.ok(work(grant).shareMessage);
+  assert.ok(readSharedPreapprovalLetters(db, [loanId], "Borrower", "a".repeat(64), "2026-11-10T04:59:59.999Z").get(loanId));
+  assert.match(work({ ...replacement, previewStamp: oldPreview.stamp }).error, /Preview the letter again/);
+  assert.match(work(review, admin).error, /policy changed/);
+  const returned = { ...review, revision: 2, decision: "Changes requested", note: "Use the revised closing date." };
+  assert.equal(work(returned, admin).page.sharing.review.receipt.decision, "Changes requested");
+  assert.equal(sharedPreapprovalDownload(db, { token: "a".repeat(64), audience: "Borrower", grantId: grant.grantId },
+    new Date("2026-11-10T04:59:59.999Z")).status, 404);
+  assert.equal(work(readPolicy, admin).pending.length, 0);
+  assert.equal(work({ ...settings, revision: 2, config: { ...config, requireApproval: false } }, admin).policy.revision, 3);
+  assert.equal(work().page.sharing.canPublish, false);
+  assert.equal(work().page.sharing.review.receipt.note, returned.note);
+  const newPreview = work({ ...replacement, type: "preview" }).preview;
+  assert.equal(work({ ...replacement, previewStamp: newPreview.stamp }).issuedVersion, 2);
+  assert.equal(work().page.sharing.canPublish, true);
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+});

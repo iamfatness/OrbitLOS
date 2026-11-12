@@ -491,6 +491,8 @@ button:disabled { cursor: default; }
 .quote-intake .demo-confirm:has(.quote-consent-copy) input { flex: none; margin-top: 5px; }
 .quote-consent-receipt > summary { min-height: 44px; align-content: center; }
 .preapproval-issue .form-grid { align-items: start; }
+.preapproval-policy-editor .form-grid { max-width: 48rem; }
+.preapproval-policy-editor .field { max-width: none; }
 .preapproval-issue .demo-confirm { min-height: 44px; align-items: center; }
 .preapproval-issue .demo-confirm input { flex: none; margin-top: 0; }
 @media (max-width: 600px) {

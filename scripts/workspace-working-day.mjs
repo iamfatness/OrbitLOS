@@ -5932,12 +5932,53 @@ try {
     return { loanId, borrowerName, id, first, second, version: saved.issuedVersion };
   });
 
+  const preapprovalPolicyFixture = await stage("Brokerage letter limits and independent review gate the exact version shared with a borrower", async () => {
+    const { loanId, borrowerName, version } = preapprovalTemplateFixture;
+    const { token } = checklistAnswersFixture;
+    const path = `/api/preapproval-letters?brokerage=${brokerage}`;
+    const config = { maxAmountCents: 33_500_000, maxExpiryDays: 14, requireApproval: true };
+    const save = { type: "policySave", revision: 0, config };
+    const read = () => post(path, { type: "read", loanId }, officer);
+    const queue = () => post(path, { type: "policyRead", search: borrowerName }, owner);
+    assert.equal((await postResponse(path, save, officer)).status, 409);
+    assert.equal((await post(path, save, owner)).policy.revision, 1);
+    const { page } = await read();
+    assert.equal(page.issue.amountCents, config.maxAmountCents);
+    assert.equal(page.sharing.canPublish, false);
+    assert.deepEqual((await queue()).pending.map(({ loanId: id }) => id), [loanId]);
+    const share = (state) => ({ type: "publish", loanId, version: state.version, audience: "Borrower", grantId: randomUUID(),
+      previousGrantId: null, recipientStamp: state.audiences[0].recipient.stamp, confirmed: true });
+    const denied = await postResponse(path, share(page.sharing), officer);
+    assert.equal(denied.status, 409);
+    assert.match(denied.result.error, /independent brokerage admin/);
+    const returned = { type: "reviewLetter", loanId, version, revision: 1, decision: "Changes requested", note: "Use the approved fictional purchase amount." };
+    assert.equal((await postResponse(path, returned, officer)).status, 409);
+    assert.equal((await post(path, returned, owner)).page.sharing.review.receipt.note, returned.note);
+    assert.equal((await queue()).pending.length, 0);
+    const terms = { loanId, previousVersion: version, applicationRevision: page.issue.applicationRevision, amountCents: page.issue.amountCents,
+      expiresOn: page.issue.suggestedExpiry, scope: "Property search" };
+    assert.equal((await postResponse(path, { ...terms, type: "preview", amountCents: terms.amountCents + 100 }, officer)).status, 409);
+    const { preview } = await post(path, { ...terms, type: "preview" }, officer);
+    assert.equal(preview.requiresApproval, true);
+    const issued = await post(path, { ...terms, type: "issue", previewStamp: preview.stamp, confirmed: true, requestId: randomUUID() }, officer);
+    const approval = { ...returned, version: issued.issuedVersion, decision: "Approved", note: "Verified the revised fictional letter." };
+    assert.equal((await postResponse(path, { ...approval, version }, owner)).status, 409);
+    assert.equal((await post(path, approval, owner)).page.sharing.canPublish, true);
+    assert.equal((await queue()).pending.length, 0);
+    const grant = share((await read()).page.sharing);
+    assert.ok((await post(path, grant, officer)).shareMessage);
+    assert.equal((await borrower(token, { type: "status" })).loanStatus.preapproval.grantId, grant.grantId);
+    assert.deepEqual(await post("/api/shared-preapproval", { token, audience: "Borrower", grantId: grant.grantId }),
+      await post(path, { type: "download", loanId, version: issued.issuedVersion }, officer));
+    return { loanId, borrowerName, version: issued.issuedVersion, note: approval.note };
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture,checklistAnswersFixture,preapprovalTemplateFixture}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture,checklistAnswersFixture,preapprovalTemplateFixture,preapprovalPolicyFixture}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }

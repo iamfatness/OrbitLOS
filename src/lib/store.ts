@@ -194,6 +194,16 @@ export function initializeStore(db: Store, seedDemo = true) {
       templateId TEXT NOT NULL REFERENCES sample_preapproval_templates(id) ON DELETE CASCADE, revision INTEGER NOT NULL,
       config TEXT NOT NULL, archived INTEGER NOT NULL, publishedAt TEXT NOT NULL, PRIMARY KEY(templateId, revision)
     );
+    CREATE TABLE IF NOT EXISTS sample_preapproval_policy (
+      revision INTEGER PRIMARY KEY, config TEXT NOT NULL, savedAt TEXT NOT NULL, savedBy TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sample_preapproval_reviews (
+      loanId TEXT NOT NULL, version INTEGER NOT NULL, policyRevision INTEGER NOT NULL REFERENCES sample_preapproval_policy(revision),
+      decision TEXT NOT NULL CHECK(decision IN ('Approved', 'Changes requested')),
+      reviewer TEXT NOT NULL, reviewerEmail TEXT NOT NULL, decidedAt TEXT NOT NULL, note TEXT NOT NULL,
+      PRIMARY KEY (loanId, version, policyRevision),
+      FOREIGN KEY (loanId, version) REFERENCES sample_preapproval_letters(loanId, version) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS sample_preapproval_shares (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL, version INTEGER NOT NULL,
       audience TEXT NOT NULL CHECK(audience IN ('Borrower', 'Realtor')), recipientId TEXT NOT NULL, recipientStamp TEXT NOT NULL,

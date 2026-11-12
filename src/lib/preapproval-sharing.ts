@@ -43,7 +43,7 @@ export function preapprovalShareStates(db: Store, loanId: string, version: numbe
 }
 
 type ShareChange = Extract<z.infer<typeof preapprovalRequest>, { type: "publish" | "withdraw" }>;
-export function changePreapprovalShare(db: Store, input: ShareChange, staff: StaffIdentity, canPublish: boolean, now: string): { message: string } | { error: string } {
+export function changePreapprovalShare(db: Store, input: ShareChange, staff: StaffIdentity, blocker: string | null, now: string): { message: string } | { error: string } {
   const { loanId, version, audience, grantId } = input;
   const grant = activeGrant(db, loanId, version, audience);
   if (input.type === "withdraw") {
@@ -54,10 +54,10 @@ export function changePreapprovalShare(db: Store, input: ShareChange, staff: Sta
     }
     db.prepare("UPDATE sample_preapproval_shares SET revokedAt = ? WHERE id = ?").run(now, grantId);
   } else {
-    if (!canPublish) return { error: "Only a current sample letter can be shared." };
     const target = recipient(db, loanId, audience, now);
     if (!target || target.stamp !== input.recipientStamp) return { error: "The recipient or portal link changed. Refresh letters before sharing." };
     if (grant?.id === grantId && grant.recipientStamp === target.stamp) return { message: `Sample letter shared in the ${audience.toLowerCase()} portal.` };
+    if (blocker) return { error: blocker };
     if ((grant?.id ?? null) !== input.previousGrantId ||
       db.prepare("SELECT 1 FROM sample_preapproval_shares WHERE id = ?").get(grantId)) return { error: "Sharing changed. Refresh letters before updating access." };
     if (grant) db.prepare("UPDATE sample_preapproval_shares SET revokedAt = ? WHERE id = ?").run(now, grant.id);

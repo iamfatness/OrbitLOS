@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { portalTokenPattern } from "./brokerage-model";
 import { preapprovalTemplateRef, preapprovalTemplateRequests, type PreapprovalTemplateResult, type PreapprovalTemplateSnapshot } from "./preapproval-template-model";
+import { preapprovalPolicyRequests, type PreapprovalPolicyResult, type PreapprovalReview } from "./preapproval-policy-model";
 
 const loanId = z.string().min(1).max(100);
 const version = z.number().int().positive();
@@ -16,6 +17,7 @@ const issueFields = {
 };
 export const preapprovalRequest = z.discriminatedUnion("type", [
   ...preapprovalTemplateRequests,
+  ...preapprovalPolicyRequests,
   z.object({ type: z.literal("read"), loanId, beforeVersion: version.optional() }),
   z.object({ type: z.literal("preview"), ...issueFields }),
   z.object({ type: z.literal("issue"), ...issueFields, requestId: z.uuid(),
@@ -43,15 +45,15 @@ export type PreapprovalPage = {
   letters: PreapprovalLetter[]; beforeVersion: number | null; latestVersion: number;
   issue: { blocked: string } | { applicationRevision: number; amountCents: number; property: string | null;
     earliestExpiry: string; latestExpiry: string; suggestedExpiry: string };
-  sharing: { version: number; canPublish: boolean; audiences: PreapprovalShareState[] } | null;
+  sharing: { version: number; canPublish: boolean; audiences: PreapprovalShareState[]; review?: PreapprovalReview } | null;
   templates?: Omit<PreapprovalTemplateSnapshot, "note">[];
 };
 export type PreapprovalPreview = {
   stamp: string; names: string[]; version: number; issuer: string; brokerage: string; property: string | null;
-  amountCents: number; issuedOn: string; expiresOn: string; template?: PreapprovalTemplateSnapshot;
+  amountCents: number; issuedOn: string; expiresOn: string; template?: PreapprovalTemplateSnapshot; requiresApproval?: boolean;
 };
 export type PreapprovalResult = { page: PreapprovalPage; issuedVersion?: number; shareMessage?: string } | { pdf: string; filename: string } |
-  { preview: PreapprovalPreview } | PreapprovalTemplateResult | { error: string };
+  { preview: PreapprovalPreview } | PreapprovalTemplateResult | PreapprovalPolicyResult | { error: string };
 export const preapprovalUnavailable = "Sample preapproval letters are unavailable for this loan.";
 export const sharedPreapprovalUnavailable = "This sample letter is unavailable. Refresh the portal for any current letter.";
 export const preapprovalDemoLabel = "FICTIONAL DEMO - NOT VALID FOR A REAL TRANSACTION";

@@ -12,6 +12,7 @@ import { TeamLoanAssignment } from "./loan-assignment";
 import { ManageDocumentTemplates } from "./document-checklist-templates";
 import { ManageFeeTemplates } from "./fee-templates";
 import { ManagePreapprovalTemplates } from "./preapproval-template-settings";
+import { ManagePreapprovalPolicy } from "./preapproval-policy-settings";
 import { BrokerageBranches } from "./brokerage-branches";
 import { PilotSupportRequests } from "./pilot-support-requests";
 
@@ -19,7 +20,7 @@ const teamPanels = ["Staff access", "Branches", "Loan settings", "Workspaces", "
 export type TeamPanel = (typeof teamPanels)[number];
 
 export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLoan, openDepartureWork, openRouting }: {
-  staff: WorkspaceStaff; version: object; refresh: () => Promise<void>; openLoan: (id: string) => void;
+  staff: WorkspaceStaff; version: object; refresh: () => Promise<void>; openLoan: (id: string, target?: string) => void;
   openDepartureWork: (item: DepartureItem) => void; panel: TeamPanel; setPanel: (panel: TeamPanel) => void;
   openRouting: () => void;
 }) {
@@ -431,6 +432,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       }} />
       {canUseSampleTools && <ManageDocumentTemplates key={staff.brokerage.id} brokerageId={staff.brokerage.id} />}
       {canUseSampleTools && <ManagePreapprovalTemplates key={`preapproval-${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />}
+      {canUseSampleTools && <ManagePreapprovalPolicy key={`preapproval-policy-${staff.brokerage.id}`} brokerageId={staff.brokerage.id} openLoan={openLoan} />}
       <ManageFeeTemplates key={`fees-${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />
     </>}
     {admin && settings && activePanel === "Access history" &&

@@ -9,6 +9,7 @@ import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 import { preapprovalRequest } from "./preapproval-client";
+import { samplePreapprovalTarget } from "@/lib/preapproval-policy-model";
 
 type LetterDraft = { amount: string; expiresOn: string; scope: PreapprovalScope; templateId: string };
 
@@ -20,6 +21,7 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
   const [draft, setDraft] = useState<LetterDraft>();
   const [preview, setPreview] = useState<{ key: string; letter: PreapprovalPreview }>();
   const [publishing, setPublishing] = useState<PreapprovalAudience>();
+  const [reviewDraft, setReviewDraft] = useState<{ decision: "Approved" | "Changes requested"; note: string }>();
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; error?: boolean }>();
   const saving = useRef(false);
@@ -27,6 +29,7 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
   const shareAttempt = useRef<{ key: string; id: string }>(null);
   const previewHeading = useRef<HTMLHeadingElement>(null);
   const feedbackRef = useRef<HTMLParagraphElement>(null);
+  const reviewChoice = useRef<HTMLSelectElement>(null);
   useEffect(() => {
     if (!expanded) return;
     const controller = new AbortController();
@@ -41,6 +44,8 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
   }, [brokerageId, loanId, expanded, revision, beforeVersion, refresh]);
   useEffect(() => { if (preview) previewHeading.current?.focus(); }, [preview]);
   useEffect(() => { if (feedback) feedbackRef.current?.focus(); }, [feedback]);
+  const reviewing = Boolean(reviewDraft);
+  useEffect(() => { if (reviewing) reviewChoice.current?.focus(); }, [reviewing]);
 
   const current = result?.beforeVersion === beforeVersion && result?.revision === revision && result?.refresh === refresh ? result : undefined;
   const page = current?.page;
@@ -74,6 +79,7 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
         setDraft(undefined);
         setPreview(undefined);
         setPublishing(undefined);
+        setReviewDraft(undefined);
         attempt.current = null;
         shareAttempt.current = null;
         setFeedback({ message: value.shareMessage ?? `Sample letter v${value.issuedVersion} issued. The PDF is ready to download.` });
@@ -105,7 +111,8 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
     void perform({ ...input, grantId: shareAttempt.current.id });
   }
 
-  return <details className="loan-task-create" onToggle={(event) => {
+  const review = page?.sharing?.review;
+  return <details id={samplePreapprovalTarget} className="loan-task-create" onToggle={(event) => {
     const open = event.currentTarget.open;
     if (open) setRefresh((value) => value + 1);
     setExpanded(open);
@@ -129,7 +136,8 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
         {beforeVersion && <Button size="sm" variant="outline" disabled={busy} onClick={() => setBeforeVersion(undefined)}>Latest letters</Button>}
         {page?.beforeVersion && <Button size="sm" variant="outline" disabled={busy} onClick={() => setBeforeVersion(page.beforeVersion!)}>Older letters</Button>}
         {(page || current?.error) && <Button size="sm" variant="outline" disabled={busy} onClick={() => {
-          setPreview(undefined); setPublishing(undefined); setFeedback(undefined); setBeforeVersion(undefined); setRefresh((value) => value + 1);
+          setPreview(undefined); setPublishing(undefined); setReviewDraft(undefined); setFeedback(undefined);
+          setBeforeVersion(undefined); setRefresh((value) => value + 1);
         }}>Refresh letters</Button>}
         {issue && !beforeVersion && !draft && <Button size="sm" disabled={busy} onClick={() => {
           setDraft({ amount: String(issue.amountCents / 100), expiresOn: issue.suggestedExpiry, scope: "Property search", templateId: "" });
@@ -141,7 +149,37 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
       {page?.sharing && !draft && <section className="record-form" aria-label="Share current sample letter">
         <div><strong>Share version {page.sharing.version}</strong>
           <p className="muted">Publication adds the PDF to the selected private portal. A replacement needs a new publication.</p></div>
-        {!page.sharing.canPublish && <p className="muted">Only a current sample letter can be shared.</p>}
+        {review ? <div className="record-form">
+          {review.receipt ? <div className="record-form">
+            <strong>{review.receipt.decision === "Approved" ? "Approved for portal sharing" : "Changes requested"}</strong>
+            <p className="muted">{review.receipt.reviewer} · {dateTime(review.receipt.decidedAt)} ET · Policy v{review.receipt.policyRevision}</p>
+            {review.receipt.note && <p>{review.receipt.note}</p>}
+            {review.receipt.decision === "Changes requested" && <p className="muted">Prepare a replacement before sharing this letter.</p>}
+          </div> : <p className="muted">Awaiting approval from a brokerage admin who did not issue this letter.</p>}
+          {review.canDecide && !reviewDraft && <div className="loan-application-actions">
+            <Button size="sm" disabled={busy} onClick={() => { setFeedback(undefined); setReviewDraft({ decision: "Approved", note: "" }); }}>
+              Review for sharing
+            </Button>
+          </div>}
+          {review.canDecide && reviewDraft && <form className="record-form preapproval-issue" aria-label="Review sample letter" onSubmit={(event) => {
+            event.preventDefault();
+            void perform({ type: "reviewLetter", loanId, version: page.sharing!.version, revision: review.revision, ...reviewDraft });
+          }}>
+            <label className="field">Sharing decision<select ref={reviewChoice} value={reviewDraft.decision} disabled={busy}
+              onChange={(event) => setReviewDraft({ ...reviewDraft, decision: event.target.value as typeof reviewDraft.decision })}>
+              <option value="Approved">Approve for portal sharing</option>
+              <option value="Changes requested">Request changes</option>
+            </select></label>
+            <label className="field">{reviewDraft.decision === "Approved" ? "Review note (optional)" : "Reason for returning the letter"}
+              <textarea rows={3} maxLength={500} value={reviewDraft.note} disabled={busy} required={reviewDraft.decision === "Changes requested"}
+                onChange={(event) => setReviewDraft({ ...reviewDraft, note: event.target.value })} /></label>
+            {reviewDraft.decision === "Changes requested" && <p className="muted">Returning this version ends any existing portal access.</p>}
+            <div className="loan-application-actions">
+              <Button type="submit" size="sm" disabled={busy}>{reviewDraft.decision === "Approved" ? "Approve version " : "Return version "}{page.sharing.version}</Button>
+              <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setReviewDraft(undefined)}>Cancel review</Button>
+            </div>
+          </form>}
+        </div> : !page.sharing.canPublish && <p className="muted">Only a current sample letter can be shared.</p>}
         {page.sharing.audiences.map((target) => {
           const version = page.sharing!.version;
           const audience = target.audience.toLowerCase();
@@ -200,6 +238,7 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
           <p className="muted">Letter v{letter.version} · {dateLabel(letter.issuedOn)}
             {letter.template && ` · ${letter.template.title} · Template v${letter.template.revision}`}</p>
           {letter.template?.note && <p>{letter.template.note}</p>}
+          {letter.requiresApproval && <p className="muted">This letter will need admin approval before portal sharing.</p>}
           <label className="demo-confirm"><input name="confirmed" type="checkbox" required disabled={busy} />
             <span>I reviewed this fictional letter before issuing it.</span></label>
         </section>}

@@ -1859,7 +1859,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
 
           {section === "Team" && staff && <BrokerageTeam staff={staff} version={state} panel={teamPanel} setPanel={setTeamPanel} refresh={async () => invalidateWorkspace()}
             openRouting={() => { openBrokerageView("Lead Inbox"); setOpenLeadRouting(true); }}
-            openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId })}
+            openLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })}
             openDepartureWork={(item) => {
               if (item.kind === "Lead") return openLeadWork(item.recordId, item.campaignId);
               if (item.kind === "Contact follow-up") return showGuideTasks(undefined, item.id, false, true);

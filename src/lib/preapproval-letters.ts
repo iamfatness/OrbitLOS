@@ -4,7 +4,7 @@ import { handoffCheckpointError } from "./application-review-checkpoint";
 import { demoBrokerageId } from "./brokerage-model";
 import { easternDate } from "./client-retention";
 import { preapprovalLetterPdf } from "./preapproval-letter-pdf";
-import { preapprovalRequest, preapprovalUnavailable, type PreapprovalLetter, type PreapprovalPage, type PreapprovalResult } from "./preapproval-model";
+import { preapprovalAmount, preapprovalRequest, preapprovalUnavailable, type PreapprovalLetter, type PreapprovalPage, type PreapprovalResult } from "./preapproval-model";
 import { activePreapprovalLoan, changePreapprovalShare, preapprovalShareStates } from "./preapproval-sharing";
 import { shiftReportDate } from "./report-date-range";
 import type { WorkspaceStaff } from "./staff-store";
@@ -12,13 +12,14 @@ import type { Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
 import { preapprovalTemplateChanged, preapprovalTemplateSnapshot } from "./preapproval-template-model";
 import { availablePreapprovalTemplates, resolvePreapprovalTemplate, workOnPreapprovalTemplates } from "./preapproval-templates";
+import { decidePreapprovalReview, preapprovalReviewReceipt, readPreapprovalPolicy, workOnPreapprovalPolicy } from "./preapproval-policy";
 
 const pageSize = 5;
 type File = { purpose: string; active: number; draft: string | null; revision: number | null;
   submittedAt: string | null; reviewedAt: string | null; correctionNote: string | null };
 type IssueTerms = Exclude<PreapprovalPage["issue"], { blocked: string }> & { draft: ApplicationDraft };
 
-function issueTerms(db: Store, loanId: string, file: File, today: string): IssueTerms | { blocked: string } {
+function issueTerms(db: Store, loanId: string, file: File, today: string, maxAmountCents: number | null, maxExpiryDays: number): IssueTerms | { blocked: string } {
   if (file.purpose !== "Purchase") return { blocked: "Sample preapproval letters are available on purchase loans." };
   if (!file.active) return { blocked: "Open an active purchase loan to issue a sample letter." };
   if (!file.draft || file.revision === null || !file.submittedAt || !file.reviewedAt || file.correctionNote) {
@@ -34,8 +35,10 @@ function issueTerms(db: Store, loanId: string, file: File, today: string): Issue
   const { city, state, zip, unit } = draft.propertyLocation;
   const property = draft.urla.property.fields.propertyPending === "Yes" ? null :
     [draft.propertyAddress, unit ? `Unit ${unit}` : "", city, `${state} ${zip}`].filter(Boolean).join(", ");
-  return { draft, property, applicationRevision: file.revision, amountCents: Math.round(Number(draft.loanAmount) * 100),
-    earliestExpiry: shiftReportDate(today, 1), latestExpiry: shiftReportDate(today, 60), suggestedExpiry: shiftReportDate(today, 30) };
+  const amountCents = Math.min(Math.round(Number(draft.loanAmount) * 100), maxAmountCents ?? Infinity);
+  return { draft, property, applicationRevision: file.revision, amountCents,
+    earliestExpiry: shiftReportDate(today, 1), latestExpiry: shiftReportDate(today, maxExpiryDays),
+    suggestedExpiry: shiftReportDate(today, Math.min(30, maxExpiryDays)) };
 }
 
 export function workOnPreapprovalLetters(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
@@ -48,6 +51,7 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
   const today = easternDate(clock);
   const now = clock.toISOString();
   return db.transaction(() => {
+    if (data.type === "policyRead" || data.type === "policySave") return workOnPreapprovalPolicy(db, data, staff, today, now);
     if (!("loanId" in data)) return workOnPreapprovalTemplates(db, data, staff, now);
     const { loanId } = data;
     if (!loanAccess(db, staff, loanId)) return { error: preapprovalUnavailable };
@@ -61,10 +65,26 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
       LEFT JOIN past_client_profiles past ON past.loanId = loan.id LEFT JOIN closing_progress closing ON closing.loanId = loan.id
       WHERE loan.id = ?`).get(loanId) as File;
     let latestVersion = Number(db.prepare("SELECT max(version) AS version FROM sample_preapproval_letters WHERE loanId = ?").get(loanId)?.version ?? 0);
-    const terms = issueTerms(db, loanId, file, today);
-    function canPublish(version: number) {
-      return version === latestVersion && !("blocked" in terms) && !!db.prepare(`SELECT 1 FROM sample_preapproval_letters
+    const policy = readPreapprovalPolicy(db);
+    const terms = issueTerms(db, loanId, file, today, policy.maxAmountCents, policy.maxExpiryDays);
+    function shareableLetter(version: number) {
+      if (version !== latestVersion || "blocked" in terms) return;
+      return db.prepare(`SELECT issuerEmail FROM sample_preapproval_letters
         WHERE loanId = ? AND version = ? AND applicationRevision = ? AND expiresOn >= ?`).get(loanId, version, terms.applicationRevision, today);
+    }
+    function reviewFor(version: number, issuerEmail: string) {
+      const receipt = preapprovalReviewReceipt(db, loanId, version, policy.revision);
+      if (!policy.requireApproval && receipt?.decision !== "Changes requested") return;
+      return { revision: policy.revision, receipt,
+        canDecide: staff?.brokerage.role === "Admin" && staff.email !== issuerEmail && !receipt };
+    }
+    function shareBlocker(version: number) {
+      const row = shareableLetter(version);
+      if (!row) return "Only a current sample letter can be shared.";
+      const review = reviewFor(version, String(row.issuerEmail));
+      if (!review || review.receipt?.decision === "Approved") return null;
+      return review.receipt?.decision === "Changes requested" ?
+        "Prepare a replacement before sharing this sample letter." : "An independent brokerage admin must approve this sample letter before sharing.";
     }
     function readPage(beforeVersion?: number): PreapprovalPage {
       const records = db.prepare(`SELECT version, applicationRevision, issuedAt, expiresOn, issuer, amountCents, scope, templateSnapshot
@@ -81,16 +101,24 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
       });
       const issue = "blocked" in terms ? terms : { applicationRevision: terms.applicationRevision, amountCents: terms.amountCents,
         property: terms.property, earliestExpiry: terms.earliestExpiry, latestExpiry: terms.latestExpiry, suggestedExpiry: terms.suggestedExpiry };
-      const publishable = !beforeVersion && latestVersion > 0 && canPublish(latestVersion);
-      const sharing = !beforeVersion && latestVersion ? { version: latestVersion, canPublish: publishable,
-        audiences: preapprovalShareStates(db, loanId, latestVersion, publishable, now) } : null;
+      const currentLetter = !beforeVersion && latestVersion ? shareableLetter(latestVersion) : undefined;
+      const review = currentLetter && reviewFor(latestVersion, String(currentLetter.issuerEmail));
+      const sharing = !beforeVersion && latestVersion ? { version: latestVersion,
+        canPublish: !!currentLetter && (!review || review.receipt?.decision === "Approved"),
+        audiences: preapprovalShareStates(db, loanId, latestVersion, !!currentLetter, now), ...(review ? { review } : {}) } : null;
       const templates = !beforeVersion && !("blocked" in terms) ? availablePreapprovalTemplates(db) : [];
       return { letters, issue, sharing, latestVersion, beforeVersion: records.length > pageSize ? letters.at(-1)!.version : null,
         ...(templates.length ? { templates } : {}) };
     }
     if (data.type === "read") return { page: readPage(data.beforeVersion) };
+    if (data.type === "reviewLetter") {
+      const row = shareableLetter(data.version);
+      if (!row) return { error: "Only a current sample letter can be reviewed. Refresh letters." };
+      const decision = decidePreapprovalReview(db, data, staff, policy, String(row.issuerEmail), now);
+      return "error" in decision ? decision : { page: readPage(), shareMessage: decision.message };
+    }
     if (data.type === "publish" || data.type === "withdraw") {
-      const change = changePreapprovalShare(db, data, staff, canPublish(data.version), now);
+      const change = changePreapprovalShare(db, data, staff, data.type === "publish" ? shareBlocker(data.version) : null, now);
       return "error" in change ? { error: change.error } : { page: readPage(), shareMessage: change.message };
     }
 
@@ -107,8 +135,11 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
     if (latestVersion !== data.previousVersion) return { error: "A newer sample letter exists. Refresh letters before issuing another version." };
     if ("blocked" in terms) return { error: terms.blocked };
     if (terms.applicationRevision !== data.applicationRevision) return { error: "The 1003 changed. Refresh letters and review the current application." };
-    if (data.amountCents > terms.amountCents) return { error: "Choose a sample amount at or below the reviewed 1003 loan amount." };
-    if (data.expiresOn < terms.earliestExpiry || data.expiresOn > terms.latestExpiry) return { error: "Choose an expiry date 1 to 60 days from today." };
+    if (data.amountCents > terms.amountCents) return { error: policy.maxAmountCents === terms.amountCents ?
+      `Choose a sample amount at or below the brokerage limit of ${preapprovalAmount(terms.amountCents)}.` :
+      "Choose a sample amount at or below the reviewed 1003 loan amount." };
+    if (data.expiresOn < terms.earliestExpiry || data.expiresOn > terms.latestExpiry) return { error: policy.maxExpiryDays === 1 ?
+      "Choose tomorrow as the expiry date." : `Choose an expiry date 1 to ${policy.maxExpiryDays} days from today.` };
     if (data.scope === "Subject property" && !terms.property) return { error: "Use property search or review a 1003 with a subject property." };
 
     const template = data.template ? resolvePreapprovalTemplate(db, data.template) : undefined;
@@ -123,9 +154,12 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Orbit could not prepare the sample PDF." };
     }
-    const stamp = createHash("sha256").update(JSON.stringify([loanId, data.applicationRevision, data.scope, staff.email, template, pdf])).digest("hex");
-    if (data.type === "preview") return { preview: { ...letter, stamp, ...(template ? { template } : {}) } };
-    if ((template || data.previewStamp) && data.previewStamp !== stamp) {
+    const stampParts = [loanId, data.applicationRevision, data.scope, staff.email, template, pdf];
+    if (policy.revision) stampParts.push(String(policy.revision));
+    const stamp = createHash("sha256").update(JSON.stringify(stampParts)).digest("hex");
+    if (data.type === "preview") return { preview: { ...letter, stamp, ...(template ? { template } : {}),
+      ...(policy.requireApproval ? { requiresApproval: true } : {}) } };
+    if ((template || data.previewStamp || policy.revision) && data.previewStamp !== stamp) {
       return { error: "The sample letter details changed. Preview the letter again before issuing it." };
     }
     db.prepare("UPDATE sample_preapproval_shares SET revokedAt = ? WHERE loanId = ? AND revokedAt IS NULL").run(now, loanId);
