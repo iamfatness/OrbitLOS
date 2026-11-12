@@ -698,3 +698,9 @@ The fictional browser tested the editor and focused cancel return, a stale previ
 Impeccable Polish guided reuse of the existing incoming work row and the loan drawer. UI UX Pro Max keyboard and contextual count guidance informed direct entry, return focus and refreshing the existing sidebar count. Orbit reused the accepted 21st.dev-informed financing-summary queue pattern and widened the borrower sharing confirmation touch target after the initial phone check.
 
 The final browser opened a pending letter as the independent admin, recovered an outdated row after a second-tab decision, revised the returned letter as the assigned LO, approved the replacement, and published to the borrower. Checked the Today count on both accounts, role boundaries, the period control and keyboard return to Incoming loan work. Inspected the final desktop and phone rows and selected review and sharing screens in `.orbit/preapproval-queues-*.png`. The 900 × 1200 layouts were also exercised.
+
+### FV7 funded loan breakdown
+
+Impeccable Polish guided grouping funded lines by state and closing channel, keeping numerical columns aligned and showing a direct recovery action for missing evidence. UI UX Pro Max table and touch guidance informed the short headers, full-width phone loan facts, and focus from the amount line to the selected evidence. Orbit reused the existing 21st.dev-informed report, disclosure and evidence patterns.
+
+The fictional owner checked Michigan brokered and Ohio wholesale totals, a subordinate-lien exposure different from the funded amount, one missing classification, the exact loan facts and keyboard return. Reviewed the final 1440 and 390 px captures in `.orbit/fv7-breakdown-{missing,mi-table,oh-table,line-evidence,loan-facts}-*.png`. The 900 × 1200 layouts were also exercised.
