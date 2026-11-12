@@ -410,16 +410,17 @@
     ]
   },
   "ND": {
-    "summary": "Money broker license and residential mortgage MCR framework. DFI nondepository FAQ, Century Code index, §13-10-18. MCR baseline candidate; separate state activity-report deadline not established. Not verified.",
-    "gap": "Retrieve operative §13-10-18 and money broker report instructions; distinguish residential mortgage from other money brokering.",
+    "summary": "North Dakota Century Code §13-12-24 requires NMLS reports of condition for Chapter 13-12 residential mortgage lender licensees. Covered residential mortgage lending can include arranging and solicitation.",
+    "gap": "Confirm the applicable period, state schedules, no-activity treatment and requirements under any separate money broker authority.",
+    "sourceDate": "2026-11-12",
     "sources": [
       {
         "label": "DFI nondepository FAQ",
         "url": "https://www.nd.gov/dfi/about-dfi/non-depository/frequently-asked-questions-non-depository"
       },
       {
-        "label": "Century Code index, §13-10-18",
-        "url": "https://ndlegis.gov/prod/general-information/north-dakota-century-code/"
+        "label": "North Dakota Century Code §§13-12-01, 13-12-03 and 13-12-24",
+        "url": "https://ndlegis.gov/cencode/t13c12.pdf"
       }
     ]
   },

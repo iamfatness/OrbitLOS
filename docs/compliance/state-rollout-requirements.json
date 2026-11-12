@@ -154,5 +154,257 @@
     "evidence": "Broker license and supported activities, office inventory and source dates.",
     "counsel": "Confirm covered activities, locations, exemptions and any overlapping banker license before activation.",
     "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "LOAN",
+    "id": "FEES",
+    "title": "First mortgage charges and processing fees",
+    "authority": "MCL 445.1673",
+    "sourceUrl": "https://legislature.mi.gov/Laws/MCL?objectName=MCL-445-1673",
+    "summary": "The statute addresses reasonable and necessary actual expenses, loan processing fees, one-time payment of charges and written terms when a fee is assessed or accepted to guarantee an interest rate.",
+    "evidence": "Fee schedule and actual expenses, payment history, responsible party and written rate-guarantee terms or extensions when applicable.",
+    "counsel": "Which charges and guarantee duties apply to this entity and product? Confirm the interaction with TRID timing and federal compensation rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "OUTREACH",
+    "id": "ADVERTISING",
+    "title": "First mortgage advertising and advertised terms",
+    "authority": "MCL 445.1672a",
+    "sourceUrl": "https://legislature.mi.gov/Laws/MCL?objectName=MCL-445-1672A",
+    "summary": "Covered licensees and registrants may not use misleading mortgage advertising. The statute also addresses intent to offer advertised loan terms to qualified applicants.",
+    "evidence": "Final ad and audience, product and terms substantiation, qualification criteria, and approval evidence before publication.",
+    "counsel": "Confirm which campaigns, affiliates and products fall within this section and which additional state and federal disclosures or restrictions apply.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IN",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Indiana loan broker agreement and borrower copy",
+    "authority": "Ind. Code §23-2.5-8-1 and Indiana Securities Division agreement form",
+    "sourceUrl": "https://securities.sos.in.gov/indiana-loan-broker-agreement",
+    "summary": "The Securities Division publishes a loan broker agreement form. The state mortgage task force identifies the borrower copy and signed agreement as examination concerns.",
+    "evidence": "Current approved agreement, signed copy, borrower delivery evidence and transaction role.",
+    "counsel": "Confirm the operative form, signatures, delivery timing, applicable fees and the entities or activities subject to the agreement.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Indiana Mortgage Lending and Fraud Prevention Task Force report",
+        "url": "https://www.in.gov/dfi/files/Mortgage-Task-Force-Report-2019.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "OH",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Reports of condition and consummated loan coverage",
+    "authority": "Ohio Revised Code §1322.34(C)",
+    "sourceUrl": "https://codes.ohio.gov/ohio-revised-code/section-1322.34",
+    "summary": "The statute requires NMLS reports from listed registrants, licensees and valid exemption-letter holders. It also specifies consummated and serviced loans that registrants and exemption-letter holders must include.",
+    "evidence": "Entity status, period, Ohio activity reconciliation, required report fields and submission receipt.",
+    "counsel": "Confirm the reporting party, any supplementary schedules, the applicable FV7 calendar and zero-activity treatment.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "REPORTING",
+    "id": "ACTIVITY",
+    "title": "NMLS reports in lieu of listed activity reports",
+    "authority": "Illinois IDFPR Mortgage Brokers and Bankers Forms",
+    "sourceUrl": "https://idfpr.illinois.gov/banks/resfin/forms/rfformsb.html",
+    "summary": "IDFPR accepts timely and accurate NMLS Mortgage Call Reports in place of its listed annual mortgage, brokerage, servicing and purchasing activity reports.",
+    "evidence": "License scope, accepted NMLS submission and timeliness, reconciliation by activity, and an inventory of separate state filings.",
+    "counsel": "Confirm treatment of late or corrected filings and which separate financial, fair lending, database or servicing obligations apply to the entity.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WI",
+    "area": "REPORTING",
+    "id": "FINSTAT",
+    "title": "Annual CPA financial statements",
+    "authority": "Wis. Stat. §224.74(1)(b), (bm) and DFI Mortgage Banking FAQ",
+    "sourceUrl": "https://dfi.wi.gov/Pages/FinancialServices/MortgageBanking/FAQs.aspx",
+    "summary": "DFI directs mortgage brokers to submit reviewed and mortgage bankers to submit audited financial statements via NMLS within six months of fiscal year end.",
+    "evidence": "Exact license type, fiscal year end, CPA statement, submission receipt and any regulator correspondence.",
+    "counsel": "Confirm the statement basis for a dual licensee, the deadline in edge cases and how to track this separately from current FV7 Financial Condition.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MN",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Residential mortgage originator company authority",
+    "authority": "Minn. Stat. §58.04",
+    "sourceUrl": "https://www.revisor.mn.gov/statutes/cite/58.04",
+    "summary": "Minnesota addresses residential mortgage originator licensing and specified exemptions in Chapter 58.",
+    "evidence": "Exact company authority and activity, exemption basis where relevant, and separately verified individual authority.",
+    "counsel": "Confirm the company classification, exceptions and applicability to the proposed office, product and borrower scope.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MN",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Originator and servicer reports of condition",
+    "authority": "Minn. Stat. §58.141 subd. 1",
+    "sourceUrl": "https://www.revisor.mn.gov/statutes/cite/58.141",
+    "summary": "The statute requires residential mortgage originators and servicers to submit reports of condition in the form required by NMLS.",
+    "evidence": "Company role, license, reporting period, reconciled report and receipt.",
+    "counsel": "Confirm entity applicability, the current FV7 sections, any supplementary filings and the no-activity basis.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IA",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage banker or broker company authority",
+    "authority": "Iowa Code §535B.4",
+    "sourceUrl": "https://www.legis.iowa.gov/docs/code/2026/535B.4.pdf",
+    "summary": "The statute addresses licensure for acting as or using the title of a mortgage banker, broker or closing agent in Iowa.",
+    "evidence": "License class and activity, license dates, office evidence and any exemption basis.",
+    "counsel": "Confirm whether proposed brokering, funding or closing duties fall under separate authority or any exception.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IA",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Mortgage call reports under the October 2026 rule",
+    "authority": "Iowa Admin. Code 187–18.10 and Iowa Code §535B.18",
+    "sourceUrl": "https://www.legis.iowa.gov/docs/iac/agency/10-28-2026.187.pdf",
+    "summary": "Rule 187–18.10 requires licensed mortgage bankers and brokers to submit reports under §535B.18 and addresses late fees after the NMLS-established due date. The published rule took effect October 21, 2026.",
+    "evidence": "License, relevant reporting period and source version, NMLS due date and receipt.",
+    "counsel": "Confirm which periods use this rule, applicable FV7 sections and any additional or no-activity filing treatment.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MO",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Residential mortgage loan broker company authority",
+    "authority": "Mo. Rev. Stat. §443.805",
+    "sourceUrl": "https://revisor.mo.gov/main/OneSection.aspx?section=443.805",
+    "summary": "The statute requires residential mortgage loan broker authority for specified brokering, funding, servicing or purchasing activities, subject to exceptions.",
+    "evidence": "Company license, role and activities, office facts, individual authority and exemption evidence where relevant.",
+    "counsel": "Confirm authorized activities, office requirements and exemptions for this entity and products.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MO",
+    "area": "REPORTING",
+    "id": "ANNUAL",
+    "title": "Annual mortgage activity report",
+    "authority": "Mo. Rev. Stat. §443.885",
+    "sourceUrl": "https://www.revisor.mo.gov/main/OneSection.aspx?bid=24604&hl=+to+443.%25u2044443.711&hlr=y&section=443.885",
+    "summary": "The statute sets March 1 for covered brokers' annual activity reports and permits the director to accept a report deemed equivalent.",
+    "evidence": "Prior calendar-year activity, annual report and receipt, or documented regulator acceptance of the proposed substitute.",
+    "counsel": "Confirm current filing instructions, which exemptions apply and whether any specific NMLS or other filing is accepted as equivalent for this scope.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NE",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage banker authority for covered brokerage",
+    "authority": "Neb. Rev. Stat. §45-705",
+    "sourceUrl": "https://nebraskalegislature.gov/laws/statutes.php?statute=45-705",
+    "summary": "The statute addresses authority to act as a mortgage banker, including licensing and other specified pathways.",
+    "evidence": "Entity activity, license or registration evidence, branch and individual authority, and any exemption basis.",
+    "counsel": "Confirm which activity definitions and licensing pathways apply to the proposed brokerage.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NE",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Mortgage reports of condition",
+    "authority": "Neb. Rev. Stat. §45-726",
+    "sourceUrl": "https://nebraskalegislature.gov/laws/statutes.php?statute=45-726",
+    "summary": "The statute requires NMLS reports of condition for licensed mortgage bankers, registrants and installment loan companies, in the form the department requires.",
+    "evidence": "Exact license or registration, relevant period, reconciled report, reporting calendar and submission receipt.",
+    "counsel": "Confirm current dates and form requirements under FV7, including whether older department orders affect the applicable period.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "SD",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage brokerage company authority",
+    "authority": "SDCL §54-14-13 and Division of Banking Mortgage Licenses",
+    "sourceUrl": "https://sdlegislature.gov/Statutes/54-14-13",
+    "summary": "The statute addresses authority for covered mortgage activity involving South Dakota property. The division distinguishes mortgage brokerages that place loans for a fee without servicing from lenders and servicers.",
+    "evidence": "Property jurisdiction, company authority, authorized activities and individual authority, with exemption evidence where relevant.",
+    "counsel": "Confirm correct license classification, exceptions, and location and sponsorship requirements.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "South Dakota Division of Banking license types",
+        "url": "https://dlr.sd.gov/banking/mortgage_licenses/default.aspx"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "SD",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Mortgage brokerage reports of condition",
+    "authority": "SDCL §54-14-36",
+    "sourceUrl": "https://sdlegislature.gov/api/Statutes/54-14.html?all=true",
+    "summary": "The statute identifies mortgage lenders, mortgage brokerages, mortgage brokers and mortgage loan originators for NMLS reports of condition.",
+    "evidence": "Company license class, applicable reporting period, reconciled report and submission evidence.",
+    "counsel": "Confirm current state instructions and FV7 sections, deadlines, supplements and no-activity treatment.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ND",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Residential mortgage lender license for covered arranging",
+    "authority": "N.D.C.C. §§13-12-01, 13-12-03 and 13-12-04",
+    "sourceUrl": "https://ndlegis.gov/cencode/t13c12.pdf",
+    "summary": "North Dakota's residential mortgage lender chapter includes covered arranging and solicitation. The company licensing trigger refers to borrower residence.",
+    "evidence": "Borrower residence and property location, exact company and branch authority, activity and any exception.",
+    "counsel": "Confirm company authority under Chapter 13-12 for residential activity, distinct money-broker rules where relevant and the separate individual MLO nexus.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ND",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Residential mortgage lender call reports",
+    "authority": "N.D.C.C. §13-12-24",
+    "sourceUrl": "https://ndlegis.gov/cencode/t13c12.pdf",
+    "summary": "The residential mortgage lender chapter requires its licensees to submit reports of condition to NMLS.",
+    "evidence": "Chapter 13-12 license, covered activity, reporting period, current report and receipt.",
+    "counsel": "Confirm current FV7 coverage, any state supplemental fields and zero-activity handling for the specific entity.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "KS",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage company license and remote activity",
+    "authority": "K.S.A. §9-2203",
+    "sourceUrl": "https://www.kslegislature.gov/b2025_26/laws/009_000_0000_chapter/009_022_0000_article/009_022_0003_section/009_022_0003_k/",
+    "summary": "The statute addresses mortgage company licensure, specified exemptions, remote mortgage business conditions and individual loan originator registration.",
+    "evidence": "Company and branch authority, proposed remote activity facts, individual registrations and any exemption basis.",
+    "counsel": "Confirm the company and individual authority, branch versus remote status and the scope of the activities.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "KS",
+    "area": "REPORTING",
+    "id": "SSSF",
+    "title": "Annual report and Kansas supplemental form",
+    "authority": "K.S.A. §9-2216a and Kansas OSBC Applications/Forms",
+    "sourceUrl": "https://www.osbckansas.gov/consumer-mortgage-lending/applications-forms/",
+    "summary": "OSBC says the MCR plus the State Specific Supplemental Form satisfies annual reporting and identifies processing and underwriting lines SF600 through SF660 for applicable Kansas transactions.",
+    "evidence": "Kansas activity, current MCR and supplemental form, processing and underwriting reconciliation and submission receipt.",
+    "counsel": "Confirm which activities belong on the supplemental form, FV7 field treatment, no-activity handling and any separate surrender report.",
+    "checkedOn": "2026-11-12"
   }
 ]

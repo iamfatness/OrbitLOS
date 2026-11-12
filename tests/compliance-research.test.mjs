@@ -80,14 +80,27 @@ test("state rollout tracks five independently owned areas across all 50 states",
 test("specific requirements preserve independent review cases and counsel questions", t => {
   const f = fixture(t);
   const read = jurisdiction => f.run({ operation: "stateRollout", jurisdiction });
-  assert.equal(new Set(stateRequirementSources.map(item => item.source.key)).size, 12);
+  assert.equal(new Set(stateRequirementSources.map(item => item.source.key)).size, stateRequirementSources.length);
   assert.ok(stateRequirementSources.every(item => item.source.key.length <= 30 && item.source.counselQuestion &&
     item.source.relatedSources.every(link => new URL(link.url).protocol === "https:")));
-  for (const code of ["OH", "IN", "IL", "WI"]) {
-    assert.equal(read(code).items.flatMap(item => item.requirements).length, 1);
+  const rolloutRequirements = {
+    MI: ["REQ-MI-LOAN-FEES", "REQ-MI-OUTREACH-ADVERTISING"],
+    OH: ["REQ-OH-REPORTING-MCR"],
+    IN: ["REQ-IN-LOAN-AGREEMENT"],
+    IL: ["REQ-IL-REPORTING-ACTIVITY"],
+    WI: ["REQ-WI-REPORTING-FINSTAT"],
+    MN: ["REQ-MN-LICENSING-COMPANY", "REQ-MN-REPORTING-MCR"],
+    IA: ["REQ-IA-LICENSING-COMPANY", "REQ-IA-REPORTING-MCR"],
+    MO: ["REQ-MO-LICENSING-COMPANY", "REQ-MO-REPORTING-ANNUAL"],
+    NE: ["REQ-NE-LICENSING-COMPANY", "REQ-NE-REPORTING-MCR"],
+    SD: ["REQ-SD-LICENSING-COMPANY", "REQ-SD-REPORTING-MCR"],
+    ND: ["REQ-ND-LICENSING-COMPANY", "REQ-ND-REPORTING-MCR"],
+    KS: ["REQ-KS-LICENSING-COMPANY", "REQ-KS-REPORTING-SSSF"],
+  };
+  for (const [code, expected] of Object.entries(rolloutRequirements)) {
+    const keys = read(code).items.flatMap(item => item.requirements.map(requirement => requirement.source.key));
+    for (const key of expected) assert.ok(keys.includes(key), key);
   }
-  const initial = read("MI");
-  assert.equal(initial.items.flatMap(item => item.requirements).length, 8);
   const rmla = f.open("REQ-MI-REPORTING-RMLA");
   const fc = f.open("REQ-MI-REPORTING-FC");
   assert.notEqual(rmla.item.id, fc.item.id);
@@ -130,6 +143,8 @@ test("state scope saves an exact entity and source basis without granting approv
   assert.equal(historical.latestRevision, 2);
   const sources = JSON.parse(historical.savedBasis.sources).map(entry => JSON.parse(entry));
   assert.ok(sources.some(entry => entry.key === "REQ-MI-REPORTING-RMLA" && entry.counselQuestion));
+  assert.ok(sources.some(entry => entry.key === "REQ-MI-LOAN-FEES" && entry.counselQuestion));
+  assert.ok(sources.every(entry => entry.jurisdiction === "MI"));
   f.db.prepare("UPDATE compliance_state_scope_versions SET sourceHash = ? WHERE revision = 1").run("historic");
   assert.equal(work("stateScope", { ...query, revision: 1 }).sourceChanged, true);
   assert.equal(work("stateScope", { ...query, jurisdiction: "OH" }).revision, 0);

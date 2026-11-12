@@ -21,7 +21,7 @@ export type ResearchSource = (typeof researchSources)[number] & {
   relatedSources?: { label: string; url: string }[];
   counselQuestion?: string;
 };
-const reportingByState: Record<string, { summary: string; gap: string; sources: { label: string; url: string }[] }> = reportingReviews;
+const reportingByState: Record<string, { summary: string; gap: string; sourceDate?: string; sources: { label: string; url: string }[] }> = reportingReviews;
 const licensingChecklist = "https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/stateresourcecenter/SitePages/Checklist-Compiler.aspx";
 const stateWorkstreams = [
   { key: "LICENSING", title: "Licensing and eligibility",
@@ -52,7 +52,7 @@ export const stateRolloutSources: ResearchSource[] = [...firstStates, ...lastSta
     applicability: "Review for the named entity, license, activities, products and period before activation.",
     gap: reporting?.gap ?? "Confirm current authorities, rule details and platform behavior for this jurisdiction.",
     evidence: work.evidence,
-    ...(reporting ? { relatedSources: reporting.sources, sourceDate: "2026-11-11" }
+    ...(reporting ? { relatedSources: reporting.sources, sourceDate: reporting.sourceDate ?? "2026-11-11" }
       : work.key === "LICENSING" ? { relatedSources: [{ label: "NMLS licensing checklists", url: licensingChecklist }] } : {}),
   };
 }));
