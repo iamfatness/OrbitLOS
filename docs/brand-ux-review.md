@@ -537,3 +537,7 @@ Impeccable Clarify informed the distinction between a saved checkpoint and its p
 ### Internal compliance pilot
 
 Application `00498e79efca`. Reused Orbit native labeled forms and the list/detail pattern. At phone width, the form grid stacks, selected entity and owner labels fit, and training answers align beside their labels with 44-pixel targets. Fictional owner and staff sessions exercised populated lists, selected records, return focus and failed-save recovery at 1440, 900 and 390 px. See [UI review coverage](ui-review-coverage.md) for exact evidence.
+
+### Default workspace during a pause
+
+App `c39629d`. The existing pause screen opens a scoped available workspace and the Demo list explains the retained default in one sentence. Impeccable Clarify informed the outcome wording. UI UX Pro Max readable-text guidance informed the narrow check. Existing entry and list patterns were reused for the 21st.dev reference. Screenshots at 1440, 900 and 390 px showed the existing hierarchy, wrapped Demo copy, and a visible 44 px keyboard-focusable alternate action. See [UI review coverage](ui-review-coverage.md).

@@ -1269,3 +1269,7 @@ A fictional owner transferred the managed branch default to an eligible LO, tran
 ### November 11, 2026 internal compliance pilot
 
 Published application `00498e79efca` as Worker `87d41312-c616-4615-b4e9-e4af0006e991`. Pilot owner opened Compliance, planned a monthly review from an obligation period, and drafted, reviewed and assigned fictional training. The LO opened the named assignment in Today, retried an assessment, and recorded completion. Processor personal access and the admin boundary were checked separately. Admin and employee writes used an isolated fictional workspace. Public Demo copy and signed-out entry were verified against the deployed build.
+
+### Temporary visit during a workspace pause
+
+Published Worker `2be8e8e9-e6c8-4680-b762-c77d4790a776`, app `c39629d`. A fictional pilot owner opened an alternate workspace from the pause screen, refreshed it, and opened the saved brokerage in a fresh session after reopening. The built rehearsal also verified the prior available-workspace URL and still covered revoked-access recovery. The public Demo copy and signed-out routes were checked staged and live. No production brokerage was paused for verification.
