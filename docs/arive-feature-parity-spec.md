@@ -208,6 +208,10 @@ Status: closing coordination exists; regulated document generation/UCD delivery 
 
 In the fictional workspace, selected quote or fee changes reopen the closing confirmation. The LO can open the replacement issuance and confirmation work from Today or Tasks. The owner can open the same work from Disclosure reviews in Exceptions. Mock signatures on the replacement create a task linked to its exact Closing review. A current confirmation is required for the next packet. Earlier confirmations and previously prepared PDFs remain downloadable with their original package and worksheet revisions.
 
+New replacement reviews save the exact before-and-after terms, fees and payer or payee changes against the package. Staff can reopen them from Disclosures or Closing. New sample packets include the saved comparison. Earlier review records can display a comparison when both original packages are available.
+
+The next staff handoff is a named reviewer for the exact changed package. Acceptance covers opening it from assigned work, returning it to the LO with a reason, resubmitting the corrected version, and preserving earlier decisions and packet downloads after a later change. The existing team review assignment and history provide the workflow reference.
+
 ### F17 — Funding and settlement reconciliation
 
 The fictional owner-only queue groups active funding cycles into differences, matches to confirm, missing evidence, and reviewed differences. A row opens the exact cycle and its source entries. Funding-date corrections can reopen a review. Reversals leave the earlier cycle in the archived ledger. [Hosted settlement exception rehearsal](demo-rehearsal-log.md#sample-settlement-exception-queue)
