@@ -545,3 +545,7 @@ App `c39629d`. The existing pause screen opens a scoped available workspace and 
 ### Michigan application and disclosure evidence
 
 App `e9aae63d8fb0`. Impeccable Operate informed the distinction between timing, receipt details and evidence entry. UI UX Pro Max error-summary guidance informed feedback beside the form with retained input and keyboard focus. The UI reuses Orbit's accepted disclosure, definition-list, field and feedback patterns. The selected form and populated owner and processor states were inspected at desktop, portrait and phone widths. See [UI review coverage](ui-review-coverage.md).
+
+### Intent and fee timing
+
+App `059280d5fa49`. Impeccable Operate and UI UX Pro Max error-summary guidance informed a separate timing review beside the existing labeled form. The accepted Orbit fields, disclosure and evidence rows were reused. A phone check caught a clipped selected option. The revised control shows a short choice with the exact Loan Estimate version below it. Final desktop, portrait and phone captures and keyboard acceptance are recorded in [UI review coverage](ui-review-coverage.md).

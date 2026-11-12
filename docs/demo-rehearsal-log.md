@@ -1277,3 +1277,7 @@ Published Worker `2be8e8e9-e6c8-4680-b762-c77d4790a776`, app `c39629d`. A fictio
 ### Michigan application and disclosure timing pilot
 
 Published app `e9aae63d8fb0` as Worker `8d95d30f-09ad-4ee1-bc9b-42c7d855ceb8`. The fictional owner corrected a receipt, the LO recorded the replacement and disclosure evidence, and the processor reviewed the timing without an edit control. The public Demo now describes the fictional Michigan workflow. No lender delivery occurred.
+
+### Michigan intent and fee timing pilot
+
+Published app `059280d5fa49` as Worker `b5097862-0963-4ffb-9539-5c3d7f366844`. The fictional owner and LO linked an intent to its Loan Estimate receipt, recorded fee activity, reviewed early timing and an unlinked credit report fee, and recovered a stale draft. Withdrawing the original receipt reopened the linked fee review. The assigned processor saw the result without edit controls. No fees were collected and no provider actions occurred. The public Demo was checked staged and live.
