@@ -320,16 +320,23 @@ export async function directoryRecoveryCommand(action, fixture) {
         if (candidate?.brokerageId !== route.brokerageId || candidate.operationId !== route.operationId ||
             await directory.uwmWebhookRoute({ ...event, environment:"production" }))
           throw new Error("Directory restore changed lender routing ownership or environment isolation");
-        // These fixture routes lack a canonical completed import. Restoring the
-        // directory mapping cannot by itself authorize conditions or exports.
-        if (kind !== "import" && await env.WORKSPACE.getByName(route.brokerageId).verifyUwmLoanRoute(candidate,event))
-          throw new Error("Directory restore unexpectedly activated an unverified lender route");
+        if (kind === "import") continue;
+        // One brokerage is deliberately paused. In the open brokerage, a
+        // restored directory mapping still needs a canonical import receipt.
+        let verification;
+        try { verification = await env.WORKSPACE.getByName(route.brokerageId).verifyUwmLoanRoute(candidate,event); }
+        catch (error) {
+          if (route.brokerageId !== a.id || !String(error).includes("paused for maintenance")) throw error;
+          verification = "paused";
+        }
+        if (verification !== (route.brokerageId === a.id ? "paused" : false))
+          throw new Error("Directory restore unexpectedly enabled lender delivery without eligible evidence");
       }
     }
     next = { ...journal, phase:"directoryVerified", evidence:{
       ...journal.evidence, sharedDirectoryRestored:true, sealedEvidenceMatchedAfterRecovery:true, directoryTablesVerified:actual.length,
       directoryTenantDatabasesUnchanged:2, directoryPortalRevocationsPreserved:2,
-      directoryLoggedOutSessionDenied:true, directoryMaintenanceFencePreserved:true, directoryRevokedStaffDenied:true, directoryOtherStaffPreserved:true, directoryRoutesVerified:journal.routes.length*3,
+      directoryLoggedOutSessionDenied:true, directoryMaintenanceFencePreserved:true, directoryRevokedStaffDenied:true, directoryOtherStaffPreserved:true, directoryRoutesVerified:journal.routes.length*3, restoredUnverifiedRoutesHeld:true,
     } };
     await save();
   } else if (action === "directoryResume" && journal?.phase === "directoryVerified") {
