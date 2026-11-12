@@ -17,7 +17,7 @@ const { saveCampaignRouting } = await import("../src/lib/campaign-routing.ts");
 const { defaultLeadRouting } = await import("../src/lib/lead-inbox-model.ts");
 const { leadFollowUp, writeLeadRouting } = await import("../src/lib/lead-inbox.ts");
 const { optOutContact } = await import("../src/lib/outreach-preferences.ts");
-const { defaultQuoteIntakeConfig } = await import("../src/lib/quote-intake-model.ts");
+const { defaultQuoteConsent, defaultQuoteIntakeConfig } = await import("../src/lib/quote-intake-model.ts");
 const { quoteIntakeRouting, receiveQuoteLead, workOnQuoteSettings } = await import("../src/lib/quote-intake.ts");
 const { updateBranch } = await import("../src/lib/branches.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
@@ -84,6 +84,45 @@ test("website form publication checks brokerage and revision while preserving ol
   }
   assert.equal(db.prepare("SELECT count(*) AS total FROM referral_leads").get().total, 1);
   assert.equal(db.prepare("SELECT count(*) AS total FROM workspace_access_history WHERE action = 'Published quote intake form'").get().total, 1);
+});
+
+test("custom quote consent is tied to the displayed version and remains exact after conversion", async (t) => {
+  const { db, now, admin, config, settings, receive, request, lead } = fixture(t);
+  const original = request(0, { formRevision: 0 });
+  assert.deepEqual(receive(original).value, { received: true });
+  assert.equal(leadWorkRecord(db, lead(original).id).lead.quoteConsent.wording, defaultQuoteConsent);
+  db.prepare("UPDATE quote_intake_receipts SET consentReceipt = NULL WHERE leadId = ?").run(lead(original).id);
+  assert.equal(leadWorkRecord(db, lead(original).id).lead.quoteConsent, null);
+
+  const first = "Contact me about this fictional purchase.";
+  const second = "Email me about this fictional purchase.\nInclude the quote request reference.";
+  const publish = (revision, consentText) => settings({ type: "publish", profile: "Purchase", revision,
+    config: { ...config, consentText } });
+  assert.equal(publish(0, first).revision, 1);
+  const old = receive({ type: "read", purpose: "Purchase" }).value;
+  const firstRequest = request(1, { consentFingerprint: old.consentFingerprint });
+  assert.equal(receive(request(1)).status, 409);
+  assert.deepEqual(receive(firstRequest).value, { received: true });
+  assert.equal(publish(1, second).revision, 2);
+  const current = receive({ type: "read", purpose: "Purchase" }).value;
+  assert.equal(current.config.consentText, second);
+  assert.notEqual(current.consentFingerprint, old.consentFingerprint);
+  const stale = request(2, { consentFingerprint: old.consentFingerprint });
+  assert.equal(receive(stale).status, 409);
+  assert.equal(receive({ ...stale, formRevision: 2 }).status, 409);
+  assert.equal(lead(stale), undefined);
+  assert.deepEqual(receive({ ...stale, formRevision: 2, consentFingerprint: current.consentFingerprint }).value, { received: true });
+  assert.deepEqual(receive(firstRequest).value, { received: true });
+  const receipt = { profile: "Purchase", formRevision: 1, wording: first, acceptedAt: now };
+  const id = lead(firstRequest).id;
+  assert.deepEqual(leadWorkRecord(db, id).lead.quoteConsent, receipt);
+  const result = await executeCommand(db, { type: "convertReferral", referralId: id, contactId: null }, admin);
+  assert.ok(result.referralLoanId, result.error);
+  const { readEditableLoan } = await import("../src/lib/editable-loan.ts");
+  assert.deepEqual(readEditableLoan(db, result.referralLoanId, admin, admin.brokerage.id).quoteConsent, receipt);
+  assert.deepEqual(settings({ type: "read", profile: "Purchase" }).history.map(({ consentText }) => consentText), [second, first]);
+  const olderEditor = settings({ type: "publish", profile: "Purchase", revision: 2, config: { ...config, title: "Updated title" } });
+  assert.equal(olderEditor.config.consentText, second);
 });
 
 test("eligible quote requests respect campaign capacity and opted-out requests stay in the inbox", (t) => {

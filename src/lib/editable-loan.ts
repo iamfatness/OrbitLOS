@@ -21,6 +21,7 @@ import { closingPacketChecklistLimit } from "./closing-packet-model";
 import { staffBorrowerQuestions } from "./borrower-questions";
 import { canUseServiceOrders, loanServiceOrders } from "./service-orders";
 import { closingServiceEvidence } from "./closing-service-evidence";
+import { storedQuoteConsent } from "./quote-intake-model";
 import { loanWorkUnavailable } from "./loan-work-model";
 
 function loanHandoffVersion(db: Store, loanId: string) {
@@ -121,9 +122,14 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
   const manualReturn = staff.brokerage.role !== "Processor" &&
     (application?.lastManualSubmissionId || application?.manualLenderRejected) && !application.manualHandoff?.submissionId ?
     readManualReturnWork(db, loanId, settings.requireSecondReview) : undefined;
+  const websiteReceipt = staff.brokerage.role !== "Processor" && db.prepare(`SELECT receipt.consentReceipt
+    FROM referral_leads lead JOIN quote_intake_receipts receipt ON receipt.leadId = lead.id
+    WHERE lead.loanId = ? AND lead.realtorId IS NULL
+    ORDER BY lead.createdAt, lead.id LIMIT 1`).get(loanId);
   const disclosureWork = canUseSampleDisclosures(staff) ? readDisclosureWork(db, loanId) : undefined;
   return {
     ...records, loanId, handoffVersion, processingActivity, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
+    ...(websiteReceipt ? { quoteConsent: storedQuoteConsent(websiteReceipt.consentReceipt) } : {}),
     ...(disclosureWork ? { disclosureWork } : {}),
     borrowerQuestions: disclosureWork ? staffBorrowerQuestions(db, loanId) : [],
     ...(canUseServiceOrders(staff) ? { serviceOrders: loanServiceOrders(db, loanId), closingServiceEvidence: closingServiceEvidence(db, loanId) } : {}),

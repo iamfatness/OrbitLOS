@@ -258,6 +258,7 @@ export interface InboxLead extends Omit<ReferralLead, "realtorId" | "realtorName
   importedTasks: ImportedLeadTask[];
   followUp: LeadFollowUp;
   intake?: import("./quote-intake-model").QuoteIntakeEvidence;
+  quoteConsent?: import("./quote-intake-model").QuoteConsentReceipt | null;
   initialRouting?: import("./quote-intake-model").QuoteRoutingReceipt;
   matches: ReferralReview["matches"];
   restrictedMatch: boolean;
@@ -299,6 +300,7 @@ export interface Workspace {
   closingPlans: ClosingPlan[];
   closingItems: ClosingItem[];
   closingProgress: ClosingProgress[];
+  quoteConsent?: import("./quote-intake-model").QuoteConsentReceipt | null;
   disclosureWork?: import("./disclosure-model").DisclosureWork;
   closingPacketWork?: import("./closing-packet-model").ClosingPacketWork;
   returningClientLoans: { fundedLoanId: string; loanId: string }[];

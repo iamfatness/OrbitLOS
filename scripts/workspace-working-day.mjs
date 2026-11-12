@@ -5680,12 +5680,53 @@ try {
     return { loanId, token, coToken, realtorToken: link.token, borrowerName, partnerName };
   });
 
+  const quoteConsentFixture = await stage("Website leads keep the exact consent they accepted through publication and conversion", async () => {
+    const { leadRouting: { quoteToken } } = await workspace(owner);
+    assert.ok(quoteToken);
+    const path = `/api/quote-intake-settings?brokerage=${brokerage}`;
+    const profile = "Purchase";
+    const wording = "I agree that the fictional loan team can contact me about this quote.";
+    const nextWording = "I agree that the fictional loan team can email me about this quote.\nThis permission applies to this quote request.";
+    const published = await post(path, { type: "read", profile }, owner);
+    const config = { ...published.config, ownerEmail: officer.email, campaignId: null, branches: [] };
+    const first = await post(path, { type: "publish", profile, revision: published.revision, config: { ...config, consentText: wording } }, owner);
+    const publicPath = "/api/quote-requests";
+    const read = () => post(publicPath, { type: "read", purpose: profile, token: quoteToken });
+    const old = await read();
+    const payload = { type: "submit", token: quoteToken, purpose: profile, requestId: randomUUID(), formRevision: old.revision,
+      consentFingerprint: old.consentFingerprint, name: "Fictional consent receipt", email: "working-day-consent@example.test", phone: "",
+      zip: "48304", timing: "In 1 to 3 months", answer: "A fictional home.", consent: true };
+    const next = await post(path, { type: "publish", profile, revision: first.revision, config: { ...config, consentText: nextWording } }, owner);
+    assert.equal((await postResponse(publicPath, payload)).status, 409);
+    const form = await read();
+    assert.equal(form.config.consentText, nextWording);
+    const accepted = { ...payload, formRevision: form.revision, consentFingerprint: form.consentFingerprint };
+    assert.equal((await postResponse(publicPath, { ...accepted, consentFingerprint: undefined })).status, 409);
+    assert.deepEqual(await post(publicPath, accepted), { received: true });
+    const lead = (await workspace(owner)).inboxLeads.find(({ name }) => name === payload.name);
+    assert.ok(lead);
+    assert.equal(lead.quoteConsent, undefined);
+    const selected = await action(officer, "readInboxWork", { type: "open", id: lead.id });
+    assert.equal(selected.kind, "open", selected.error);
+    assert.ok((await action(processor, "readInboxWork", { type: "open", id: lead.id })).error);
+    assert.equal(selected.lead.quoteConsent.wording, nextWording);
+    assert.equal(selected.lead.quoteConsent.formRevision, next.revision);
+    const replacement = await post(path, { type: "publish", profile, revision: next.revision, config: { ...config, consentText: wording } }, owner);
+    assert.deepEqual(replacement.history.slice(0, 3).map(({ consentText }) => consentText), [wording, nextWording, wording]);
+    assert.deepEqual(await post(publicPath, accepted), { received: true });
+    const converted = await post(`/api/lead-conversion?brokerage=${brokerage}`,
+      { type: "convertReferral", referralId: lead.id, contactId: null }, officer);
+    const loanId = converted.inboxLoan.loanId;
+    assert.deepEqual((await file(officer, loanId)).quoteConsent, selected.lead.quoteConsent);
+    return { quoteToken, profile, wording, nextWording, loanId, loanName: payload.name };
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }

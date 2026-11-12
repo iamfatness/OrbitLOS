@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { quoteContactOptions, quoteFieldModes, quoteIntakeConfig, quoteProfiles, quoteRequestPath, quoteThemes,
+import { quoteConsentLimit, quoteConsentWording, quoteContactOptions, quoteFieldModes, quoteIntakeConfig, quoteProfiles, quoteRequestPath, quoteThemes,
   type QuoteIntakeConfig, type QuoteIntakeSettings, type QuoteProfile, type QuoteRoutingPreview } from "@/lib/quote-intake-model";
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import { dateTime } from "@/lib/utils";
@@ -32,6 +32,7 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
   const [reload, setReload] = useState(0);
   const [message, setMessage] = useState<{ text: string; error?: boolean }>();
   const active = useRef(false);
+  const feedback = useRef<HTMLParagraphElement>(null);
   const endpoint = `/api/quote-intake-settings?brokerage=${encodeURIComponent(brokerageId)}`;
   useEffect(() => {
     if (!started) return;
@@ -47,6 +48,7 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
     });
     return () => controller.abort();
   }, [endpoint, started, reload, profile]);
+  useEffect(() => { if (message) feedback.current?.focus(); }, [message]);
 
   function change(update: Partial<QuoteIntakeConfig>) {
     setDraft((current) => current && { ...current, ...update });
@@ -107,7 +109,7 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
           aria-pressed={profile === item} disabled={busy || dirty} onClick={() => { if (item !== profile) chooseProfile(item); }}>{item}</Button>)}
       </div>
       {dirty && <p className="muted">Publish or reload your edits before switching profiles.</p>}
-      {message && <p className="application-message" role={message.error ? "alert" : "status"}>{message.text}</p>}
+      {!draft && message && <p ref={feedback} tabIndex={-1} className="application-message banner-error" role="alert">{message.text}</p>}
       {!draft && !message && <p role="status">Opening quote form settings…</p>}
       {draft && published && <>
         <p className="muted">{published.active ? `Published version ${published.revision}. The public link uses published settings.` :
@@ -149,6 +151,11 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
             onChange={(event) => draft.question && change({ question: { ...draft.question, required: event.target.checked } })} />
             <span>Require an answer to the additional question.</span></label>
           <QuoteQuestionEditor questions={draft.questions} change={(questions) => change({ questions })} busy={busy} />
+          <label className="field">Consent wording
+            <textarea rows={4} required maxLength={quoteConsentLimit} value={quoteConsentWording(draft)}
+              onChange={(event) => change({ consentText: event.target.value })} disabled={busy} />
+            <span className="muted quote-consent-hint">Applicants see this beside the permission checkbox. Orbit saves the accepted wording with each request.</span>
+          </label>
           <div className="form-grid">
             <label className="field">Call campaign for eligible requests<select value={draft.campaignId ?? ""}
               onChange={(event) => change({ campaignId: event.target.value || null })} disabled={busy}>
@@ -184,6 +191,8 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
             {profile !== "General" && published.active && <Button size="sm" variant="outline" disabled={busy || dirty}
               onClick={() => void run("retire")}>Use General form again</Button>}
           </div>
+          {message && <p ref={feedback} tabIndex={-1} className={`application-message${message.error ? " banner-error" : ""}`}
+            role={message.error ? "alert" : "status"}>{message.text}</p>}
         </form>
         {preview && <section className="record-form document-item quote-intake" data-theme={draft.theme} aria-label="Borrower quote form preview">
           <p className="muted">Borrower preview · Draft settings</p>
@@ -192,8 +201,9 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
         </section>}
         {!!published.history.length && <details className="document-form">
           <summary>Profile publication history</summary>
-          <ul className="document-list">{published.history.map(({ revision, publishedAt, active }) => <li key={revision}>
+          <ul className="document-list">{published.history.map(({ revision, publishedAt, active, consentText }) => <li key={revision}>
             Version {revision} · {active ? "Published" : "Returned to General"} · {dateTime(publishedAt)} ET
+            {active && <p className="quote-consent-copy">{consentText}</p>}
           </li>)}</ul>
         </details>}
       </>}

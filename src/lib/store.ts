@@ -23,7 +23,7 @@ import { managerReportRecords, managerReports } from "./manager-reports";
 import type { CampaignNavigation, CampaignQueueSnapshot, CampaignWorkPatch } from "./lead-work-model";
 import type { WorkspaceStaff } from "./staff-store";
 import { leadFollowUp, leadRouting } from "./lead-inbox";
-import { quoteIntakeEvidence, storedQuoteRouting } from "./quote-intake-model";
+import { quoteIntakeEvidence, storedQuoteConsent, storedQuoteRouting } from "./quote-intake-model";
 import { readRealtorClaimPolicy } from "./realtor-claim-queue";
 import { processingActivityPrefix, type LoanProcessing } from "./processing-model";
 import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
@@ -1233,7 +1233,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS quote_intake_receipts (
       leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE, formRevision INTEGER NOT NULL,
       timing TEXT NOT NULL, answer TEXT NOT NULL, campaignId TEXT, profile TEXT NOT NULL DEFAULT 'General',
-      structuredAnswers TEXT NOT NULL DEFAULT '[]', routingReceipt TEXT
+      structuredAnswers TEXT NOT NULL DEFAULT '[]', routingReceipt TEXT, consentReceipt TEXT
     );
     CREATE TABLE IF NOT EXISTS lead_follow_up (
         leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE,
@@ -1256,6 +1256,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       db.exec("ALTER TABLE quote_intake_receipts ADD COLUMN structuredAnswers TEXT NOT NULL DEFAULT '[]'");
     }
     if (!receiptColumns.has("routingReceipt")) db.exec("ALTER TABLE quote_intake_receipts ADD COLUMN routingReceipt TEXT");
+    if (!receiptColumns.has("consentReceipt")) db.exec("ALTER TABLE quote_intake_receipts ADD COLUMN consentReceipt TEXT");
     db.exec("CREATE INDEX IF NOT EXISTS quote_intake_versions_by_profile ON quote_intake_versions(profile, revision DESC)");
     if (!db.prepare("PRAGMA table_info(lead_follow_up)").all().some((column) => column.name === "replyReceivedAt")) {
       db.exec(`ALTER TABLE lead_follow_up ADD COLUMN replyReceivedAt TEXT;
@@ -1894,26 +1895,29 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
 type InboxLeadRow = Omit<InboxLead, "followUp" | "matches" | "restrictedMatch" | "importedTasks" | "outreachSuppressed" | "outreachHours">;
 
 function inboxLeadRows(db: Store, leadIds?: string | string[]) {
+  const exact = typeof leadIds === "string";
   const scope = typeof leadIds === "string" ? "AND lead.id = ?" : leadIds ? "AND lead.id IN (SELECT value FROM json_each(?))" : "";
   return rows<InboxLeadRow & { contactHours: string | null; intakeProfile: string | null; intakeRevision: number | null;
-    intakeAnswers: string | null; routingReceipt: string | null }>(db,
+    intakeAnswers: string | null; routingReceipt: string | null; consentReceipt: string | null }>(db,
     `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
       lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt, lead.zip, lead.importedContactId,
       lead.heldAt, lead.holdReason, lead.revisitDate, ${leadChannelBlocksSql} AS outreachChannelBlocks,
       ${leadBorrowerHoursSql} AS contactHours,
       coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL THEN 'Website quote request' ELSE 'Realtor referral' END) AS source,
       member.campaignId, member.callbackTaskId AS campaignTaskId, coalesce(member.lastOutcome = 'Opted out', 0) AS campaignOptedOut,
-      receipt.profile AS intakeProfile, receipt.formRevision AS intakeRevision, receipt.structuredAnswers AS intakeAnswers, receipt.routingReceipt
+      receipt.profile AS intakeProfile, receipt.formRevision AS intakeRevision, receipt.structuredAnswers AS intakeAnswers, receipt.routingReceipt,
+      ${exact ? "receipt.consentReceipt" : "NULL"} AS consentReceipt
     FROM referral_leads lead LEFT JOIN contacts ON contacts.id = lead.realtorId
     LEFT JOIN call_campaign_members member ON member.leadId = lead.id
     LEFT JOIN quote_intake_receipts receipt ON receipt.leadId = lead.id
     WHERE lead.resolvedAt IS NULL ${scope}
     ORDER BY lead.dueAt, lead.id`, ...(leadIds ? [typeof leadIds === "string" ? leadIds : JSON.stringify(leadIds)] : []))
-    .map(({ contactHours, intakeProfile, intakeRevision, intakeAnswers, routingReceipt, ...lead }) => {
+    .map(({ contactHours, intakeProfile, intakeRevision, intakeAnswers, routingReceipt, consentReceipt, ...lead }) => {
       const outreachHours = storedBorrowerHours(contactHours);
       const intake = quoteIntakeEvidence(intakeProfile, intakeRevision, intakeAnswers);
       const initialRouting = storedQuoteRouting(routingReceipt);
-      return { ...lead, ...(outreachHours ? { outreachHours } : {}), ...(intake ? { intake } : {}), ...(initialRouting ? { initialRouting } : {}) };
+      return { ...lead, ...(outreachHours ? { outreachHours } : {}), ...(intake ? { intake } : {}), ...(initialRouting ? { initialRouting } : {}),
+        ...(exact && intakeRevision !== null ? { quoteConsent: storedQuoteConsent(consentReceipt) } : {}) };
     });
 }
 

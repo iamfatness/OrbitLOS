@@ -9,6 +9,7 @@ import { firstContactOverdue, leadInboxUnavailable, leadInboxViews, leadOutcomes
 import type { InboxLead } from "@/lib/model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
+import { QuoteConsentEvidence } from "./quote-consent-receipt";
 import { Button } from "./ui/button";
 import { useLeadOwners } from "./use-lead-owners";
 import { LeadTasks, leadTaskTarget } from "./lead-tasks";
@@ -151,6 +152,7 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
             {lead.initialRouting.rule === "Website default" && ` · Website routing v${lead.initialRouting.websiteRevision}`}
             {lead.initialRouting.note && ` · ${lead.initialRouting.note}`}</p>
         </section>}
+        {lead.quoteConsent !== undefined && <QuoteConsentEvidence receipt={lead.quoteConsent} />}
         {intake && <a href={`#intake-review-${lead.id}`}>Review intake answers for the 1003</a>}
         {isAdmin && members.length > 0 && <form className="task-form" key={lead.officerEmail ?? ""} onSubmit={(event) => {
           event.preventDefault();

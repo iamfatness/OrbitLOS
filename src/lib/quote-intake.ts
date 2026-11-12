@@ -1,12 +1,14 @@
+import { createHash } from "node:crypto";
 import { queueAutomationEvent } from "./automation-events";
 import { demoBrokerageId } from "./brokerage-model";
 import { branchById, readBranches } from "./branches";
 import { readCampaignRouting, distributeCampaignLeads } from "./campaign-routing";
 import { linkCampaignLead } from "./call-campaigns";
 import { firstContactDue, leadEvent, leadRouting, startLeadFollowUp } from "./lead-inbox";
-import { defaultQuoteIntakeConfig, quoteFormChanged, quoteFormUnavailable, quoteIntakeConfig, quoteIntakeSettingsRequest, quoteProfiles, quoteRoutingLabel,
+import { defaultQuoteConsent, defaultQuoteIntakeConfig, quoteConsentWording, quoteFormChanged, quoteFormUnavailable, quoteIntakeConfig,
+  quoteIntakeSettingsRequest, quoteProfiles, quoteRoutingLabel,
   quotePortalRequest, quoteResponseIssue, quoteSettingsUnavailable, type PublicQuoteForm, type QuoteFormVersion, type QuoteIntakeSettings,
-  type QuoteIntakeConfig, type QuoteProfile, type QuotePurpose, type QuoteRoutingPreview, type QuoteRoutingReceipt } from "./quote-intake-model";
+  type QuoteConsentReceipt, type QuoteIntakeConfig, type QuoteProfile, type QuotePurpose, type QuoteRoutingPreview, type QuoteRoutingReceipt } from "./quote-intake-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -25,6 +27,10 @@ function storedQuoteForm(db: Store, profile: QuoteProfile) {
 function currentQuoteForm(db: Store, purpose?: QuotePurpose): QuoteFormVersion {
   const selected = storedQuoteForm(db, purpose ?? "General");
   return selected.active ? selected : storedQuoteForm(db, "General");
+}
+
+function consentFingerprint(form: QuoteFormVersion) {
+  return createHash("sha256").update(JSON.stringify([form.profile, form.revision, quoteConsentWording(form.config)])).digest("hex");
 }
 
 function writeQuoteVersion(db: Store, profile: QuoteProfile, config: QuoteFormVersion["config"], active: boolean, staff: WorkspaceStaff, now: string) {
@@ -95,7 +101,9 @@ export function workOnQuoteSettings(db: Store, input: unknown, staff: WorkspaceS
         }
       }
       const active = data.type === "publish";
-      const config = active ? data.config : form.config;
+      const existingWording = (form.active ? form : storedQuoteForm(db, "General")).config.consentText;
+      const config = active ? { ...data.config,
+        ...(data.config.consentText === undefined && existingWording !== undefined ? { consentText: existingWording } : {}) } : form.config;
       if (active !== form.active || JSON.stringify(form.config) !== JSON.stringify(config)) {
         form = writeQuoteVersion(db, profile, config, active, staff, now);
       }
@@ -108,8 +116,9 @@ export function workOnQuoteSettings(db: Store, input: unknown, staff: WorkspaceS
       const selected = db.prepare("SELECT id, name FROM call_campaigns WHERE id = ?").get(effective.config.campaignId) as QuoteIntakeSettings["campaigns"][number] | undefined;
       if (selected) campaigns.unshift(selected);
     }
-    const history = db.prepare("SELECT revision, publishedAt, active FROM quote_intake_versions WHERE profile = ? ORDER BY revision DESC LIMIT 8").all(profile)
-      .map(({ revision, publishedAt, active }) => ({ revision: Number(revision), publishedAt: String(publishedAt), active: Boolean(active) }));
+    const history = db.prepare("SELECT revision, publishedAt, active, config FROM quote_intake_versions WHERE profile = ? ORDER BY revision DESC LIMIT 8").all(profile)
+      .map(({ revision, publishedAt, active, config }) => ({ revision: Number(revision), publishedAt: String(publishedAt), active: Boolean(active),
+        consentText: quoteConsentWording(quoteIntakeConfig.parse(JSON.parse(String(config)))) }));
     const managedBranches = readBranches(db).map(({ id, name, active, ownerEmail }) => ({ id, name, active, ownerEmail }));
     return { ...form, config: effective.config, effectiveRevision: effective.revision, campaigns, managedBranches, history };
   });
@@ -177,14 +186,19 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnTyp
     if (data.type === "read") {
       const form = currentQuoteForm(db, data.purpose);
       const { title, introduction, theme, contact, zip, timing, question, questions } = form.config;
-      return { value: { profile: form.profile, revision: form.revision, config: { title, introduction, theme, contact, zip, timing, question,
+      return { value: { profile: form.profile, revision: form.revision, consentFingerprint: consentFingerprint(form),
+        config: { title, introduction, theme, contact, zip, timing, question, consentText: quoteConsentWording(form.config),
         questions: questions.map((item) => ({ ...item, prefill: null })) } } };
     }
     if (db.prepare("SELECT 1 FROM referral_leads WHERE realtorId IS NULL AND requestId = ?").get(data.requestId)) return { value: { received: true } };
     const effective = quoteIntakeRouting(db, data.purpose, data.zip);
     const { form } = effective;
     const captured = snapshot ?? effective;
-    if (form.revision !== data.formRevision) return { status: 409, error: quoteFormChanged };
+    const wording = quoteConsentWording(form.config);
+    if (form.revision !== data.formRevision ||
+        (data.consentFingerprint === undefined ? wording !== defaultQuoteConsent : data.consentFingerprint !== consentFingerprint(form))) {
+      return { status: 409, error: quoteFormChanged };
+    }
     if (current.revision !== captured.routing.revision || form.revision !== captured.form.revision ||
       effective.managedBranch?.revision !== captured.managedBranch?.revision) {
       return { status: 409, error: "Routing changed. Submit your request again." };
@@ -230,8 +244,10 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnTyp
         if (owner) db.prepare("UPDATE referral_leads SET officer = ?, officerEmail = ? WHERE id = ?").run(owner.name.slice(0, 160), owner.email, id);
       }
     }
-    db.prepare(`INSERT INTO quote_intake_receipts (leadId, formRevision, timing, answer, campaignId, profile, structuredAnswers, routingReceipt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, form.revision, timing, answer, enrolled, form.profile, JSON.stringify(structured.answers), JSON.stringify(routeReceipt));
+    const consentReceipt: QuoteConsentReceipt = { profile: form.profile, formRevision: form.revision, wording, acceptedAt: now };
+    db.prepare(`INSERT INTO quote_intake_receipts (leadId, formRevision, timing, answer, campaignId, profile, structuredAnswers, routingReceipt, consentReceipt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, form.revision, timing, answer, enrolled, form.profile, JSON.stringify(structured.answers),
+      JSON.stringify(routeReceipt), JSON.stringify(consentReceipt));
     const intake = [`Website quote request · Form version ${form.revision}`,
       form.profile !== "General" && `${form.profile} profile`,
       timing && `Timeline · ${timing}`, answer && form.config.question && `${form.config.question.prompt} · ${answer}`].filter(Boolean);

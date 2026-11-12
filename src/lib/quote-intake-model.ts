@@ -8,6 +8,10 @@ export const quoteContactOptions = ["Email or phone", "Email required", "Phone r
 export const quoteFieldModes = ["Hidden", "Optional", "Required"] as const;
 export const quoteThemes = ["Orbit", "Navy", "Evergreen"] as const;
 export const quoteTimelines = ["This month", "In 1 to 3 months", "Just exploring"] as const;
+export const defaultQuoteConsent = "I give the loan team permission to follow up about this request.";
+export const quoteConsentLimit = 600;
+const quoteConsentText = z.string().trim().min(1, "Enter the consent wording.").max(quoteConsentLimit);
+const quoteConsentFingerprint = z.string().regex(/^[a-f0-9]{64}$/);
 const revision = z.number().int().nonnegative();
 const campaign = z.string().min(1).max(100);
 const token = z.string().regex(portalTokenPattern);
@@ -31,6 +35,7 @@ export type QuoteProfile = z.infer<typeof quoteProfile>;
 
 export const quoteIntakeConfig = z.object({
   title: z.string().trim().min(4).max(90), introduction: z.string().trim().max(240),
+  consentText: quoteConsentText.optional(),
   theme: z.enum(quoteThemes), contact: z.enum(quoteContactOptions),
   zip: z.enum(quoteFieldModes), timing: z.enum(quoteFieldModes),
   question: z.object({ prompt: z.string().trim().min(3).max(120), required: z.boolean() }).nullable(),
@@ -44,14 +49,34 @@ export const quoteIntakeConfig = z.object({
 });
 export type QuoteIntakeConfig = z.infer<typeof quoteIntakeConfig>;
 export type QuoteFormVersion = { profile: QuoteProfile; revision: number; config: QuoteIntakeConfig };
-export type PublicQuoteForm = Omit<QuoteFormVersion, "config"> & { config: Omit<QuoteIntakeConfig, "campaignId" | "ownerEmail" | "branches"> };
+export type PublicQuoteForm = Omit<QuoteFormVersion, "config"> & {
+  config: Omit<QuoteIntakeConfig, "campaignId" | "ownerEmail" | "branches">;
+  consentFingerprint: string;
+};
 export type QuoteIntakeSettings = QuoteFormVersion & {
   active: boolean; effectiveRevision: number;
   campaigns: { id: string; name: string }[];
   managedBranches: BranchChoice[];
-  history: { revision: number; publishedAt: string; active: boolean }[];
+  history: { revision: number; publishedAt: string; active: boolean; consentText: string }[];
 };
 export type QuoteIntakeEvidence = { profile: QuoteProfile; revision: number; answers: QuoteAcceptedAnswer[] };
+
+export function quoteConsentWording(config: Pick<QuoteIntakeConfig, "consentText">) {
+  return config.consentText ?? defaultQuoteConsent;
+}
+
+const quoteConsentReceipt = z.strictObject({
+  profile: quoteProfile, formRevision: revision, wording: quoteConsentText, acceptedAt: z.iso.datetime(),
+});
+export type QuoteConsentReceipt = z.infer<typeof quoteConsentReceipt>;
+
+export function storedQuoteConsent(json: unknown): QuoteConsentReceipt | null {
+  if (typeof json !== "string" || !json) return null;
+  try {
+    const result = quoteConsentReceipt.safeParse(JSON.parse(json));
+    return result.success ? result.data : null;
+  } catch { return null; }
+}
 
 const quoteRoutingReceipt = z.object({
   profile: quoteProfile, formRevision: revision, websiteRevision: revision,
@@ -111,6 +136,7 @@ export const quoteLeadInput = z.object({
   type: z.literal("submit").optional(), token, requestId: z.uuid(), formRevision: revision.default(0), ...leadContactFields,
   zip: propertyZip.default(""), timing: z.enum(["", ...quoteTimelines]).default(""),
   answer: z.string().trim().max(200).default(""), consent: z.literal(true), website: z.literal("").optional(),
+  consentFingerprint: quoteConsentFingerprint.optional(),
   answers: quoteQuestionAnswers,
 }).refine((value) => !!(value.email || value.phone));
 export const quotePortalRequest = z.union([z.object({ type: z.literal("read"), token, purpose: quotePurpose.optional() }), quoteLeadInput]);

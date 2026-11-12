@@ -485,6 +485,11 @@ button:disabled { cursor: default; }
 .quote-intake .application-intro :is(.eyebrow, h1, h3) { color: var(--quote-accent, var(--orbit-plum)); overflow-wrap: anywhere; }
 .quote-intake .application-intro h3 { font-size: clamp(22px, 4vw, 29px); font-weight: 650; letter-spacing: -.035em; line-height: 1.16; }
 .quote-intake .application-intro h3 + p { margin-top: 7px; color: var(--muted); }
+.quote-consent-copy { white-space: pre-wrap; overflow-wrap: anywhere; }
+.quote-consent-hint { font-weight: 400; }
+.quote-intake .demo-confirm:has(.quote-consent-copy) { min-height: 44px; font-size: 16px; line-height: 1.5; }
+.quote-intake .demo-confirm:has(.quote-consent-copy) input { flex: none; margin-top: 5px; }
+.quote-consent-receipt > summary { min-height: 44px; align-content: center; }
 .quote-intake .application-intro > p:last-child { overflow-wrap: anywhere; }
 .quote-intake:is([data-theme="Navy"], [data-theme="Evergreen"]) .quote-intake-submit { background: var(--quote-accent); }
 .quote-intake:is([data-theme="Navy"], [data-theme="Evergreen"]) .quote-intake-submit:hover { background: var(--quote-hover); }
