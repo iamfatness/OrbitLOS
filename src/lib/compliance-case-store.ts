@@ -10,6 +10,7 @@ import { initializeStateBrokerAgreement } from "./state-broker-agreement";
 import { initializeStateRefinanceBenefit } from "./state-refinance-benefit";
 import { initializeKansasNotice } from "./kansas-consumer-notice";
 import { initializeMichiganLoanPractices } from "./michigan-loan-practices";
+import { initializeAdvertisingReview } from "./advertising-review";
 
 export function initializeComplianceCases(db: Store) {
   initializeTridEvidence(db);
@@ -18,6 +19,7 @@ export function initializeComplianceCases(db: Store) {
   initializeKansasNotice(db);
   initializeMichiganLoanPractices(db);
   initializeComplianceProgram(db);
+  initializeAdvertisingReview(db);
   initializeStateScope(db);
   initializeStateReadiness(db);
   initializeScopeReviews(db);

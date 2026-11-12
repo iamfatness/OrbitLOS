@@ -15,6 +15,89 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
 const { staffApplications } = await import("../src/lib/applications.ts");
 
+test("Michigan advertising evidence preserves exact creative and separates state, federal and archive findings", t => {
+  const { db, work, admin, officer, processor, roster, brokerageId } = fixture(t);
+  const addEntity = name => work({ type: "program", input: { operation: "createEntity", name, nmls: "4312",
+    scopeNote: "Fictional advertising pilot entity", requestId: crypto.randomUUID() } }).entities.find(item => item.name === name);
+  const entity = addEntity("Fictional mortgage brokerage");
+  const other = addEntity("Fictional separate entity");
+  const scope = { entityId: entity.id, jurisdiction: "MI" };
+  const adId = crypto.randomUUID();
+  const record = (input, actor, members, target) => work({ type: "advertisingReview", input: { ...scope, ...input } }, actor, members, target);
+  const list = input => record({ operation: "list", offset: 0, ...input });
+  assert.deepEqual(list().items, []);
+  const creative = { kind: "Text", copy: "Fictional mortgage advertisement.\nAsk about our sample rates." };
+  const facts = { title: "Fictional mortgage advertisement", channel: "Social media", audience: "Fictional Michigan audience",
+    creative, reviewedOn: "2026-11-04", zone: "America/Detroit", scopeReference: "Fictional campaign scope",
+    mortgageScope: "First and secondary", creditType: "Closed-end", specificTerms: "Yes", originatorAdvertising: "Yes",
+    originators: [{ name: "Fictional originator", expected: "8345", displayed: "8543", visibility: "Clear",
+      reference: "Fictional originator registry and post capture" }],
+    stateClaims: { result: "Concern", reference: "Fictional claim review" },
+    regulationZ: { result: "Supported", reference: "Fictional disclosure review" },
+    archive: { applies: "Yes", scopeReference: "Fictional archive scope" },
+    distribution: { firstOn: "2026-11-04", reference: "Fictional distribution log" },
+  };
+  const save = { operation: "save", adId, expectedRevision: 0, requestId: crypto.randomUUID(), facts };
+  assert.ok(record(save, officer).error);
+  assert.ok(record(save, processor).error);
+  assert.ok(record(save, admin, roster, crypto.randomUUID()).error);
+  assert.ok(record({ ...save, jurisdiction: "OH" }).error);
+  assert.ok(record({ ...save, facts: { ...facts, reviewedOn: "2026-11-11" } }).error);
+  assert.ok(record({ ...save, facts: { ...facts, distribution: { ...facts.distribution, finalOn: "2026-11-03" } } }).error);
+  const saved = record(save);
+  assert.equal(saved.kind, "advertisingReview");
+  assert.equal(saved.revision, 1);
+  assert.equal(saved.review.federalArchiveReviewDate, null);
+  assert.match(saved.creativeDigest, /^[a-f0-9]{64}$/);
+  assert.deepEqual(saved.review.findings.map(row => [row.code, row.status]), [
+    ["state-claims", "Review concern"], ["state-terms", "Evidence gap"], ["originator-display-0", "Review concern"],
+    ["sponsor-id", "Advisory"], ["regulation-n", "Evidence gap"], ["archive-materials", "Evidence gap"],
+    ["same-day-review", "Evidence gap"],
+  ]);
+  assert.deepEqual(saved.review.findings[0].sources.map(source => source.label), ["MCL 445.1672a", "MCL 493.76", "MCL 493.165(c)"]);
+  assert.deepEqual(record(save), saved);
+  assert.match(record({ ...save, facts: { ...facts, title: "Changed request" } }).error, /changed/);
+  assert.match(record({ ...save, requestId: crypto.randomUUID() }).error, /changed/);
+  assert.deepEqual(list().items.map(item => [item.id, item.gaps, item.concerns]), [[adId, 4, 2]]);
+  assert.deepEqual(list({ entityId: other.id }).items, []);
+  assert.ok(record({ operation: "read", adId, entityId: other.id }).error);
+  const corrected = { ...facts, sponsoringCompanyDisplayed: entity.nmls,
+    stateClaims: { result: "Supported", reference: "Fictional revised assessment" },
+    stateTerms: { result: "Supported", reference: "Fictional documented terms" },
+    originators: [{ ...facts.originators[0], displayed: "8345" }],
+    regulationN: { result: "Supported", reference: "Fictional representation assessment" },
+    archive: { ...facts.archive, materials: "Fictional materials inventory", availableProducts: "Fictional products and terms",
+      additionalProducts: "Fictional ancillary products inventory" },
+    distribution: { ...facts.distribution, finalOn: "2026-11-07", sameDayOrder: "After review" },
+  };
+  const correct = { ...save, requestId: crypto.randomUUID(), expectedRevision: 1, correction: "Fictional verified records arrived", facts: corrected };
+  assert.match(record({ ...correct, correction: undefined }).error, /reason/);
+  assert.match(record({ ...correct, facts: { ...corrected, creative: { ...creative, copy: creative.copy + " " } } }).error, /new advertising record/);
+  const latest = record(correct);
+  assert.equal(latest.revision, 2);
+  assert.equal(latest.review.federalArchiveReviewDate, "2028-11-07");
+  assert.deepEqual(latest.review.findings, []);
+  assert.equal(latest.creativeDigest, saved.creativeDigest);
+  assert.equal(latest.entitySnapshot.nmls, "4312");
+  const history = record({ operation: "read", adId, revision: 1 });
+  assert.equal(history.latestRevision, 2);
+  assert.deepEqual(history.facts.creative, creative);
+  assert.deepEqual(history.review, saved.review);
+  assert(!JSON.stringify(history).includes(admin.email));
+  db.prepare("UPDATE compliance_program_entities SET nmls='5544' WHERE brokerageId=? AND id=?").run(brokerageId, entity.id);
+  assert.equal(record({ operation: "read", adId }).entityChanged, true);
+
+  const archiveCreative = { kind: "Archived artifact", reference: "Fictional audio archive", sha256: "A".repeat(64) };
+  const openEnd = record({ ...save, adId: crypto.randomUUID(), requestId: crypto.randomUUID(),
+    facts: { ...corrected, channel: "Audio or video", creative: archiveCreative, creditType: "Open-end", regulationZ: undefined,
+      mortgageScope: "Secondary mortgage", reviewedOn: "2024-02-28",
+      distribution: { firstOn: "2024-02-29", finalOn: "2024-02-29", reference: "Fictional one-time use" } } });
+  assert.equal(openEnd.creativeDigest, "a".repeat(64));
+  assert.equal(openEnd.review.federalArchiveReviewDate, null);
+  assert.equal(openEnd.review.findings.find(row => row.code === "regulation-z").sources[0].label, "Regulation Z §1026.16");
+  assert(openEnd.review.findings.some(row => row.code === "archive-anniversary"));
+});
+
 test("Michigan loan practices preserve independent findings, scope and term boundaries on the pilot loan", t => {
   const { db, work, addLoan, officer, processor, unrelated } = fixture(t);
   const loanId = addLoan({ state: " mi " });

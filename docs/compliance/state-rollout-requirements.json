@@ -300,6 +300,40 @@
     "checkedOn": "2026-11-12"
   },
   {
+    "jurisdiction": "MI",
+    "area": "OUTREACH",
+    "id": "SECONDARY-ADS",
+    "title": "Secondary mortgage advertising and advertised terms",
+    "authority": "MCL 493.76",
+    "sourceUrl": "https://legislature.mi.gov/Laws/MCL?objectName=mcl-493-76",
+    "summary": "Review secondary mortgage advertising for the act's misrepresentation standard and substantiate the terms available to applicants who meet the documented qualifications.",
+    "evidence": "Exact creative and audience, secondary mortgage authority, qualification criteria, contemporaneous product terms and any correction evidence.",
+    "counsel": "Confirm secondary mortgage scope, treatment of mixed campaigns and how to evaluate the act's mental-state standard.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "OUTREACH",
+    "id": "MLO-ADS",
+    "title": "Originator advertising and visible identifier",
+    "authority": "MCL 493.165(c), MCL 493.171 and DIFS originator FAQ",
+    "sourceUrl": "https://www.legislature.mi.gov/Laws/MCL?objectName=MCL-493-171",
+    "summary": "Review the originator's advertising claims and whether each applicable individual's identifier is clear on the final creative. DIFS separately recommends showing the sponsoring mortgage company's identifier.",
+    "evidence": "Exact creative, verified and displayed originator identifiers, visibility, company and sponsorship evidence, and media or placement.",
+    "counsel": "Confirm which originators and materials are covered, identifier prominence for each channel, and any separate company identification obligation.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "MCL 493.165",
+        "url": "https://legislature.mi.gov/Laws/MCL?objectName=mcl-493-165"
+      },
+      {
+        "label": "Michigan DIFS originator FAQ",
+        "url": "https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/mortgage-loan-originator"
+      }
+    ]
+  },
+  {
     "jurisdiction": "IN",
     "area": "LOAN",
     "id": "AGREEMENT",

@@ -38,7 +38,7 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
     "compliance_scope_reviews","compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts","compliance_filing_receipt_references",
     "compliance_learning_versions","compliance_learning_assignments","compliance_learning_events","compliance_trid_evidence",
     "compliance_broker_agreement_versions","compliance_refinance_benefit_versions","compliance_kansas_notice_versions",
-    "compliance_michigan_loan_practices_versions"];
+    "compliance_michigan_loan_practices_versions","compliance_advertising_versions"];
   if(programTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Compliance program records changed. Reconcile entity profiles, work and review evidence before restoring.");
   if(["settlement_imports", "settlement_feed_receipts", "settlement_feed_corrections"].some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
