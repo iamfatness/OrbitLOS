@@ -72,21 +72,24 @@ export function initializeUwmWebhooks(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS uwm_webhook_receipts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, environment TEXT NOT NULL, kind TEXT NOT NULL,
     eventKey TEXT NOT NULL, digest TEXT NOT NULL, body TEXT NOT NULL,
-    transactionId TEXT, loanNumber TEXT, receivedAt TEXT NOT NULL,
+    transactionId TEXT, loanNumber TEXT, receivedAt TEXT NOT NULL, heldImport INTEGER NOT NULL DEFAULT 0,
     UNIQUE(environment, kind, eventKey, digest)
   );
   CREATE INDEX IF NOT EXISTS uwm_webhook_transaction ON uwm_webhook_receipts(environment, transactionId);
   CREATE INDEX IF NOT EXISTS uwm_webhook_event ON uwm_webhook_receipts(environment, kind, eventKey);`);
+  if (!db.prepare("PRAGMA table_info(uwm_webhook_receipts)").all().some(({ name }) => name === "heldImport")) {
+    db.exec("ALTER TABLE uwm_webhook_receipts ADD COLUMN heldImport INTEGER NOT NULL DEFAULT 0");
+  }
 }
-export function saveUwmWebhook(db: Store, event: UwmWebhookEvent, now = new Date().toISOString()) {
+export function saveUwmWebhook(db: Store, event: UwmWebhookEvent, now = new Date().toISOString(), heldImport = false) {
   return db.transaction(() => {
-    const prior = db.prepare(`SELECT id FROM uwm_webhook_receipts WHERE environment = ? AND kind = ? AND eventKey = ? AND digest = ?`)
+    const prior = db.prepare(`SELECT id, heldImport FROM uwm_webhook_receipts WHERE environment = ? AND kind = ? AND eventKey = ? AND digest = ?`)
       .get(event.environment, event.kind, event.eventKey, event.digest);
-    if (prior) return { receiptId: prior.id, duplicate: true };
+    if (prior) return { receiptId: Number(prior.id), duplicate: true, heldImport: Boolean(prior.heldImport) };
     // Retain conflicting deliveries too; neither delivery silently overwrites the other.
-    db.prepare(`INSERT INTO uwm_webhook_receipts(environment,kind,eventKey,digest,body,transactionId,loanNumber,receivedAt)
-      VALUES(?,?,?,?,?,?,?,?)`).run(event.environment, event.kind, event.eventKey, event.digest, event.body, event.transactionId, event.loanNumber, now);
-    return { receiptId: db.prepare("SELECT last_insert_rowid() AS id").get()!.id, duplicate: false };
+    db.prepare(`INSERT INTO uwm_webhook_receipts(environment,kind,eventKey,digest,body,transactionId,loanNumber,receivedAt,heldImport)
+      VALUES(?,?,?,?,?,?,?,?,?)`).run(event.environment, event.kind, event.eventKey, event.digest, event.body, event.transactionId, event.loanNumber, now, Number(heldImport));
+    return { receiptId: Number(db.prepare("SELECT last_insert_rowid() AS id").get()!.id), duplicate: false, heldImport };
   });
 }
 export function readUwmWebhookReceipts(db: Store, before: number) {

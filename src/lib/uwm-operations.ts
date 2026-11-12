@@ -84,8 +84,9 @@ export type VerifiedUwmImport = {
 
 export function correlateUwmImport(db: Store, receiptId: number, onVerified?: (outcome: VerifiedUwmImport) => void) {
   return db.transaction(() => {
-    const receipt = db.prepare("SELECT environment,transactionId,loanNumber,body FROM uwm_webhook_receipts WHERE id=? AND kind='import'").get(receiptId);
+    const receipt = db.prepare("SELECT environment,transactionId,loanNumber,body,heldImport FROM uwm_webhook_receipts WHERE id=? AND kind='import'").get(receiptId);
     if (!receipt?.transactionId) return "Unmatched";
+    if (receipt.heldImport) return "Needs review";
     const operation = db.prepare("SELECT * FROM uwm_operations WHERE environment=? AND transactionId=? AND kind='import'")
       .get(receipt.environment, receipt.transactionId);
     if (!operation) return "Unmatched";

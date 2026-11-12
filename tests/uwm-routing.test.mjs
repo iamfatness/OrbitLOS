@@ -1,38 +1,63 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {DatabaseSync} from "node:sqlite";
-import {initializeUwmRouting,registerUwmRoute,routedUwmWorkspace,bindUwmLoanRoute,deliverUwmWebhook} from "../src/lib/uwm-routing.ts";
+import {initializeUwmRouting,registerUwmRoute,findUwmWebhookRoute,deliverUwmWebhook} from "../src/lib/uwm-routing.ts";
 function fixture(t){const sql=new DatabaseSync(":memory:");t.after(()=>sql.close());const db={exec:q=>sql.exec(q),prepare:q=>sql.prepare(q),transaction:f=>f()};initializeUwmRouting(db);return db;}
 const route=(brokerageId,transactionId)=>({brokerageId,transactionId,environment:"production",operationId:crypto.randomUUID()});
 const event=(transactionId,number="1234567890")=>({environment:"production",kind:"import",transactionId,loanNumber:number,body:JSON.stringify({LoanStatus:"Completed"})});
 test("UWM transactions route by exact environment and immutable workspace ownership",t=>{
  const db=fixture(t),a=route(crypto.randomUUID(),"one"),b=route(crypto.randomUUID(),"two");registerUwmRoute(db,a);registerUwmRoute(db,a);registerUwmRoute(db,b);
- assert.equal(routedUwmWorkspace(db,event("one")),a.brokerageId);assert.equal(routedUwmWorkspace(db,event("two")),b.brokerageId);
- assert.equal(routedUwmWorkspace(db,{...event("one"),environment:"stage"}),null);
- assert.equal(routedUwmWorkspace(db,event("unknown")),null);
+ assert.equal(findUwmWebhookRoute(db,event("one")).brokerageId,a.brokerageId);assert.equal(findUwmWebhookRoute(db,event("two")).brokerageId,b.brokerageId);
+ assert.equal(findUwmWebhookRoute(db,{...event("one"),environment:"stage"}),null);
+ assert.equal(findUwmWebhookRoute(db,event("unknown")),null);
  assert.throws(()=>registerUwmRoute(db,{...a,brokerageId:b.brokerageId}),/another file/);
  assert.throws(()=>registerUwmRoute(db,{...a,operationId:b.operationId}),/another file/);
 });
-test("completion reserves one lender file before routing conditions, rejects conflicting ownership",t=>{
- const db=fixture(t),a=route(crypto.randomUUID(),"one"),b=route(crypto.randomUUID(),"two");registerUwmRoute(db,a);registerUwmRoute(db,b);
- assert.throws(()=>bindUwmLoanRoute(db,event("unknown"),a.brokerageId),/unavailable/);
- bindUwmLoanRoute(db,event("one"),a.brokerageId);bindUwmLoanRoute(db,event("one"),a.brokerageId);
- assert.throws(()=>bindUwmLoanRoute(db,event("two"),b.brokerageId),/another import/);
- assert.equal(routedUwmWorkspace(db,{...event("one"),kind:"conditions"}),a.brokerageId);
- assert.equal(routedUwmWorkspace(db,{...event("one"),kind:"conditions",environment:"stage"}),null);
- assert.equal(routedUwmWorkspace(db,{...event("one"),kind:"ulad"}),a.brokerageId);
- assert.equal(routedUwmWorkspace(db,{...event("one"),kind:"status"}),null);
- initializeUwmRouting(db);assert.equal(routedUwmWorkspace(db,event("one")),a.brokerageId);
-});
-
-
-test("delivery uses the registered tenant, preserves retries, quarantines unknown events and rejects collisions before writes",async t=>{
- const db=fixture(t),a=route(crypto.randomUUID(),"one"),b=route(crypto.randomUUID(),"two"),fallback=crypto.randomUUID();registerUwmRoute(db,a);registerUwmRoute(db,b);
- let delivered=[];const save=async(workspace,event)=>{delivered.push([workspace,event.kind]);return {receiptId:1};};
- await assert.rejects(deliverUwmWebhook(db,event("one"),fallback,async workspace=>{assert.equal(workspace,a.brokerageId);throw new Error("temporarily unavailable");}),/unavailable/);
- await deliverUwmWebhook(db,event("one"),fallback,save);
- await deliverUwmWebhook(db,{...event("one"),kind:"conditions"},fallback,save);
- assert.deepEqual(delivered,[[a.brokerageId,"import"],[a.brokerageId,"conditions"]]);
- await assert.rejects(deliverUwmWebhook(db,event("two"),fallback,save),/another import/);assert.equal(delivered.length,2);
- await deliverUwmWebhook(db,event("unknown","9999999999"),fallback,save);assert.equal(delivered.at(-1)[0],fallback);
+test("delivery preserves a pending reservation but routes downstream only after tenant verification", async t => {
+  const db = fixture(t);
+  const a = route(crypto.randomUUID(), "one");
+  const b = route(crypto.randomUUID(), "two");
+  const fallback = crypto.randomUUID();
+  registerUwmRoute(db, a);
+  registerUwmRoute(db, b);
+  const delivered = [];
+  const completions = [];
+  let claimed = false;
+  let verified = false;
+  let interrupt = true;
+  const receive = (body) => deliverUwmWebhook(db, body, fallback, {
+    persist: async (target, current) => {
+      delivered.push([target, current.kind]);
+      return { receiptId: 1, duplicate: false, claimLoanNumber: claimed && current.kind === "import" && target !== fallback };
+    },
+    verify: async (target) => verified && target.operationId === a.operationId,
+    complete: async (target) => {
+      if (interrupt) throw new Error("temporarily unavailable");
+      completions.push(target.operationId);
+      verified = true;
+    },
+  });
+  const conditions = { ...event("one"), kind: "conditions" };
+  await receive(event("one"));
+  assert.equal(findUwmWebhookRoute(db, conditions), null);
+  claimed = true;
+  await assert.rejects(receive(event("one")), /unavailable/);
+  assert.equal(findUwmWebhookRoute(db, conditions).brokerageId, a.brokerageId);
+  await receive(conditions);
+  assert.deepEqual(delivered.at(-1), [fallback, "conditions"]);
+  await assert.rejects(receive(event("two")), /conflicts/);
+  await assert.rejects(receive(event("one", "1234567891")), /conflicts/);
+  assert.deepEqual(completions, []);
+  interrupt = false;
+  await receive(event("one"));
+  await receive(conditions);
+  assert.deepEqual(delivered.at(-1), [a.brokerageId, "conditions"]);
+  assert.deepEqual(completions, [a.operationId]);
+  assert.equal(findUwmWebhookRoute(db, { ...conditions, environment: "stage" }), null);
+  assert.equal(findUwmWebhookRoute(db, { ...conditions, kind: "ulad" }).brokerageId, a.brokerageId);
+  assert.equal(findUwmWebhookRoute(db, { ...conditions, kind: "status" }), null);
+  await receive(event("unknown", "9999999999"));
+  assert.deepEqual(delivered.at(-1), [fallback, "import"]);
+  initializeUwmRouting(db);
+  assert.equal(findUwmWebhookRoute(db, conditions).brokerageId, a.brokerageId);
 });

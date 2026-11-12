@@ -47,6 +47,20 @@ test("failures and corrections retain transaction references without claiming su
   assert.ok(rows.every(row => row.transactionId === "tx-1" && row.status === "Awaiting reconciliation"));
   assert.throws(() => parseUwmWebhook("stage", "import", JSON.stringify({ ...imported, LoanNumber: null })));
 });
+test("an early receipt stays held on an exact retry and the column upgrades existing receipt stores", (t) => {
+  const db = database(t);
+  const event = (transactionId) => parseUwmWebhook("stage", "import", JSON.stringify({ ...imported, TransactionId: transactionId }));
+  const old = event("previously-saved");
+  db.exec("ALTER TABLE uwm_webhook_receipts DROP COLUMN heldImport");
+  db.prepare("INSERT INTO uwm_webhook_receipts(environment,kind,eventKey,digest,body,transactionId,loanNumber,receivedAt) VALUES(?,?,?,?,?,?,?,?)")
+    .run(old.environment, old.kind, old.eventKey, old.digest, old.body, old.transactionId, old.loanNumber, "2026-11-10T12:00:00Z");
+  initializeUwmWebhooks(db);
+  assert.deepEqual(saveUwmWebhook(db, old), { receiptId: 1, duplicate: true, heldImport: false });
+  const early = event("early");
+  const saved = saveUwmWebhook(db, early, "2026-11-10T12:00:00Z", true);
+  assert.equal(saved.heldImport, true);
+  assert.deepEqual(saveUwmWebhook(db, early), { ...saved, duplicate: true });
+});
 test("condition updates sharing an ID and conflicting status events are not discarded", t => {
   const db = database(t);
   saveUwmWebhook(db, parseUwmWebhook("stage", "conditions", JSON.stringify(condition)));
@@ -115,6 +129,6 @@ test("worker routes provider callbacks before browser CSRF and restricts receipt
   const worker = readFileSync(new URL("../src/worker.ts", import.meta.url), "utf8");
   assert.ok(worker.indexOf('url.pathname.startsWith("/api/webhooks/uwm/")') < worker.indexOf('request.headers.get("Origin")'));
   assert.match(worker, /!staff \|\| staff.brokerage.role !== "Admin"/);
-  assert.match(worker, /target \?\? connection.brokerageId\) !== this.#id/);
+  assert.match(worker, /target \? route.brokerageId : connection.brokerageId\) !== this.#id/);
   assert.match(worker, /getByName\(demoBrokerageId\).routeUwmWebhook\(event\)/);
 });

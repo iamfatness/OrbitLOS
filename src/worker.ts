@@ -12,7 +12,8 @@ import {captureCheckpointFiles,verifyCheckpointFiles} from "./lib/recovery-check
 import {checkpointCreate,checkpointCompare} from "./lib/recovery-checkpoint-model";
 import {captureCheckpointManifest} from "./lib/recovery-checkpoint-manifest";
 import {initializeRecoveryCheckpoints,checkpointAccess,checkpointList,priorCheckpoint,saveCheckpoint,compareCheckpoint} from "./lib/recovery-checkpoints";
-import { initializeUwmRouting, registerUwmRoute, routedUwmWorkspace, deliverUwmWebhook } from "./lib/uwm-routing";
+import { initializeUwmRouting, registerUwmRoute, findUwmWebhookRoute, deliverUwmWebhook, uwmWebhookRouteKey,
+  type UwmWebhookRoute, type UwmWebhookRouteKey } from "./lib/uwm-routing";
 import {applyRecoveryReplay,recoveryReplay,reserveRecoveryReplay,finishRecoveryReplay,type ReplayReservation} from "./lib/recovery-replay";
 import {recoveryReplayInput} from "./lib/recovery-edit-model";
 import {readRecoveryEdit} from "./lib/recovery-edits";
@@ -27,7 +28,7 @@ import { WorkspaceMaintenanceGate, guardWorkspaceMethods } from "./lib/workspace
 import { workspaceMaintenancePage } from "./lib/staff-auth";
 
 const maintenanceGates = new WeakMap<object, WorkspaceMaintenanceGate>();
-import { initializeUwmWorkflows, reconcileUwmImportReceipt, runUwmWorkflow, readUwmFile } from "./lib/uwm-workflows";
+import { initializeUwmWorkflows, reconcileUwmImportReceipt, runUwmWorkflow, readUwmFile, uwmImportCallbackAllowed, uwmLoanRouteVerified } from "./lib/uwm-workflows";
 import { UwmError } from "./lib/uwm-live";
 import { connectUwmUser, disconnectUwmUser, initializeUwmUserAccess, uwmUserStatus } from "./lib/uwm-user-access";
 import { initializeUwmOperations } from "./lib/uwm-operations";
@@ -618,30 +619,54 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     registerUwmRoute(this.#store,{environment,operationId,transactionId,brokerageId:active.id});
   }
 
-  uwmWebhookTarget(event:UwmWebhookEvent) {
+  uwmWebhookRoute(event: UwmWebhookRouteKey) {
     if(this.#id!==demoBrokerageId)throw new Error("UWM route directory unavailable.");
-    return routedUwmWorkspace(this.#store,event);
+    return findUwmWebhookRoute(this.#store, event);
   }
 
   async routeUwmWebhook(event:UwmWebhookEvent) {
     if(this.#id!==demoBrokerageId)throw new Error("UWM route directory unavailable.");
     const connection=uwmWebhookConnection(runtimeSetting(this.env,"UWM_WEBHOOK_CONFIG"),event.environment);
     if(!connection)throw new Error("UWM webhook environment unavailable.");
-    const receipt=await deliverUwmWebhook(this.#store,event,connection.brokerageId,
-      (target,event)=>this.env.WORKSPACE.getByName(target).receiveUwmWebhook(event));
+    const receipt = await deliverUwmWebhook(this.#store, event, connection.brokerageId, {
+      persist: (target, event) => this.env.WORKSPACE.getByName(target).receiveUwmWebhook(event),
+      verify: (route, event) => this.env.WORKSPACE.getByName(route.brokerageId).verifyUwmLoanRoute(route, event),
+      complete: (route, event, receiptId) => this.env.WORKSPACE.getByName(route.brokerageId).completeUwmImportReceipt(event, receiptId),
+    });
     return {receiptId:receipt.receiptId,duplicate:receipt.duplicate};
+  }
+
+  verifyUwmLoanRoute(route: UwmWebhookRoute, event: UwmWebhookRouteKey) {
+    return route.brokerageId === this.#id && uwmLoanRouteVerified(this.#store, route, event);
   }
 
   async receiveUwmWebhook(event: UwmWebhookEvent) {
     const connection = uwmWebhookConnection(runtimeSetting(this.env, "UWM_WEBHOOK_CONFIG"), event.environment);
-    const directory=this.env.WORKSPACE.getByName(demoBrokerageId);
-    const target=await directory.uwmWebhookTarget(event);
-    if (!connection || (target ?? connection.brokerageId) !== this.#id) throw new Error("Webhook workspace mismatch");
+    const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
+    const route = await directory.uwmWebhookRoute(uwmWebhookRouteKey(event));
+    const target = route && (event.kind === "import" || this.verifyUwmLoanRoute(route, event));
+    if (!connection || (target ? route.brokerageId : connection.brokerageId) !== this.#id) throw new Error("Webhook workspace mismatch");
     const details = await directory.brokerageDetails(this.#id);
     if (!details || details.pilot) throw new Error("Webhook brokerage unavailable");
-    const receipt = saveUwmWebhook(this.#store, parseUwmWebhook(event.environment, event.kind, event.body));
-    const correlation=event.kind === "import" ? reconcileUwmImportReceipt(this.#store, Number(receipt.receiptId)) : null;
-    return {...receipt,correlation};
+    const parsed = parseUwmWebhook(event.environment, event.kind, event.body);
+    const allowed = parsed.kind === "import" && route?.brokerageId === this.#id && uwmImportCallbackAllowed(this.#store, route, parsed);
+    const receipt = saveUwmWebhook(this.#store, parsed, new Date().toISOString(), parsed.kind === "import" && !allowed);
+    const claimLoanNumber = allowed && !receipt.heldImport && Boolean(parsed.loanNumber) && JSON.parse(parsed.body).LoanStatus === "Completed";
+    if (allowed && !receipt.heldImport && !claimLoanNumber) reconcileUwmImportReceipt(this.#store, receipt.receiptId);
+    return { ...receipt, claimLoanNumber };
+  }
+
+  async completeUwmImportReceipt(event: UwmWebhookEvent, receiptId: number) {
+    if (event.kind !== "import" || !event.loanNumber) throw new Error("UWM completion receipt unavailable.");
+    const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
+    const route = await directory.uwmWebhookRoute({ ...uwmWebhookRouteKey(event), kind: "conditions" });
+    const saved = this.#store.prepare(`SELECT 1 FROM uwm_webhook_receipts WHERE id=? AND kind='import'
+      AND environment=? AND transactionId=? AND loanNumber=? AND digest=? AND heldImport=0`)
+      .get(receiptId, event.environment, event.transactionId, event.loanNumber, event.digest);
+    if (!route || route.brokerageId !== this.#id || route.transactionId !== event.transactionId ||
+      !saved || !uwmImportCallbackAllowed(this.#store, route, event)) throw new Error("UWM completion route unavailable.");
+    reconcileUwmImportReceipt(this.#store, receiptId);
+    if (!this.verifyUwmLoanRoute(route, event)) throw new Error("UWM completion could not be verified.");
   }
 
   uwmWebhookReceipts(staff: WorkspaceStaff, before: number, receiptId?: number) {

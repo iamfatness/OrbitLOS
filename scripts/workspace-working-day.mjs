@@ -133,6 +133,20 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
       sql.exec("INSERT INTO uwm_request_evidence VALUES (?,1,?)",requestId,JSON.stringify({importId:operationId}));
     });
   }
+  setImportCommitFixture(operationId, committed) {
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec("UPDATE uwm_operations SET state=? WHERE id=?",committed ? "Unknown" : "Prepared",operationId);
+      this.ctx.storage.sql.exec("UPDATE uwm_import_checks SET committed=? WHERE operationId=?",Number(committed),operationId);
+    });
+  }
+  interruptNextImportCompletion() { this.interruptImportCompletion = true; }
+  async completeUwmImportReceipt(...args) {
+    if (this.interruptImportCompletion) {
+      this.interruptImportCompletion = false;
+      throw new Error("Fictional interrupted completion");
+    }
+    return super.completeUwmImportReceipt(...args);
+  }
   retentionFixtureFile(requestId,objectId) {
     this.ctx.storage.sql.exec("INSERT INTO document_files (requestId,objectId,attemptedAt) VALUES (?,?,0) ON CONFLICT(requestId) DO UPDATE SET objectId=excluded.objectId",requestId,objectId);
   }
@@ -4244,7 +4258,7 @@ try {
     }
     assert.equal((await response()).status,200);
   });
-  await stage("A synthetic import callback settles the original request in the exact workspace", async () => {
+  await stage("Synthetic UWM routing verifies the committed receipt before routing later events", async () => {
     for (const [id, name] of [[lenderBrokerage, "Fictional Lender Workspace"], [lenderInbox, "Fictional Lender Inbox"]]) {
       const created = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
         [owner.email], { type: "create", id, name, pilot: false });
@@ -4270,17 +4284,49 @@ try {
     const view = (staff) => post(path, { loanId, view: "activity" }, staff);
     assert.equal((await view(lenderOfficer)).requests[0].state, "Unknown");
     assert.equal((await postResponse(path, { loanId, view: "activity" }, otherLenderOfficer)).status, 409);
-    const send = async (environment, token, transaction = transactionId) => runtime.dispatchFetch(
-      `${origin}/api/webhooks/uwm/${environment}/import`, { method: "POST",
+    const webhook = (environment, kind, token, body) => runtime.dispatchFetch(
+      `${origin}/api/webhooks/uwm/${environment}/${kind}`, { method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { "X-API-Key": token } : {}) },
-        body: JSON.stringify({ TransactionId: transaction, LoanNumber: "1234567890", LoanStatus: "Completed",
-          LogDateTime: "2026-11-11T00:00:00Z" }) });
+        body: JSON.stringify(body) });
+    const number = "1234567890", otherNumber = "1234567891";
+    const send = (environment, token, hour = "02", loanNumber = number) => webhook(environment, "import", token, {
+      TransactionId: transactionId, LoanNumber: loanNumber, LoanStatus: "Completed", LogDateTime: `2026-11-11T${hour}:00:00Z`,
+    });
+    const conditions = (id, loanNumber = number) => webhook("production", "conditions", webhookToken, {
+      id, category: "Income", bucketKey: "income", conditionDescription: "Fictional condition", conditionSatisfactionDate: null,
+      loanNumber, loanStatus: "Approved With Conditions",
+    });
+    const receipts = async (id) => {
+      const response = await runtime.dispatchFetch(`${origin}/api/uwm-webhook-receipts?brokerage=${id}`,
+        { headers: { Cookie: `__Host-orbit-session=${owner.token}` } });
+      assert.equal(response.status, 200);
+      return (await response.json()).receipts;
+    };
     assert.equal((await send("production", null)).status, 401);
     assert.equal((await send("stage", webhookToken)).status, 404);
     assert.equal((await view(lenderOfficer)).requests[0].state, "Unknown");
+    await fixture.setImportCommitFixture(operationId, false);
+    const early = await send("production", webhookToken, "01", otherNumber);
+    assert.equal(early.status, 200);
+    const earlyId = (await early.json()).receipt.receiptId;
+    assert.equal((await view(lenderOfficer)).imports[0].state, "Prepared");
+    assert.equal((await conditions("early", otherNumber)).status, 200);
+    assert.equal((await receipts(lenderInbox))[0].loanNumber, otherNumber);
+    await fixture.setImportCommitFixture(operationId, true);
+    const earlyRetry = (await (await send("production", webhookToken, "01", otherNumber)).json()).receipt;
+    assert.equal(earlyRetry.receiptId, earlyId);
+    assert.equal(earlyRetry.duplicate, true);
+    assert.equal((await view(lenderOfficer)).requests[0].state, "Unknown");
+
+    await fixture.interruptNextImportCompletion();
+    assert.equal((await send("production", webhookToken)).status, 503);
+    assert.equal((await view(lenderOfficer)).requests[0].state, "Unknown");
+    assert.equal((await conditions("pending")).status, 200);
+    assert.equal((await receipts(lenderInbox))[0].loanNumber, number);
     const receipt = await send("production", webhookToken);
     assert.equal(receipt.status, 200);
     const saved = (await receipt.json()).receipt;
+    assert.equal(saved.duplicate, true);
     const accepted = await view(lenderOfficer);
     assert.equal(accepted.imports[0].lenderLoanNumber, "1234567890");
     assert.deepEqual(accepted.requests.map(({ id, state }) => [id, state]), [[requestId, "Reconciled"]]);
@@ -4289,10 +4335,12 @@ try {
     assert.equal(repeat.receiptId, saved.receiptId);
     await fixture.restartMaintenanceFixture().catch(() => {});
     assert.equal((await view(lenderOfficer)).requests[0].state, "Reconciled");
-    const inbox = await runtime.dispatchFetch(`${origin}/api/uwm-webhook-receipts?brokerage=${lenderInbox}`,
-      { headers: { Cookie: `__Host-orbit-session=${owner.token}` } });
-    assert.equal(inbox.status, 200);
-    assert.deepEqual((await inbox.json()).receipts, []);
+    assert.equal((await send("production", webhookToken, "03", otherNumber)).status, 200);
+    assert.equal((await conditions("conflicting", otherNumber)).status, 200);
+    assert.equal((await conditions("verified")).status, 200);
+    assert.deepEqual((await receipts(lenderInbox)).map((row) => [row.kind, row.loanNumber]),
+      [["conditions", otherNumber], ["conditions", number], ["conditions", otherNumber]]);
+    assert.deepEqual((await receipts(lenderBrokerage)).filter((row) => row.kind === "conditions").map((row) => row.loanNumber), [number]);
   });
 
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,

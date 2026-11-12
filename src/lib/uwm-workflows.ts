@@ -8,6 +8,8 @@ import { uwmPublicClient, UwmRequestError } from "./uwm-public-client";
 import { bindUwmTransaction, correlateUwmImport, prepareUwmOperation, uwmRequestDigest } from "./uwm-operations";
 import { requireUwmBranchContact, uwmScanRequest, uwmScanResponse, uwmLoanNumber, uwmDocumentName,
   uwmConditionAttachments, uwmProductSearch, uwmFloatRequest, uwmLockRequest, uwmRelockRequest } from "./uwm-public-contracts";
+import type { UwmWebhookEvent } from "./uwm-webhooks";
+import type { UwmWebhookRoute, UwmWebhookRouteKey } from "./uwm-routing";
 
 const base = { id: z.uuid(), loanId: z.uuid(), applicationRevision: z.number().int().positive(), confirmed: z.literal(true) };
 export const uwmWorkflowRequest = z.discriminatedUnion("action", [
@@ -67,6 +69,31 @@ function importCheck(db: Store, staff: WorkspaceStaff, input: Input & { importId
     throw new UwmError("This import is unavailable or already sent. Check its activity before continuing.");
   }
   return { op, check, transactionId: String(op.transactionId), scan: uwmScanResponse.parse(JSON.parse(String(check.scan))) };
+}
+
+export function uwmImportCallbackAllowed(db: Store, route: UwmWebhookRoute, event: UwmWebhookEvent) {
+  const op = db.prepare(`SELECT op.state, op.lenderLoanNumber, op.receiptId FROM uwm_operations op
+    JOIN uwm_import_checks checks ON checks.operationId = op.id AND checks.committed = 1
+    WHERE op.id = ? AND op.kind = 'import' AND op.environment = ? AND op.transactionId = ?`)
+    .get(route.operationId, event.environment, event.transactionId);
+  const status = JSON.parse(event.body).LoanStatus;
+  if (!op || !["Completed", "NotCompleted"].includes(status)) return false;
+  if (op.state === "Completed" || op.state === "Failed") {
+    return Boolean(op.receiptId) && op.lenderLoanNumber === event.loanNumber &&
+      (op.state === "Completed" ? status === "Completed" : status === "NotCompleted");
+  }
+  return ["Dispatching", "Acknowledged", "Unknown"].includes(String(op.state));
+}
+
+export function uwmLoanRouteVerified(db: Store, route: UwmWebhookRoute, event: UwmWebhookRouteKey) {
+  return Boolean(db.prepare(`SELECT 1 FROM uwm_operations op
+    JOIN uwm_import_checks checks ON checks.operationId = op.id AND checks.committed = 1
+    JOIN uwm_webhook_receipts receipt ON receipt.id = op.receiptId AND receipt.kind = 'import'
+      AND receipt.environment = op.environment AND receipt.transactionId = op.transactionId AND receipt.loanNumber = op.lenderLoanNumber
+      AND receipt.heldImport = 0 AND json_extract(receipt.body, '$.LoanStatus') = 'Completed'
+    WHERE op.id = ? AND op.kind = 'import' AND op.state = 'Completed' AND op.environment = ?
+      AND op.transactionId = ? AND op.lenderLoanNumber = ?`)
+    .get(route.operationId, event.environment, route.transactionId, event.loanNumber));
 }
 
 export function reconcileUwmImportReceipt(db: Store, receiptId: number) {
