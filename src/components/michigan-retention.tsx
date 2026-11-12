@@ -233,14 +233,18 @@ function CategoryReview({ brokerageId, target, category }: { brokerageId: string
   </div>;
 }
 
-export function MichiganRetention({ brokerageId, target, onBack }: { brokerageId: string; target: Target; onBack: () => void }) {
+export function MichiganRetention({ brokerageId, target, onBack, backLabel }: {
+  brokerageId: string; target: Target; onBack: () => void; backLabel?: string;
+}) {
   const [category, setCategory] = useState<Category>(target.kind === "loan" ? "Closed loan file" : "Other business records");
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { heading.current?.focus(); }, []);
   return <div className="integration manager-panel record-form loan-retention">
     <div className="section-heading">
       <h2 ref={heading} tabIndex={-1}>Michigan retention evidence</h2>
-      <Button type="button" variant="outline" onClick={onBack}>{target.kind === "loan" ? "Back to loan retention" : "Back to business records"}</Button>
+      <Button type="button" variant="outline" onClick={onBack}>
+        {backLabel ?? (target.kind === "loan" ? "Back to loan retention" : "Back to business records")}
+      </Button>
     </div>
     <p className="break-words"><strong>{target.label}</strong></p>
     <p className="muted">Review applicable state and federal dates and holds before disposition. <a className="underline" href={stateSource}>Michigan DIFS guidance</a></p>

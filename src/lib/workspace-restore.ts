@@ -41,7 +41,7 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
     "compliance_michigan_loan_practices_versions"];
   if(programTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Compliance program records changed. Reconcile entity profiles, work and review evidence before restoring.");
-  const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews"];
+  const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews","michigan_retention_reviews"];
   if(retentionTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Loan retention evidence changed. This checkpoint requires a separate retention review.");
   result.push(...processorRestoreBlockers(before,current));

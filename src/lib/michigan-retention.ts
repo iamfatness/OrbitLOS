@@ -58,6 +58,11 @@ type ExportReview = Review & {
   activeHold: boolean | null;
 };
 type StoredReview = { version: unknown; evidence: unknown; finding: unknown; at: unknown; actor: unknown };
+export type MichiganDispositionEvidence = {
+  versions: { id: string; category: Evidence["category"]; version: number; reviewDate: string | null }[];
+  stateReviewDate: string | null;
+  gap: string | null;
+};
 
 function readReview(row: StoredReview): Review {
   return { version: Number(row.version), evidence: JSON.parse(String(row.evidence)),
@@ -80,6 +85,42 @@ export function readMichiganRetentionExport(db: Store, loanId: string | null, li
 
 export function michiganLoanState(draft: string) {
   return `upper(trim(json_extract(CASE WHEN json_valid(${draft}) THEN ${draft} END, '$.propertyLocation.state')))`;
+}
+
+export function michiganDispositionEvidence(db: Store, loanId: string, propertyState: string | null, outcome: string): MichiganDispositionEvidence | null {
+  const latest = db.prepare(`SELECT r.id,r.version,r.evidence,r.finding,r.at,r.actor FROM michigan_retention_reviews r
+    WHERE r.targetKind='loan' AND r.targetId=? AND r.version=(SELECT max(v.version) FROM michigan_retention_reviews v
+      WHERE v.targetKind='loan' AND v.targetId=r.targetId AND v.category=r.category)
+    ORDER BY r.category`).all(loanId).map(row => ({ id: String(row.id), ...readReview(row as StoredReview) }));
+  if (propertyState !== "MI" && !latest.length) return null;
+  const versions = latest.map(row => ({ id: row.id, category: row.evidence.category, version: row.version, reviewDate: row.finding.date }));
+  const missing = (gap: string) => ({ versions, stateReviewDate: null, gap });
+  if (propertyState && propertyState !== "MI") return missing("Reconcile the property state with the Michigan evidence.");
+  if (outcome !== "Funded") {
+    const application = latest.find(row => row.evidence.category === "Unsuccessful application");
+    if (!application || application.evidence.category !== "Unsuccessful application")
+      return missing("Record Michigan evidence for the unsuccessful application.");
+    if (outcome === "Withdrawn" && application.evidence.outcome !== "Withdrawn")
+      return missing("Reconcile the recorded withdrawal with the Michigan application outcome.");
+    if (!application.finding.date) return missing("Record counsel’s retention date for the unsuccessful application.");
+    return { versions, stateReviewDate: application.finding.date, gap: null };
+  }
+  const closed = latest.find(row => row.evidence.category === "Closed loan file");
+  if (!closed || closed.evidence.category !== "Closed loan file")
+    return missing("Record Michigan evidence for the closed loan file.");
+  if (!closed.finding.date) return missing("Resolve the Michigan closing, role or transfer evidence.");
+  const copies = latest.find(row => row.evidence.category === "Transferred copies");
+  if (closed.evidence.transfer.status !== "Transferred") {
+    if (copies) return missing("Reconcile the closed file with the recorded transferred copies.");
+    return { versions, stateReviewDate: closed.finding.date, gap: null };
+  }
+  if (!copies || copies.evidence.category !== "Transferred copies")
+    return missing("Record Michigan evidence for the specified transferred copies.");
+  if (copies.evidence.authority !== closed.evidence.authority || copies.evidence.closedOn !== closed.evidence.closedOn ||
+    copies.evidence.transferredOn !== closed.evidence.transfer.date)
+    return missing("Reconcile the license scope and dates for the closed file and transferred copies.");
+  if (!copies.finding.date) return missing("Resolve the Michigan retention date for the transferred copies.");
+  return { versions, stateReviewDate: copies.finding.date > closed.finding.date ? copies.finding.date : closed.finding.date, gap: null };
 }
 
 function anniversary(trigger: string, years: number) {
