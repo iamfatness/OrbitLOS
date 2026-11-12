@@ -565,3 +565,7 @@ Application `5ba15236711f`. Impeccable Operate informed the distinction between 
 ### Michigan revised Loan Estimate review
 
 The charge picker follows Orbit’s existing disclosure form and version history. The LO can select the exact original and revised snapshots and see each selected amount and the timing issue together. On a stale save the selections stay in the form. A withdrawn source leaves the review open. The assigned processor sees the same evidence in a read-only view. The populated form and review were checked on desktop, portrait and phone.
+
+### Michigan closing evidence
+
+Impeccable Polish informed the hierarchy between dates, outcome and exact source records. UI UX Pro Max feedback guidance informed retaining the selected records through stale-save recovery. The existing disclosure, native field and evidence-row patterns provided the component reference. Short choices keep the exact version readable below the selected control on phone. Inspected populated refund, corrected timing and unavailable source states on desktop, portrait and phone. See [UI review coverage](ui-review-coverage.md).

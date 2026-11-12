@@ -1299,3 +1299,7 @@ Worker `3ba79b71-c220-4dbe-9f23-c0efa5c131a5` serves app `5ba15236711f`. Fiction
 ### Michigan revised Loan Estimate review pilot
 
 Worker `9bc9df67-c3d6-47e7-b5ca-d39f730c126e` serves app `3e6679d0d8f5`. Fictional owner and LO selected exact disclosure versions and two charges, recovered a stale save, and reviewed the proposed amounts and date evidence. The assigned processor saw the chronology, then saw proposed amounts removed when the revised snapshot was withdrawn. The original comparison remained available. Public Demo and signed-out routes passed staged and live. The existing signed-in desktop workspace reloaded into the same brokerage after publication. No provider actions or production loan changes occurred.
+
+### Michigan refund and corrected Closing Disclosure evidence
+
+Worker `49c96af9-270a-4478-b13b-d6dcf701db48` serves app `f24e0c333654`. A fictional owner recorded and reviewed a corrected disclosure and the LO recorded the linked refund after a stale-save retry. The assigned processor reviewed the original and restarted dates, missing receipt and separately recorded refund and disclosure dates. Withdrawing the closing snapshot preserved refund timing and removed the amount comparison. Withdrawing the corrected send reopened its check. The processor reopened the file after reload. Public Demo and signed-out routes passed staged and live. The signed-in desktop reloaded into the same brokerage. No provider actions or production loan changes occurred.
