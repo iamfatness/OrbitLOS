@@ -686,3 +686,9 @@ The fictional browser exercised an owner's published rule, both applicant previe
 Impeccable Polish informed the owner editor and the placement of the preview directly before confirmation. UI UX Pro Max guided the visible labels, focus on the preview, and recovery when a newer template version appears. Orbit reused its 21st.dev-informed disclosure, form and receipt patterns.
 
 The fictional browser opened a populated owner template and its original version history, then previewed and issued from a selected loan. Publishing a newer template from the owner tab triggered a stale preview error. Refresh preserved the entered amount and selection, and editing the amount invalidated the prior preview. Inspected the desktop and phone editor, history, preview and issued-version captures in `.orbit/preapproval-templates-*.png`. The 900 px layouts were also exercised. Inspected the rendered one-page PDF for the fictional banner, amount, expiry, note and footer.
+
+### Brokerage sample letter limits and review
+
+Impeccable Polish informed the aligned limit fields and the separation of issuance from the subsequent sharing decision. UI UX Pro Max feedback, label, and mobile input guidance informed the policy editor, stale preview recovery and required return reason. Orbit reused the established 21st.dev-informed disclosure, document rows, and loan drawer focus pattern.
+
+The fictional browser tested the editor and focused cancel return, a stale preview during a concurrent policy save, a populated and filtered owner queue, direct loan navigation and focus, returning a letter, and approving the replacement. It verified that the LO had to publish separately after approval. Inspected final desktop and phone editor, preview, pending, queue, return and receipt captures in `.orbit/preapproval-policy-*.png`. The 900 × 1200 layouts were also exercised.
