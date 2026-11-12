@@ -12,6 +12,7 @@ This is a source-linked research baseline and engineering specification, **not a
 - [Compliance Risk & Gaps plan](risk-and-gaps-plan.md) and [product/engineering specification](risk-and-gaps-spec.md): the next workstream after UWM, covering operational dashboards, file-level findings, ownership, evidence review, action gates, confidentiality and ongoing maintenance. These are planned capabilities, not current enforcement.
 - Machine-readable sources: [federal](federal-sources.json), [first 25 states](state-sources-a-m.json), [remaining 25 states](state-sources-m-w.json).
 - **Workspace → Compliance → Research & gaps**: pilot-admin source explorer and persistent requirement-review/control-gap workflow. See [implemented pilot slice](research-workspace-implementation.md) for access, storage, validation and remaining scope.
+- [FV7 reporting preparation](mcr-fv7-preflight.md) records the pinned schema, Michigan fictional pipeline rehearsal, and the data needed to connect it to quarterly review.
 
 The state JSON entries summarize research; full notes, multiple sources and unresolved issues live in the state documents. Federal and state sources must be read together. Common state workstreams are review prompts, not a representation that every state imposes an identical rule.
 
