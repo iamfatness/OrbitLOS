@@ -98,7 +98,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
     {returnToBrokerageLicenses && <div><Button size="sm" variant="outline" className="min-h-10 max-sm:min-h-11"
       disabled={paused} onClick={returnToBrokerageLicenses}>Back to States &amp; licenses</Button></div>}
     {returnToRenewals && <div><Button size="sm" variant="outline" disabled={paused} onClick={returnToRenewals}>Back to license renewals</Button></div>}
-    {view !== "Home" && !report && <div><Button size="sm" variant="outline" disabled={paused} onClick={() => show("Home")}>Back to Compliance home</Button></div>}
+    {view !== "Home" && !report && !(view === "Licensing" && returnToRenewals) && <div><Button size="sm" variant="outline" disabled={paused} onClick={() => show("Home")}>Back to Compliance home</Button></div>}
     {report && <section className="record-form" aria-label="Reporting from Compliance">
       <div><Button size="sm" variant="outline" onClick={() => { returningFromReport.current = true; setReport(undefined); }}>Back to review item</Button></div>
       <div className="integration manager-panel record-form">
@@ -115,7 +115,8 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
         openLicense={target => { setSetup(undefined); setLocalLicense(target); show("Licensing", `compliance-renewal-${target.licenseId}`); }}
         openReview={target => { setReview(target); show("Monthly review", `compliance-review-${target.itemId}`); }} />}
       {view === "Licensing" && <ComplianceLicensing key={brokerageId} brokerageId={brokerageId} paused={paused}
-        initialTarget={localLicense ?? licenseTarget} setupEntity={setup === "company"} onLicenseSaved={onLicenseSaved} />}
+        initialTarget={localLicense ?? licenseTarget} setupEntity={setup === "company"} onLicenseSaved={onLicenseSaved}
+        returnFromRenewal={returnToRenewals ?? (() => show("Home"))} />}
       {view === "Policy acknowledgments" && <CompliancePolicyFollowUp brokerageId={brokerageId} paused={paused} />}
       {view === "Filing history" && <ComplianceFilingArchive brokerageId={brokerageId} paused={paused} />}
       {view === "Loan retention" && <LoanRetention brokerageId={brokerageId} paused={paused} openLoan={openLoan} openEvidence={openEvidence} />}
