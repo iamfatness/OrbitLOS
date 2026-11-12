@@ -2156,6 +2156,19 @@ try {
     await loanAction(officer, loanId, "prepareDisclosurePackage", { ...prepare(affected.disclosureWork.suggestedDeadline, 2, 2),
       feeRevision: controlledFee.revision + 1, reviewedPackageRevision: affected.disclosureWork.packages[0].revision,
       revisionNote: "Reviewed the revised sample settlement fee." });
+    const issueWork = (await fileExceptions("Disclosure reviews")).items.find((item) => item.loanId === loanId);
+    assert.equal(issueWork.action, "Issue revised sample disclosure package");
+    assert.equal(issueWork.target, "loan-disclosures");
+    assert.equal((await sidebar(owner)).exceptions, beforeFeeReview + 1);
+    await loanAction(officer, loanId, "issueDisclosurePackage", await version());
+    assert.ok(!(await fileExceptions("Disclosure reviews")).items.some((item) => item.loanId === loanId));
+    await loanAction(officer, loanId, "respondToDisclosurePackage", { ...await version(), signer: "Borrower", response: "Signed" });
+    const confirmWork = (await fileExceptions("Disclosure reviews")).items.find((item) => item.loanId === loanId);
+    assert.equal(confirmWork.action, "Confirm revised sample package for closing");
+    assert.equal(confirmWork.target, "closing-disclosure-review");
+    await loanAction(processor, loanId, "confirmClosingDisclosure", await version());
+    assert.deepEqual((await file(officer, loanId)).disclosureWork.closingReviews.map(({ version, current }) => [version, current]),
+      [[3, true], [2, false]]);
     assert.ok(!(await fileExceptions("Disclosure reviews")).items.some((item) => item.loanId === loanId));
     assert.equal((await sidebar(owner)).exceptions, beforeFeeReview);
   });
