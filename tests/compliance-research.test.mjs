@@ -88,7 +88,8 @@ test("specific requirements preserve independent review cases and counsel questi
     new Set(stateRolloutSources.map(item => item.jurisdiction)),
   );
   const rolloutRequirements = {
-    MI: ["REQ-MI-LOAN-FEES", "REQ-MI-LOAN-BOOKLET", "REQ-MI-OUTREACH-ADVERTISING"],
+    MI: ["REQ-MI-LOAN-FEES", "REQ-MI-LOAN-BOOKLET", "REQ-MI-LOAN-CMPA-SERVICE", "REQ-MI-LOAN-CMPA-INTEGRITY",
+      "REQ-MI-LOAN-CMPA-APPRAISAL", "REQ-MI-LOAN-CMPA-PREMIUM", "REQ-MI-LOAN-CMPA-TERM", "REQ-MI-OUTREACH-ADVERTISING"],
     OH: ["REQ-OH-REPORTING-MCR"],
     IN: ["REQ-IN-LOAN-AGREEMENT"],
     IL: ["REQ-IL-REPORTING-ACTIVITY"],
