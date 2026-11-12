@@ -14,15 +14,16 @@ const actions = {
   closing: "Record planned consummation", void: "Withdraw incorrect evidence",
 } as const;
 const dates = (value: string) => value.split(/[\s,]+/).filter(Boolean);
+const recordedWhen = (event: { on: string; localTime?: string }) => event.localTime ? `${event.on} ${event.localTime}` : event.on;
 
 function describe(event: TridEvent) {
   switch (event.type) {
     case "scope": return `Scope and calendar for ${event.creditor}`;
     case "element": return `${tridElements[event.element]} received ${event.on}`;
     case "sent": return `${event.document} · ${event.version} · Sent ${event.on} by ${event.sender} via ${event.method}`;
-    case "received": return `${event.document} · ${event.version} · Received ${event.on}${event.localTime ? ` ${event.localTime}` : ""}`;
-    case "intent": return `Intent to proceed · Receipt ${event.receiptSequence} · ${event.on}${event.localTime ? ` ${event.localTime}` : ""}`;
-    case "fee": return `${event.name} · ${event.activity} · ${event.on}${event.localTime ? ` ${event.localTime}` : ""}${event.intentSequence ? ` · Intent ${event.intentSequence}` : ""}`;
+    case "received": return `${event.document} · ${event.version} · Received ${recordedWhen(event)}`;
+    case "intent": return `Intent to proceed · Receipt ${event.receiptSequence} · ${recordedWhen(event)}`;
+    case "fee": return `${event.name} · ${event.activity} · ${recordedWhen(event)}${event.intentSequence ? ` · Intent ${event.intentSequence}` : ""}`;
     case "closing": return `Planned consummation ${event.on}`;
     case "void": return `Withdrew entry ${event.sequence}`;
   }
@@ -34,6 +35,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<Evidence>();
   const [action, setAction] = useState<keyof typeof actions>("scope");
+  const [linkedSequence, setLinkedSequence] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
   const [readError, setReadError] = useState("");
@@ -109,6 +111,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
       if ("error" in result.result) throw new Error(result.result.error);
       setData(result.result);
       setFormRevision(revision => revision + 1);
+      setLinkedSequence("");
       retry.current = null;
       setMessage({ text: "Evidence recorded." });
     } catch (error) {
@@ -125,6 +128,11 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
   const receiptDates = new Map(active.flatMap(({ event }) => event.type === "element" ? [[event.element, event.on] as const] : []));
   const estimateReceipts = active.filter(({ event }) => isLoanEstimateReceipt(event));
   const intents = active.filter(({ event }) => event.type === "intent");
+  const selectedLink = entriesByNumber.get(Number(linkedSequence));
+  const selectedReceipt = selectedLink?.type === "intent" ? entriesByNumber.get(selectedLink.receiptSequence) : selectedLink;
+  const linkedEstimate = selectedReceipt && isLoanEstimateReceipt(selectedReceipt)
+    ? `${selectedReceipt.document} · ${selectedReceipt.version} · Received ${recordedWhen(selectedReceipt)}`
+    : selectedLink?.type === "intent" ? "The linked Loan Estimate receipt needs review." : "";
   return <details className="details-section trid-evidence" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>TRID application and delivery evidence</summary>
     {open && <div className="record-form compliance-pilot-form">
@@ -163,7 +171,8 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
         {readOnly ? <p className="muted">Evidence is read-only for this view.</p> : <section className="record-form" aria-label="Record evidence">
           <h3>Record evidence</h3>
           <p className="muted">Use source references. Leave out SSNs and other borrower values.</p>
-          <label className="field">Evidence to record<select disabled={busy} value={action} onChange={e => setAction(e.target.value as keyof typeof actions)}>
+          <label className="field">Evidence to record<select disabled={busy} value={action}
+            onChange={e => { setAction(e.target.value as keyof typeof actions); setLinkedSequence(""); setMessage(undefined); }}>
             {Object.entries(actions).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>
           {message && <div ref={feedback} tabIndex={-1} className={message.error ? "application-message banner-error" : "application-message"}
@@ -199,9 +208,12 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
                 <label className="field">Consent evidence reference (required for electronic delivery)<input name="consentReference" maxLength={180} /></label>
               </>}
               {action === "intent" && <>
-                <label className="field">Loan Estimate receipt<select name="receiptSequence" required><option value="">Choose a receipt</option>
-                  {estimateReceipts.map(({ sequence, event }) => <option key={sequence} value={sequence}>{sequence}. {describe(event)}</option>)}
+                <label className="field">Loan Estimate receipt<select name="receiptSequence" required value={linkedSequence} onChange={e => setLinkedSequence(e.target.value)}>
+                  <option value="">Choose a receipt</option>
+                  {estimateReceipts.map(({ sequence, event }) => isLoanEstimateReceipt(event) &&
+                    <option key={sequence} value={sequence}>#{sequence} · {event.document} · {event.on}</option>)}
                 </select></label>
+                {linkedEstimate && <p className="muted">{linkedEstimate}</p>}
                 {!estimateReceipts.length && <p className="muted">Record the Loan Estimate receipt first.</p>}
               </>}
               {action === "fee" && <>
@@ -210,9 +222,12 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
                   <label className="field">Fee category<select name="feeCategory"><option>Other</option><option>Credit report</option></select></label>
                   <label className="field">Activity<select name="feeActivity"><option>Fee imposed</option><option>Payment method required</option></select></label>
                 </div>
-                <label className="field">Linked intent to proceed<select name="intentSequence"><option value="">Leave unlinked for review</option>
-                  {intents.map(({ sequence, event }) => <option key={sequence} value={sequence}>{sequence}. {describe(event)}</option>)}
+                <label className="field">Linked intent to proceed<select name="intentSequence" value={linkedSequence} onChange={e => setLinkedSequence(e.target.value)}>
+                  <option value="">Leave unlinked for review</option>
+                  {intents.map(({ sequence, event }) => event.type === "intent" &&
+                    <option key={sequence} value={sequence}>#{sequence} · {recordedWhen(event)}</option>)}
                 </select></label>
+                {linkedEstimate && <p className="muted">{linkedEstimate}</p>}
                 <p className="muted">Use the first time the fee or payment method was required. Record references only. Leave payment details out.</p>
               </>}
               {action === "void" ? <label className="field">Entry to withdraw<select name="sequence" required><option value="">Choose an entry</option>
