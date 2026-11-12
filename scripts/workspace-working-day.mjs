@@ -1877,6 +1877,28 @@ try {
       assert.match(closingTiming.correctedCds.find(item => item.sequence === 27).status, /falls short/);
       assert.equal((await recordTrid(owner, 29, { type: "void", sequence: 25, reference: "Fictional send withdrawn" })).result.revision, 30);
       assert.match((await readTrid(processor)).result.feeCures[0].correctionStatus, /Needs linked/);
+      const charge = { type: "miChargeReview", key: "Appraisal", name: "Fictional appraisal", category: "Actual expense",
+        applicability: "First mortgage by this licensee or registrant", chargedCents: 12000, paidCents: 12000,
+        collections: 2, expenseCents: 10000, expenseReference: "Fictional invoice", reference: "Fictional fee ledger" };
+      assert.ok((await recordTrid(processor, 30, charge)).result.error);
+      const chargeRequest = randomUUID();
+      const chargeResult = (await recordTrid(owner, 30, charge, chargeRequest)).result;
+      assert.equal(chargeResult.revision, 31);
+      assert.equal((await recordTrid(owner, 30, charge, chargeRequest)).result.revision, 31);
+      assert.match((await recordTrid(owner, 31, { ...charge, key: " appraisal " })).result.error, /earlier review/);
+      assert.match(chargeResult.michiganCharges[0].issues.join(" "), /Multiple collections.*exceeds the recorded actual expense/);
+      assert.deepEqual((await readTrid(processor)).result.michiganCharges, chargeResult.michiganCharges);
+      const chargeWithdrawal = (await recordTrid(owner, 31, { type: "void", sequence: 31, reference: "Fictional duplicate entry corrected" })).result;
+      assert.equal(chargeWithdrawal.revision, 32);
+      assert.deepEqual(chargeWithdrawal.michiganCharges, []);
+      assert.equal(chargeWithdrawal.entries.find(entry => entry.sequence === 31).event.expenseReference, "Fictional invoice");
+      const guarantee = { type: "miChargeReview", key: "guarantee", name: "Fictional guarantee", category: "Rate guarantee",
+        applicability: "First mortgage by this licensee or registrant", chargedCents: 10000, paidCents: 0,
+        collections: 0, originalExpiry: "2026-07-15", termsReference: "Fictional written terms",
+        extension: "Extended", extendedExpiry: "2026-07-20", reference: "Fictional guarantee record" };
+      const guaranteeResult = (await recordTrid(officer, 32, guarantee)).result;
+      assert.match(guaranteeResult.michiganCharges[0].issues.join(" "), /written extension agreed to by all parties/);
+      assert.equal(guaranteeResult.timing.initialCdEarliest, closingTiming.timing.initialCdEarliest);
     }
     await loanAction(officer, loanId, "useReviewedLoanAmount", { revision: app.revision, previousAmount: currentFile.loans[0].amount });
     const [fee] = currentFile.feeWorksheets;

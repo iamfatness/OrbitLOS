@@ -5,6 +5,7 @@ import { activeTridEntries, tridLocalDate, tridTiming } from "./trid-timing";
 import { isLoanEstimateReceipt, type TridEntry, type TridEvent, type TridRequest } from "./trid-model";
 import { estimateRevisionBasis, reviewDisclosureFees, reviewEstimateRevisions } from "./trid-fee-evidence";
 import { feeCureBasis, reviewCorrectedCds, reviewFeeCures } from "./trid-closing-review";
+import { reviewMichiganCharges } from "./michigan-charge-review";
 
 export function initializeTridEvidence(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS compliance_trid_evidence (
@@ -36,7 +37,7 @@ function validateEvent(event: TridEvent, entries: TridEntry[], now: string) {
   if (event.type === "void") {
     const target = active.find(entry => entry.sequence === event.sequence)?.event;
     if (!target) return "Select an active evidence entry.";
-    if (target.type === "scope" && active.some(entry => "on" in entry.event)) {
+    if (target.type === "scope" && active.some(entry => "on" in entry.event || entry.event.type === "miChargeReview")) {
       return "Record an updated scope instead of withdrawing the scope for existing evidence.";
     }
     if (target.type === "sent" && receipts.some(item => item.document === target.document && item.version === target.version)) {
@@ -50,6 +51,11 @@ function validateEvent(event: TridEvent, entries: TridEntry[], now: string) {
     return;
   }
   if (!scope) return "Record the covered scenario and office calendar first.";
+  if (event.type === "miChargeReview") {
+    if (active.some(entry => entry.event.type === "miChargeReview" && entry.event.key === event.key))
+      return "Withdraw the earlier review for this charge before recording a correction.";
+    return;
+  }
   if (event.type === "feeSnapshot") {
     const source = active.find(entry => entry.sequence === event.evidenceSequence)?.event;
     if (source?.type !== "sent") {
@@ -147,6 +153,7 @@ export function tridEvidenceWork(db: Store, input: TridRequest, staff: Workspace
       estimateRevisions: reviewEstimateRevisions(active),
       feeCures: reviewFeeCures(active),
       correctedCds: reviewCorrectedCds(active),
+      michiganCharges: reviewMichiganCharges(active),
     };
   };
   if (input.operation === "read") return current();

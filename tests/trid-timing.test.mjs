@@ -12,6 +12,26 @@ registerHooks({ resolve(specifier, context, next) {
 const { tridElements } = await import("../src/lib/trid-model.ts");
 const { preciseBusinessDay, tridTiming } = await import("../src/lib/trid-timing.ts");
 const { reviewEstimateRevisions } = await import("../src/lib/trid-fee-evidence.ts");
+const { michiganChargeReview, reviewMichiganCharges } = await import("../src/lib/michigan-charge-review.ts");
+
+test("Michigan charge evidence distinguishes unknown amounts, expense gaps and written extensions", () => {
+  const base = { type: "miChargeReview", key: " Guarantee ", name: "Fictional guarantee", category: "Rate guarantee",
+    applicability: "First mortgage by this licensee or registrant", chargedCents: 10000, paidCents: 0, collections: 0,
+    termsReference: "Written terms", originalExpiry: "2026-07-15", extension: "Extended", extendedExpiry: "2026-07-20",
+    extensionReference: "All parties' written extension", reference: "Fictional ledger" };
+  const parse = input => michiganChargeReview.parse(input);
+  const review = input => reviewMichiganCharges([{ sequence: 1, event: parse(input) }])[0].issues;
+  assert.equal(parse(base).key, "guarantee");
+  assert.deepEqual(review(base), []);
+  assert.match(review({ ...base, extensionReference: undefined })[0], /written extension/);
+  assert.match(review({ ...base, extendedExpiry: base.originalExpiry })[0], /does not move/);
+  assert.match(review({ ...base, paidCents: undefined })[0], /Reconcile/);
+  assert.equal(michiganChargeReview.safeParse({ ...base, collections: 2 }).success, false);
+  assert.equal(michiganChargeReview.safeParse({ ...base, extension: "No extension" }).success, false);
+  const expense = { type: base.type, key: "appraisal", name: "Fictional appraisal", category: "Actual expense",
+    applicability: "Unresolved", chargedCents: 12000, paidCents: 14000, collections: 2, expenseCents: 11000, reference: "Fictional ledger" };
+  assert.match(review(expense).join(" "), /Confirm the first mortgage.*Multiple collections.*payments exceed.*documented actual expense.*charge exceeds/);
+});
 
 test("revised LE dates use the office calendar and actual receipt uses the precise interval", () => {
   const original = { type: "sent", document: "Initial LE", version: "LE-1", sender: "Creditor", on: "2026-07-01" };

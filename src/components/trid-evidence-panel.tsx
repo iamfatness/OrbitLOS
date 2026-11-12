@@ -5,6 +5,7 @@ import { accessComplianceCases } from "@/app/actions";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
 import { correctedCdReasons, isLoanEstimateReceipt, tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
 import { Button } from "./ui/button";
+import { MichiganChargeEvidence, MichiganChargeFields, MichiganChargeReviews } from "./michigan-charge-review";
 import { parseTridDollars, readFeeSnapshotLines, TridClosingReviews, TridClosingSourceField, TridEstimateRevisionFields, TridEstimateRevisionReviews, TridFeeComparison, TridFeeSnapshotFields } from "./trid-fee-comparison";
 
 type Result = Extract<ComplianceCaseResult, { kind: "trid" }>["result"];
@@ -18,6 +19,7 @@ const actions = {
   consummated: "Record actual consummation",
   feeCure: "Record refund and cure evidence",
   correctedCdReview: "Record corrected disclosure review",
+  miChargeReview: "Record Michigan charge review",
 } as const;
 const dates = (value: string) => value.split(/[\s,]+/).filter(Boolean);
 const recordedWhen = (event: { on: string; localTime?: string }) => event.localTime ? `${event.on} ${event.localTime}` : event.on;
@@ -37,6 +39,7 @@ function describe(event: TridEvent) {
     case "consummated": return `Actual consummation ${event.on}`;
     case "feeCure": return `Refund evidence dated ${event.on} · Closing snapshot ${event.closingSequence}`;
     case "correctedCdReview": return `${event.reason} · Corrected disclosure entry ${event.sendSequence}`;
+    case "miChargeReview": return `Michigan charge · ${event.name} · ${event.key}`;
   }
 }
 
@@ -99,6 +102,17 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
       case "fee": input = { type: action, reference, on, localTime,
         intentSequence: get("intentSequence") ? Number(get("intentSequence")) : undefined,
         name: get("feeName"), category: get("feeCategory"), activity: get("feeActivity") }; break;
+      case "miChargeReview":
+        input = { type: action, reference, key: get("chargeKey"), name: get("chargeName"),
+          applicability: get("chargeApplicability"), category: get("chargeCategory"), chargedCents: parseTridDollars(get("charged")),
+          paidCents: get("paid") ? parseTridDollars(get("paid")) : undefined,
+          collections: get("collections") ? Number(get("collections")) : undefined,
+          expenseCents: get("expense") ? parseTridDollars(get("expense")) : undefined,
+          expenseReference: get("expenseReference").trim() || undefined,
+          termsReference: get("termsReference").trim() || undefined, originalExpiry: get("originalExpiry") || undefined,
+          extension: get("extension") || undefined, extendedExpiry: get("extendedExpiry") || undefined,
+          extensionReference: get("extensionReference").trim() || undefined };
+        break;
       case "closing": input = { type: action, reference, on }; break;
       case "feeSnapshot": input = { type: action, reference, evidenceSequence: Number(get("evidenceSequence")),
         complete: form.has("feeComplete"), lines: readFeeSnapshotLines(form) }; break;
@@ -196,6 +210,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
           </ul>
         </details>
         <TridFeeComparison active={active} />
+        <MichiganChargeReviews active={active} reviews={data.michiganCharges} />
         <TridEstimateRevisionReviews active={active} reviews={data.estimateRevisions} />
         <TridClosingReviews cures={data.feeCures} corrections={data.correctedCds} actualOn={actual?.event.type === "consummated" ? actual.event.on : undefined} />
         {readOnly ? <p className="muted">Evidence is read-only for this view.</p> : <section className="record-form" aria-label="Record evidence">
@@ -210,6 +225,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
           <form key={`${action}:${formRevision}`} onSubmit={record} className="record-form">
             <fieldset disabled={busy} className="record-form">
               {action === "feeSnapshot" && <TridFeeSnapshotFields active={active} />}
+              {action === "miChargeReview" && <MichiganChargeFields />}
               {action === "feeCure" && <>
                 <label className="field">Actual consummation<select name="consummationSequence" required>
                   <option value="">Choose recorded consummation</option>
@@ -288,7 +304,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
               {action === "void" ? <label className="field">Entry to withdraw<select name="sequence" required><option value="">Choose an entry</option>
                 {data.entries.filter(entry => entry.event.type !== "void" && !withdrawn.has(entry.sequence)).map(entry =>
                   <option value={entry.sequence} key={entry.sequence}>{entry.sequence}. {describe(entry.event)}</option>)}
-              </select></label> : action !== "scope" && action !== "feeSnapshot" && action !== "correctedCdReview" && <label className="field">{action === "closing" ? "Planned consummation date"
+              </select></label> : action !== "scope" && action !== "feeSnapshot" && action !== "correctedCdReview" && action !== "miChargeReview" && <label className="field">{action === "closing" ? "Planned consummation date"
                 : action === "sent" ? "Send date" : action === "intent" ? "Intent date" : action === "fee" ? "Activity date"
                 : action === "estimateRevision" ? "Date sufficient information was received" : action === "consummated" ? "Actual consummation date"
                 : action === "feeCure" ? "Refund date" : "Receipt date"}<input name="on" type="date" required /></label>}
@@ -305,6 +321,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
           {data.entries.length === 0 && <p>No evidence recorded.</p>}
           <ol className="document-list">{data.entries.map(entry => <li key={entry.sequence} className="document-item">
             <div><strong>{entry.sequence}. {describe(entry.event)}</strong><p>{entry.event.reference} · {entry.actor} · {entry.at}</p>
+              {entry.event.type === "miChargeReview" && <MichiganChargeEvidence event={entry.event} />}
               {withdrawn.has(entry.sequence) && <p>Withdrawn by a later entry</p>}</div>
           </li>)}</ol>
         </details>
