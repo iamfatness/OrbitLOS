@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { registerHooks } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 registerHooks({resolve(specifier,context,next){try{return next(specifier,context);}catch(error){if(error.code!=='ERR_MODULE_NOT_FOUND'||!specifier.startsWith('./'))throw error;return next(`${specifier}.ts`,context);}}});
 const {initializeStore}=await import('../src/lib/store.ts');
-const {partnerAccessWork}=await import('../src/lib/partner-access.ts');
+const {partnerAccessWork,sandboxEventAuthority,serveSandboxEvents}=await import('../src/lib/partner-access.ts');
 const {loadExplorationExamples}=await import('../src/lib/pilot-exploration.ts');
 const {readOfficerQueue,readWorkspaceCalendar}=await import('../src/lib/officer-queue.ts');
 const {readLeadInbox}=await import('../src/lib/lead-inbox-query.ts');
@@ -201,4 +202,25 @@ test('sandbox grant expiration and approver revision invalidate a previously all
  assert.equal(changed.check.decision,'Approval changed');
  assert.equal(changed.sample,undefined);
  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+
+test('sandbox credential reads enforce exact expiry and invalidate credentials after maintenance', t => {
+ const {db,admin,members}=fixture(t);
+ admin.brokerage.accessRevision=0;
+ const roster=members.map(member=>({...member,accessRevision:0}));
+ const at='2026-11-09T15:00:00.000Z', expiresAt='2026-11-10T15:00:00.000Z', id=crypto.randomUUID();
+ const grant=partnerAccessWork(db,admin,{type:'approve',id,name:'Fictional feed',scopes:['events.read'],expiresAt},roster,at);
+ assert.equal(grant.kind,'grant');
+ const issue=partnerAccessWork(db,admin,{type:'issueEventCredential',id,previous:null,operationId:crypto.randomUUID()},roster,at,0);
+ assert.equal(issue.kind,'eventCredential');
+ const secret=issue.bearer.split('.').at(-1);
+ const input={grantId:id,secretHash:createHash('sha256').update(secret).digest('hex')};
+ const authority=sandboxEventAuthority(db,input);
+ const reviewed={approval:authority.approval,credentialId:authority.credential.id,accessCurrent:true,maintenanceRevision:0};
+ assert.equal(serveSandboxEvents(db,input,'?limit=1',reviewed,at).status,200);
+ assert.equal(serveSandboxEvents(db,input,'?limit=1',{...reviewed,maintenanceRevision:2},at).status,403);
+ assert.equal(serveSandboxEvents(db,input,'?limit=1',reviewed,expiresAt).status,403);
+ assert.deepEqual(partnerAccessWork(db,admin,{type:'detail',id},roster,expiresAt).eventReceipts.map(receipt=>receipt.decision),
+  ['Expired','Workspace revision changed','Allowed']);
+ assert.equal(db.prepare('SELECT secretHash FROM partner_event_credentials').get().secretHash,input.secretHash);
 });

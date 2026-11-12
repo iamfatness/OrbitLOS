@@ -1882,7 +1882,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
                 fictional={Boolean(staff.brokerage.pilot) || staff.brokerage.id === demoBrokerageId}
                 openRecord={resource => resource.kind === "lead" ? openLeadWork(resource.id) :
                   void openQueueLoan({ kind: "details", loanId: resource.id })} />
-              <PartnerPermissions key={`partner:${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />
+              <PartnerPermissions key={`partner:${staff.brokerage.id}`} brokerageId={staff.brokerage.id} pilot={staff.brokerage.pilot === true} />
             </>}
           </section>}
           </>}

@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChevronDown, ShieldCheck } from "lucide-react";
 import { partnerCheckMessages, partnerPermissions, type PartnerCheckResult, type PartnerGrant, type PartnerGrantDetail,
-  type PartnerGrantPage, type PartnerPermission } from "@/lib/partner-access-model";
+  type PartnerGrantPage, type PartnerPermission, type PartnerCredentialIssue, type PartnerEventCredential } from "@/lib/partner-access-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
-type Response = PartnerGrantPage | PartnerGrantDetail | PartnerCheckResult;
+type Response = PartnerGrantPage | PartnerGrantDetail | PartnerCheckResult | PartnerCredentialIssue;
 const sampleLabels: Record<string, string> = {
   eventId: "Event ID", eventType: "Event type", source: "Source", leadId: "Lead ID", status: "Status",
   loanId: "Loan ID", stage: "Stage", nextAction: "Next action",
@@ -24,18 +24,18 @@ async function partnerRequest(endpoint: string, signal?: AbortSignal, action?: o
   return result;
 }
 
-export function PartnerPermissions({ brokerageId }: { brokerageId: string }) {
+export function PartnerPermissions({ brokerageId, pilot }: { brokerageId: string; pilot: boolean }) {
   const [open, setOpen] = useState(false);
   return <details className="uwm-deliveries automation-deliveries" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary><ShieldCheck size={19} aria-hidden="true" />
       <span><strong>Partner permissions</strong><small>Sandbox only</small></span>
       <ChevronDown className="uwm-disclosure-icon" size={17} aria-hidden="true" />
     </summary>
-    {open && <PartnerGrantList brokerageId={brokerageId} />}
+    {open && <PartnerGrantList brokerageId={brokerageId} pilot={pilot} />}
   </details>;
 }
 
-function PartnerGrantList({ brokerageId }: { brokerageId: string }) {
+function PartnerGrantList({ brokerageId, pilot }: { brokerageId: string; pilot: boolean }) {
   const endpoint = `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}&view=partner-permissions`;
   const [page, setPage] = useState<PartnerGrantPage>();
   const [read, setRead] = useState({ before: null as number | null, generation: 0 });
@@ -90,7 +90,7 @@ function PartnerGrantList({ brokerageId }: { brokerageId: string }) {
       setApprovedId(grant.id);
       refresh();
     }} />}
-    {selected && <GrantDetails key={selected} endpoint={endpoint} id={selected} recentlyApproved={approvedId === selected}
+    {selected && <GrantDetails key={selected} endpoint={endpoint} id={selected} pilot={pilot} recentlyApproved={approvedId === selected}
       onClose={close} onChanged={() => { setApprovedId(undefined); refresh(); }} />}
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {loading && <p className="muted" role="status">Loading grants…</p>}
@@ -162,8 +162,8 @@ function GrantForm({ endpoint, onClose, onSaved }: { endpoint: string; onClose: 
   </section>;
 }
 
-function GrantDetails({ endpoint, id, recentlyApproved, onClose, onChanged }: {
-  endpoint: string; id: string; recentlyApproved: boolean; onClose: () => void; onChanged: () => void;
+function GrantDetails({ endpoint, id, pilot, recentlyApproved, onClose, onChanged }: {
+  endpoint: string; id: string; pilot: boolean; recentlyApproved: boolean; onClose: () => void; onChanged: () => void;
 }) {
   const target = `${endpoint}&id=${encodeURIComponent(id)}`;
   const [detail, setDetail] = useState<PartnerGrantDetail>();
@@ -174,6 +174,8 @@ function GrantDetails({ endpoint, id, recentlyApproved, onClose, onChanged }: {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
   const [revoked, setRevoked] = useState(false);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const [credentialBusy, setCredentialBusy] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const feedback = useRef<HTMLParagraphElement>(null);
   const revokeButton = useRef<HTMLButtonElement>(null);
@@ -195,7 +197,7 @@ function GrantDetails({ endpoint, id, recentlyApproved, onClose, onChanged }: {
   async function refresh(before: number | null = null) {
     setLoading(true);
     setError("");
-    if (!before) setResult(undefined);
+    if (!before) { setResult(undefined); setRefreshCount(count => count + 1); }
     try {
       const value = await partnerRequest(target + (before ? `&before=${before}` : ""));
       if (value.kind !== "grant") throw new Error("Could not open the grant history.");
@@ -205,7 +207,7 @@ function GrantDetails({ endpoint, id, recentlyApproved, onClose, onChanged }: {
   }
 
   async function change(action: object) {
-    if (saving || loading) return;
+    if (saving || loading || credentialBusy) return;
     const key = JSON.stringify(action);
     if (pending.current?.key !== key) pending.current = { key, id: crypto.randomUUID() };
     setSaving(true);
@@ -246,12 +248,12 @@ function GrantDetails({ endpoint, id, recentlyApproved, onClose, onChanged }: {
       <p className="muted">Approved by {grant.approvedBy} · {dateTime(grant.approvedAt)} · Expires {dateTime(grant.expiresAt)}</p>
       {grant.revokedAt && <p className="muted">Revoked by {grant.revokedBy} · {dateTime(grant.revokedAt)}</p>}
       <div className="record-form">
-        <label className="field automation-destination-name">Permission to check<select value={selectedScope} disabled={saving || loading}
+        <label className="field automation-destination-name">Permission to check<select value={selectedScope} disabled={saving || loading || credentialBusy}
           onChange={event => { setScope(event.target.value as PartnerPermission); setResult(undefined); }}>
           {Object.entries(partnerPermissions).map(([key, permission]) => <option key={key} value={key}>{permission.label}</option>)}
         </select></label>
         <div className="loan-application-actions">
-          <Button type="button" size="sm" disabled={saving || loading || confirming} onClick={() =>
+          <Button type="button" size="sm" disabled={saving || loading || credentialBusy || confirming} onClick={() =>
             void change({ type: "check", clientId: grant.clientId, scope: selectedScope })}>{saving ? "Checking…" : "Run sandbox check"}</Button>
         </div>
         {result && <div className="record-form">
@@ -274,19 +276,115 @@ function GrantDetails({ endpoint, id, recentlyApproved, onClose, onChanged }: {
           }}>Cancel revocation</Button>
         </div>
       </div> : <div className="loan-application-actions"><Button ref={revokeButton} type="button" size="sm" variant="outline"
-        disabled={saving || loading} onClick={() => setConfirming(true)}>Revoke grant</Button></div>)}
+        disabled={saving || loading || credentialBusy} onClick={() => setConfirming(true)}>Revoke grant</Button></div>)}
+      {pilot && grant.scopes.includes("events.read") && <EventFeedCredential key={refreshCount} endpoint={endpoint} detail={detail}
+        disabled={saving || loading || confirming} onBusy={setCredentialBusy} onIssued={credential => setDetail(previous => previous ? { ...previous, eventCredential: credential } : previous)} />}
       <h4>Check history</h4>
       {!!detail.checks.length ? <ul className="automation-attempts">{detail.checks.map(check => <li key={check.id}>
         <strong>{partnerPermissions[check.scope].label} · {check.decision}</strong>
         <span className="muted">{dateTime(check.at)} · {check.actor}</span>
       </li>)}</ul> : <p className="muted">Run a sandbox check to record its decision.</p>}
       {detail.next != null && <div className="loan-application-actions">
-        <Button type="button" size="sm" variant="outline" disabled={saving || loading} onClick={() => void refresh(detail.next)}>Load older checks</Button>
+        <Button type="button" size="sm" variant="outline" disabled={saving || loading || credentialBusy} onClick={() => void refresh(detail.next)}>Load older checks</Button>
       </div>}
     </>}
     <div className="loan-application-actions">
-      <Button type="button" size="sm" variant="outline" disabled={saving || loading} onClick={() => void refresh()}>Refresh grant</Button>
-      <Button type="button" size="sm" variant="outline" disabled={saving} onClick={onClose}>Back to grants</Button>
+      <Button type="button" size="sm" variant="outline" disabled={saving || loading || credentialBusy} onClick={() => void refresh()}>Refresh grant</Button>
+      <Button type="button" size="sm" variant="outline" disabled={saving || credentialBusy} onClick={onClose}>Back to grants</Button>
     </div>
   </section>;
+}
+
+function EventFeedCredential({ endpoint, detail, disabled, onBusy, onIssued }: {
+  endpoint: string; detail: PartnerGrantDetail; disabled: boolean; onBusy: (busy: boolean) => void; onIssued: (credential: PartnerEventCredential) => void;
+}) {
+  const { grant, eventCredential, eventReceipts } = detail;
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [secret, setSecret] = useState("");
+  const [revealed, setRevealed] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
+  const start = useRef<HTMLButtonElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  const copyButton = useRef<HTMLButtonElement>(null);
+  const errorMessage = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => { if (confirm) confirmButton.current?.focus(); }, [confirm]);
+  useEffect(() => { if (secret) copyButton.current?.focus(); }, [secret]);
+  useEffect(() => { if (error) errorMessage.current?.focus(); }, [error]);
+
+  async function issue() {
+    setBusy(true);
+    onBusy(true);
+    setError("");
+    try {
+      const value = await partnerRequest(endpoint, undefined, { type: "issueEventCredential", id: grant.id,
+        previous: eventCredential?.id ?? null, operationId: crypto.randomUUID() });
+      if (value.kind !== "eventCredential") throw new Error("Could not verify the credential. Refresh the grant before issuing another.");
+      onIssued(value.credential);
+      setSecret(value.bearer);
+      setFeedback("Credential issued.");
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not verify the credential. Refresh the grant.");
+    } finally {
+      setBusy(false);
+      onBusy(false);
+      setConfirm(false);
+    }
+  }
+
+  function dismiss() {
+    setSecret("");
+    setRevealed(false);
+    setFeedback("");
+    setConfirm(false);
+    setError("");
+    requestAnimationFrame(() => start.current?.focus());
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(secret);
+      setFeedback("Credential copied.");
+    } catch {
+      setFeedback("Clipboard unavailable. Show the credential to copy it manually.");
+    }
+  }
+
+  return <div className="record-form">
+    <h4>Sandbox CRM events API</h4>
+    <p className="muted">Use this endpoint to read fictional CRM events.</p>
+    <p><code>/api/sandbox/v1/events</code></p>
+    {eventCredential && <p className="muted">Credential issued {dateTime(eventCredential.issuedAt)}</p>}
+    {error && <p ref={errorMessage} tabIndex={-1} role="alert" className="application-message banner-error">{error}</p>}
+    {grant.state === "Active" && (secret ? <div className="record-form">
+      <p>Copy this credential before closing or refreshing the grant.</p>
+      <label className="field automation-destination-name">Sandbox credential
+        <input value={secret} type={revealed ? "text" : "password"} readOnly autoComplete="off" spellCheck={false} />
+      </label>
+      <div className="loan-application-actions">
+        <Button ref={copyButton} type="button" size="sm" onClick={() => void copy()}>Copy credential</Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => setRevealed(value => !value)}>{revealed ? "Hide credential" : "Show credential"}</Button>
+        <Button type="button" size="sm" variant="outline" onClick={dismiss}>Done</Button>
+      </div>
+      <p className="muted" role="status">{feedback}</p>
+    </div> : confirm ? <div className="record-form">
+      <p>{eventCredential ? "Replacing the credential immediately disables the current one." : "The credential allows its holder to read fictional CRM events until this grant expires or is revoked."}</p>
+      <div className="loan-application-actions">
+        <Button ref={confirmButton} type="button" size="sm" disabled={busy || disabled} onClick={() => void issue()}>
+          {busy ? "Issuing…" : eventCredential ? "Confirm replacement" : "Confirm issue"}
+        </Button>
+        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={dismiss}>Cancel</Button>
+      </div>
+    </div> : <div className="loan-application-actions"><Button ref={start} type="button" size="sm" variant="outline"
+      disabled={busy || disabled} onClick={() => { setError(""); setConfirm(true); }}>
+      {eventCredential ? "Replace credential" : "Issue credential"}
+    </Button></div>)}
+    <h4>API receipts</h4>
+    {!!eventReceipts.length ? <ul className="automation-attempts">{eventReceipts.map(receipt => <li key={receipt.id}>
+      <strong>{receipt.decision === "invalid_query" ? "Invalid query" : receipt.decision === "invalid_cursor" ? "Invalid cursor" : receipt.decision} · {receipt.eventCount} {receipt.eventCount === 1 ? "event" : "events"}</strong>
+      <span className="muted">{dateTime(receipt.at)} · {receipt.id}</span>
+    </li>)}</ul> : <p className="muted">API calls using an issued credential will appear here.</p>}
+  </div>;
 }

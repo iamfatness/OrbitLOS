@@ -694,6 +694,15 @@ export function initializeStore(db: Store, seedDemo = true) {
       actorEmail TEXT NOT NULL, actor TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS partner_sandbox_checks_grant ON partner_sandbox_checks(grantId, sequence DESC);
+    CREATE TABLE IF NOT EXISTS partner_event_credentials (
+      grantId TEXT PRIMARY KEY REFERENCES partner_sandbox_grants(id), id TEXT NOT NULL UNIQUE, secretHash TEXT NOT NULL,
+      issuedAt TEXT NOT NULL, issuedBy TEXT NOT NULL, maintenanceRevision INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS partner_event_receipts (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, grantId TEXT NOT NULL REFERENCES partner_sandbox_grants(id),
+      clientId TEXT NOT NULL, credentialId TEXT NOT NULL, at TEXT NOT NULL, decision TEXT NOT NULL, eventCount INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS partner_event_receipts_grant ON partner_event_receipts(grantId, sequence DESC);
     CREATE TABLE IF NOT EXISTS staff_first_day (
       email TEXT NOT NULL, role TEXT NOT NULL, step TEXT NOT NULL, completedAt TEXT,
       revision INTEGER NOT NULL, PRIMARY KEY (email, role, step)

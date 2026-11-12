@@ -5240,6 +5240,68 @@ try {
     await team(owner, { type: "revoke", email: alternateAdmin.email });
   });
 
+  await stage("Fictional sandbox event credential authorizes paged, auditable reads and revocation", async () => {
+    const endpoint = `/api/brokerages?brokerage=${brokerage}&view=partner-permissions`;
+    const issue = { type: "issueEventCredential", id: randomUUID(), previous: null, operationId: randomUUID() };
+    const registration = { type: "approve", id: issue.id, name: "Fictional partner feed", scopes: ["events.read"],
+      expiresAt: new Date(now + 7 * 86_400_000).toISOString() };
+    await post(endpoint, registration, owner);
+    const api = (bearer, query = "", method = "GET") => runtime.dispatchFetch(`${origin}/api/sandbox/v1/events${query}`, {
+      method, redirect: "manual", headers: bearer ? { Authorization: `Bearer ${bearer}` } : {},
+    });
+    assert.equal((await api(undefined)).status, 401);
+    assert.equal((await api(undefined, "", "POST")).status, 405);
+    assert.equal((await postResponse(endpoint, issue, officer)).status, 403);
+    const credential = await post(endpoint, issue, owner);
+    assert.equal(credential.kind, "eventCredential");
+    assert.equal((await postResponse(endpoint, issue, owner)).status, 409);
+    const first = await api(credential.bearer, "?limit=2");
+    assert.equal(first.status, 200);
+    assert.match(first.headers.get("cache-control"), /no-store/);
+    const receipt = first.headers.get("Orbit-Receipt-Id");
+    assert.ok(receipt);
+    const page = await first.json();
+    assert.equal(page.events.length, 2);
+    const last = await (await api(credential.bearer, "?after=" + page.nextCursor)).json();
+    assert.deepEqual(last.events.map(({ eventType }) => eventType), ["loan.funded", "loan.funding_updated", "loan.funding_reversed"]);
+    assert.equal(last.hasMore, false);
+    assert.equal((await api(credential.bearer, "?limit=2&limit=3")).status, 400);
+    assert.equal((await api(credential.bearer.replace(brokerage, lenderBrokerage))).status, 401);
+    const detail = await (await readTeam(owner, { view: "partner-permissions", id: issue.id })).json();
+    assert.equal(detail.eventCredential.id, credential.credential.id);
+    assert.ok(detail.eventReceipts.some(row => row.id === receipt && row.eventCount === 2));
+    assert.doesNotMatch(JSON.stringify(detail), /orbit_sandbox|secretHash/);
+    const replace = { ...issue, previous: credential.credential.id, operationId: randomUUID() };
+    const replacement = await post(endpoint, replace, owner);
+    assert.equal((await api(credential.bearer)).status, 401);
+    assert.equal((await api(replacement.bearer)).status, 200);
+    assert.equal((await postResponse(endpoint, { ...replace, operationId: randomUUID() }, owner)).status, 409);
+    await post(endpoint, { type: "revoke", id: issue.id, revision: 1, operationId: randomUUID() }, owner);
+    const denied = await api(replacement.bearer, "?after=" + page.nextCursor);
+    assert.equal(denied.status, 403);
+    assert.deepEqual(await denied.json(), { error: "grant_unavailable" });
+    const final = await (await readTeam(owner, { view: "partner-permissions", id: issue.id })).json();
+    assert.equal(final.eventReceipts[0].decision, "Revoked");
+
+    const otherScope = await post(endpoint, { ...registration, id: randomUUID(), scopes: ["leads.read"] }, owner);
+    assert.equal((await postResponse(endpoint, { ...issue, id: otherScope.grant.id, operationId: randomUUID() }, owner)).status, 409);
+    const alternateAdmin = actor("Fictional Feed Approver", "sandbox-feed-approver@example.test", "Admin");
+    await team(owner, { type: "invite", email: alternateAdmin.email, role: "Admin" });
+    await signIn(alternateAdmin);
+    const second = await post(endpoint, { ...registration, id: randomUUID(), name: "Fictional feed approval change" }, alternateAdmin);
+    const secondCredential = await post(endpoint, { ...issue, id: second.grant.id, operationId: randomUUID() }, owner);
+    assert.equal((await api(secondCredential.bearer)).status, 200);
+    await team(owner, { type: "role", email: alternateAdmin.email, role: "LO" });
+    assert.equal((await api(secondCredential.bearer)).status, 403);
+    await team(owner, { type: "role", email: alternateAdmin.email, role: "Admin" });
+    assert.equal((await api(secondCredential.bearer)).status, 403);
+    await team(owner, { type: "revoke", email: alternateAdmin.email });
+
+    if (process.argv.includes("--preview")) {
+      await post(endpoint, { ...registration, id: randomUUID(), name: "Fictional long partner name for CRM reporting acceptance" }, owner);
+    }
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

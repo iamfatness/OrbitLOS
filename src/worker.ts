@@ -100,7 +100,8 @@ import { canManageBranches, readBranches, updateBranch } from "./lib/branches";
 import { readStaffFirstDay, setFirstDayStep, updateStaffFirstDay } from "./lib/staff-first-day";
 import { automationEventWork } from "./lib/automation-events";
 import { automationBatchWork } from "./lib/automation-batches";
-import { partnerAccessWork } from "./lib/partner-access";
+import { partnerAccessWork, sandboxEventAuthority, serveSandboxEvents, type SandboxEventResult } from "./lib/partner-access";
+import { sandboxEventsHttp } from "./lib/sandbox-events-http";
 import { partnerAccessQuery } from "./lib/partner-access-model";
 import { automationBatchQuery } from "./lib/automation-batch-model";
 import { automationDestinationWork } from "./lib/automation-destinations";
@@ -1639,11 +1640,35 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   confirmLenderPackagePdf(input: PackageDownloadInput, objectId: string) {
     return confirmLenderPackagePdf(this.#store, input, objectId);
   }
+  partnerEventApproval(id: string, email: string, revision: number, bootstrapEmails: string[]) {
+    if (!this.brokerageDetails(id)?.pilot) return { accessCurrent: false, maintenanceRevision: null };
+    const state = maintenanceState(this.#store, id);
+    const [member] = selectedActiveMembers(this.#store, id, [email], bootstrapEmails);
+    return { accessCurrent: member?.role === "Admin" && member.accessRevision === revision,
+      maintenanceRevision: state.mode === "Open" ? state.revision : null };
+  }
+
+  async partnerEventPage(key: { brokerage: string; grantId: string; secretHash: string }, params: string): Promise<SandboxEventResult> {
+    if (this.#id !== key.brokerage || this.#id === demoBrokerageId) return { status: 401 };
+    const authority = sandboxEventAuthority(this.#store, key);
+    if (!authority) return { status: 401 };
+    const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
+    const { email, accessRevision } = authority.approval;
+    const state = await directory.partnerEventApproval(this.#id, email, accessRevision, [...(googleSettings(this.env)?.allowedEmails ?? [])]);
+    return serveSandboxEvents(this.#store, key, params, { ...state, approval: authority.approval, credentialId: authority.credential.id });
+  }
+
   async partnerAccess(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return { error: "Workspace access denied." };
     const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
-    const members = await directory.teamMembers(staff, [...(googleSettings(this.env)?.allowedEmails ?? [])]);
-    return members ? partnerAccessWork(this.#store, staff, input, members) : { error: "Refresh your brokerage access before managing partner permissions." };
+    const query = partnerAccessQuery.safeParse(input);
+    if (!query.success) return { error: "Choose a valid partner permission action." };
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    const state = query.data.type === "issueEventCredential" && staff.brokerage.pilot ?
+      await directory.maintenanceStateFor(this.#id) : null;
+    const members = await directory.teamMembers(staff, emails);
+    return members ? partnerAccessWork(this.#store, staff, query.data, members, new Date().toISOString(),
+      state?.mode === "Open" ? state.revision : null) : { error: "Refresh your brokerage access before managing partner permissions." };
   }
 
   automationBatches(staff: WorkspaceStaff, input: unknown) {
@@ -1875,6 +1900,12 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
     }
     const directory = env.WORKSPACE.getByName(demoBrokerageId);
     const bootstrapEmails = [...(google?.allowedEmails ?? [])];
+    if (url.pathname === "/api/sandbox/v1/events") return sandboxEventsHttp(request, url, async (key, params) => {
+      const workspace = google && await directory.brokerageDetails(key.brokerage);
+      if (!workspace || !workspace.pilot) return { status: 401 };
+      if (workspace.maintenance) return { status: 403 };
+      return env.WORKSPACE.getByName(key.brokerage).partnerEventPage(key, params);
+    });
     async function linkedWorkspace(input: unknown) {
       const token = input && typeof input === "object" && "token" in input ? input.token : input;
       const id = portalBrokerage(token);

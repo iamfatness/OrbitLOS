@@ -16,6 +16,7 @@ export const partnerAccessQuery = z.discriminatedUnion("type", [
   z.object({ type: z.literal("approve"), id: z.uuid(), name: z.string().trim().min(1).max(80), scopes, expiresAt: z.iso.datetime() }).strict(),
   z.object({ type: z.literal("revoke"), id: z.uuid(), revision: z.literal(1), operationId: z.uuid() }).strict(),
   z.object({ type: z.literal("check"), id: z.uuid(), clientId: z.uuid(), scope, operationId: z.uuid() }).strict(),
+  z.object({ type: z.literal("issueEventCredential"), id: z.uuid(), previous: z.uuid().nullable(), operationId: z.uuid() }).strict(),
 ]);
 
 export type PartnerGrantState = "Active" | "Expired" | "Approval changed" | "Revoked";
@@ -33,5 +34,9 @@ export const partnerCheckMessages = {
 export type PartnerCheck = { id: string; scope: PartnerPermission; decision: keyof typeof partnerCheckMessages;
   at: string; actor: string };
 export type PartnerGrantPage = { kind: "grants"; grants: PartnerGrant[]; next: number | null };
-export type PartnerGrantDetail = { kind: "grant"; grant: PartnerGrant; checks: PartnerCheck[]; next: number | null };
+export type PartnerEventCredential = { id: string; issuedAt: string };
+export type PartnerEventReceipt = { id: string; clientId: string; credentialId: string; at: string; decision: string; eventCount: number };
+export type PartnerCredentialIssue = { kind: "eventCredential"; credential: PartnerEventCredential; bearer: string };
+export type PartnerGrantDetail = { kind: "grant"; grant: PartnerGrant; checks: PartnerCheck[]; next: number | null;
+  eventCredential: PartnerEventCredential | null; eventReceipts: PartnerEventReceipt[] };
 export type PartnerCheckResult = { kind: "check"; grant: PartnerGrant; check: PartnerCheck; sample?: Record<string, string> };
