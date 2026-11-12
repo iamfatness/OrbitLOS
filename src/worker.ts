@@ -99,7 +99,8 @@ import { branchesUnavailable } from "./lib/branch-model";
 import { canManageBranches, readBranches, updateBranch } from "./lib/branches";
 import { readStaffFirstDay, setFirstDayStep, updateStaffFirstDay } from "./lib/staff-first-day";
 import { automationEventWork } from "./lib/automation-events";
-import { automationEventQuery } from "./lib/automation-event-model";
+import { automationDestinationWork } from "./lib/automation-destinations";
+import { automationDestinationQuery, automationEventQuery } from "./lib/automation-event-model";
 import { documentTemplateWork } from "./lib/document-templates";
 import { feeTemplateWork } from "./lib/fee-templates";
 import { saveRealtorClaimPolicyInput } from "./lib/realtor-claim-model";
@@ -1634,6 +1635,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   confirmLenderPackagePdf(input: PackageDownloadInput, objectId: string) {
     return confirmLenderPackagePdf(this.#store, input, objectId);
   }
+  automationDestinations(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." };
+    return automationDestinationWork(this.#store, staff, input);
+  }
+
   automationEvents(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     return automationEventWork(this.#store, staff, input);
@@ -2250,17 +2256,38 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       if (!staff) return Response.json({ error: "Google staff sign-in is required." }, { status: 403, headers });
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       const view = url.searchParams.get("view");
-      if (view === "automation-events") {
+      if (view === "automation-events" || view === "automation-destinations") {
         if (staff.brokerage.role !== "Admin" || url.searchParams.get("brokerage") !== staff.brokerage.id) {
           return Response.json({ error: "Open automation deliveries as an admin in this brokerage." }, { status: 403, headers });
+        }
+        if (view === "automation-destinations") {
+          if (request.method === "GET") {
+            const cursor = url.searchParams.get("before");
+            const id = url.searchParams.get("id");
+            const parsed = automationDestinationQuery.safeParse(id === null
+              ? { type: "destinations", before: cursor === null ? undefined : Number(cursor) } : { type: "destination", id });
+            if (!parsed.success) return Response.json({ error: "Refresh the destination list." }, { status: 400, headers });
+            const result = await workspace.automationDestinations(staff, parsed.data);
+            return Response.json(result, { status: "error" in result ? 404 : 200, headers });
+          }
+          if (request.method === "POST") return borrowerJson(request, async input => {
+            const parsed = automationDestinationQuery.safeParse(input);
+            if (!parsed.success || parsed.data.type === "destinations" || parsed.data.type === "destination") {
+              return { status: 400, error: "Choose valid destination settings." };
+            }
+            const result = await workspace.automationDestinations(staff, parsed.data);
+            return "error" in result ? { status: 409, error: result.error } : { value: result };
+          }, 2048);
+          return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
         }
         if (request.method === "GET") {
           const id = url.searchParams.get("id");
           const cursor = url.searchParams.get("before");
+          const destinationId = url.searchParams.get("destinationId") ?? undefined;
           const parsed = automationEventQuery.safeParse(id === null ? {
             type: "list", status: url.searchParams.get("status") ?? undefined, eventType: url.searchParams.get("eventType") ?? undefined,
-            before: cursor === null ? undefined : Number(cursor),
-          } : { type: "detail", id });
+            before: cursor === null ? undefined : Number(cursor), destinationId,
+          } : { type: "detail", id, destinationId });
           if (!parsed.success) return Response.json({ error: "Choose a valid event or queue filter." }, { status: 400, headers });
           const result = await workspace.automationEvents(staff, parsed.data);
           return Response.json(result, { status: "error" in result ? 404 : 200, headers });

@@ -649,6 +649,32 @@ export function initializeStore(db: Store, seedDemo = true) {
       outcome TEXT NOT NULL CHECK (outcome IN ('Failed', 'Simulated')), actorEmail TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL,
       PRIMARY KEY (eventId, attempt)
     );
+    CREATE TABLE IF NOT EXISTS automation_destinations (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, eventTypes TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('Active', 'Paused', 'Disconnected')), revision INTEGER NOT NULL CHECK (revision > 0)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS automation_destination_name ON automation_destinations(name COLLATE NOCASE) WHERE state <> 'Disconnected';
+    CREATE INDEX IF NOT EXISTS automation_destination_receiving ON automation_destinations(state) WHERE state IN ('Active', 'Paused');
+    CREATE TABLE IF NOT EXISTS automation_destination_history (
+      destinationId TEXT NOT NULL REFERENCES automation_destinations(id), revision INTEGER NOT NULL, operationId TEXT NOT NULL UNIQUE,
+      actorEmail TEXT NOT NULL, snapshot TEXT NOT NULL, fingerprint TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (destinationId, revision)
+    );
+    CREATE TABLE IF NOT EXISTS automation_destination_events (
+      destinationId TEXT NOT NULL REFERENCES automation_destinations(id),
+      eventSequence INTEGER NOT NULL REFERENCES automation_events(sequence), eventType TEXT NOT NULL,
+      subscriptionRevision INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'Queued' CHECK (status IN ('Queued', 'Failed', 'Simulated')),
+      attemptCount INTEGER NOT NULL DEFAULT 0 CHECK (attemptCount BETWEEN 0 AND 2), PRIMARY KEY (destinationId, eventSequence),
+      FOREIGN KEY (destinationId, subscriptionRevision) REFERENCES automation_destination_history(destinationId, revision)
+    );
+    CREATE INDEX IF NOT EXISTS automation_destination_status ON automation_destination_events(destinationId, status, eventSequence DESC);
+    CREATE INDEX IF NOT EXISTS automation_destination_type ON automation_destination_events(destinationId, eventType, eventSequence DESC);
+    CREATE TABLE IF NOT EXISTS automation_destination_attempts (
+      destinationId TEXT NOT NULL, eventSequence INTEGER NOT NULL, attempt INTEGER NOT NULL CHECK (attempt BETWEEN 1 AND 2),
+      operationId TEXT NOT NULL UNIQUE, outcome TEXT NOT NULL CHECK (outcome IN ('Failed', 'Simulated')),
+      actorEmail TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL,
+      PRIMARY KEY (destinationId, eventSequence, attempt),
+      FOREIGN KEY (destinationId, eventSequence) REFERENCES automation_destination_events(destinationId, eventSequence)
+    );
     CREATE TABLE IF NOT EXISTS staff_first_day (
       email TEXT NOT NULL, role TEXT NOT NULL, step TEXT NOT NULL, completedAt TEXT,
       revision INTEGER NOT NULL, PRIMARY KEY (email, role, step)

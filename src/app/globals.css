@@ -845,7 +845,13 @@ button:disabled { cursor: default; }
 .automation-delivery-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 13rem)) auto; align-items: end; justify-content: start; gap: 10px; }
 .automation-deliveries > summary .uwm-disclosure-icon { margin-left: auto; }
 .automation-deliveries > .uwm-delivery-body { padding-top: 16px; }
-.automation-deliveries :is(h3, h4) { font-weight: 650; }
+.automation-deliveries :is(h3, h4) { min-width: 0; overflow-wrap: anywhere; font-weight: 650; }
+.automation-deliveries .document-item-head strong { min-width: 0; overflow-wrap: anywhere; }
+.automation-destination-name { max-width: 28rem; }
+.automation-subscriptions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; max-width: 28rem; }
+.automation-subscriptions legend { font-weight: 650; }
+.automation-subscription { display: flex; gap: 8px; align-items: center; min-height: 40px; font-size: 14px; cursor: pointer; }
+.automation-subscription input { inline-size: 18px; block-size: 18px; accent-color: var(--accent); flex: none; }
 .automation-deliveries button { min-height: 40px; }
 .automation-payload summary { cursor: pointer; min-height: 40px; display: list-item; padding-block: 9px; }
 .automation-payload pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; margin: 0; }
@@ -854,7 +860,8 @@ button:disabled { cursor: default; }
 @media (max-width: 660px) {
   .automation-delivery-filters { grid-template-columns: minmax(0, 1fr); justify-items: start; }
   .automation-delivery-filters .field { width: 100%; }
-  .automation-deliveries :is(button, select, .automation-payload summary) { min-height: 44px; }
+  .automation-subscriptions { grid-template-columns: minmax(0, 1fr); }
+  .automation-deliveries :is(button, select, .automation-payload summary, .automation-subscription) { min-height: 44px; }
 }
 .staff-first-day > .muted { margin-bottom: 4px; }
 .first-day-list { margin: 0; padding: 0; list-style: none; }

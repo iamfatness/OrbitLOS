@@ -20,13 +20,34 @@ export type AutomationPayload = {
   source: AutomationOrigin;
   resource: { kind: "lead" | "loan"; id: string; revision: number };
 };
-export type AutomationEvent = { payload: AutomationPayload; status: AutomationStatus; attemptCount: number };
+export const automationDestinationStates = ["Active", "Paused", "Disconnected"] as const;
+export type AutomationDestination = { id: string; name: string; eventTypes: AutomationEventType[];
+  state: (typeof automationDestinationStates)[number]; revision: number };
+export type AutomationDestinationPage = { kind: "destinations"; destinations: AutomationDestination[]; next: number | null };
+export type AutomationEvent = { payload: AutomationPayload; status: AutomationStatus; attemptCount: number; subscriptionRevision?: number };
 export type AutomationAttempt = { number: number; operationId: string; outcome: Exclude<AutomationStatus, "Queued">; at: string; actor: string };
-export type AutomationEventDetail = { kind: "event"; event: AutomationEvent; attempts: AutomationAttempt[] };
-export type AutomationEventPage = { kind: "events"; events: AutomationEvent[]; next: number | null };
+export type AutomationEventDetail = { kind: "event"; event: AutomationEvent; attempts: AutomationAttempt[]; destination?: AutomationDestination; subscription?: AutomationDestination };
+export type AutomationEventPage = { kind: "events"; events: AutomationEvent[]; next: number | null; destination?: AutomationDestination };
+const eventType = z.enum(Object.keys(automationEventLabels) as AutomationEventType[]);
+const before = z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional();
+const revision = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+const destinationId = z.uuid().optional();
+const subscription = {
+  name: z.string().trim().min(1).max(80),
+  eventTypes: z.array(eventType).min(1).max(Object.keys(automationEventLabels).length)
+    .refine(values => new Set(values).size === values.length),
+};
+const destinationEdit = { id: z.uuid(), operationId: z.uuid(), revision };
+export const automationDestinationQuery = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("destinations"), before }).strict(),
+  z.object({ type: z.literal("destination"), id: z.uuid() }).strict(),
+  z.object({ type: z.literal("createDestination"), id: z.uuid(), ...subscription }).strict(),
+  z.object({ type: z.literal("editDestination"), ...destinationEdit, ...subscription }).strict(),
+  z.object({ type: z.literal("setDestinationState"), ...destinationEdit, state: z.enum(automationDestinationStates) }).strict(),
+]);
 export const automationEventQuery = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("list"), status: z.enum(automationStatuses).optional(), eventType: z.enum(Object.keys(automationEventLabels) as AutomationEventType[]).optional(),
-    before: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional() }).strict(),
-  z.object({ type: z.literal("detail"), id: z.uuid() }).strict(),
-  z.object({ type: z.literal("attempt"), id: z.uuid(), operationId: z.uuid(), attempt: z.number().int().min(0).max(2), simulateFailure: z.boolean() }).strict(),
+  z.object({ type: z.literal("list"), status: z.enum(automationStatuses).optional(), eventType: eventType.optional(), before, destinationId }).strict(),
+  z.object({ type: z.literal("detail"), id: z.uuid(), destinationId }).strict(),
+  z.object({ type: z.literal("attempt"), id: z.uuid(), operationId: z.uuid(), attempt: z.number().int().min(0).max(2),
+    simulateFailure: z.boolean(), destinationId, destinationRevision: revision.optional() }).strict(),
 ]);

@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Radio } from "lucide-react";
-import { automationEventLabels, automationStatuses, type AutomationEvent, type AutomationEventDetail, type AutomationEventPage,
+import { automationEventLabels, automationStatuses, type AutomationDestination, type AutomationEvent, type AutomationEventDetail, type AutomationEventPage,
   type AutomationEventType, type AutomationPayload, type AutomationStatus } from "@/lib/automation-event-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { AutomationDestinations } from "./automation-destinations";
 
 async function deliveryRequest(endpoint: string, options?: RequestInit): Promise<AutomationEventPage | AutomationEventDetail> {
   const response = await fetch(endpoint, { cache: "no-store", ...options });
@@ -26,12 +27,40 @@ export function AutomationDeliveries(props: QueueProps) {
       <span><strong>CRM automation deliveries</strong><small>Simulation only</small></span>
       <ChevronDown className="uwm-disclosure-icon" size={17} aria-hidden="true" />
     </summary>
-    {opened && <AutomationQueue {...props} />}
+    {opened && <AutomationViews {...props} />}
   </details>;
 }
 
-function AutomationQueue({ brokerageId, fictional, openRecord }: QueueProps) {
-  const endpoint = `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}&view=automation-events`;
+function AutomationViews(props: QueueProps) {
+  const [view, setView] = useState<"workspace" | "destinations">("workspace");
+  const [destination, setDestination] = useState<AutomationDestination>();
+  const destinationsButton = useRef<HTMLButtonElement>(null);
+  const returning = useRef(false);
+  useEffect(() => {
+    if (!destination && returning.current) {
+      returning.current = false;
+      destinationsButton.current?.focus();
+    }
+  }, [destination]);
+
+  return <div className="uwm-delivery-body record-form">
+    {!destination && <div className="loan-application-actions" role="group" aria-label="Automation views">
+      <Button type="button" size="sm" variant={view === "workspace" ? "default" : "outline"} aria-pressed={view === "workspace"}
+        onClick={() => setView("workspace")}>Workspace events</Button>
+      <Button ref={destinationsButton} type="button" size="sm" variant={view === "destinations" ? "default" : "outline"}
+        aria-pressed={view === "destinations"} onClick={() => setView("destinations")}>Destinations</Button>
+    </div>}
+    {destination || view === "workspace" ? <AutomationQueue {...props} key={destination?.id ?? "workspace"} selectedDestination={destination}
+      onBack={() => { returning.current = true; setDestination(undefined); }} /> :
+      <AutomationDestinations brokerageId={props.brokerageId} openDeliveries={setDestination} />}
+  </div>;
+}
+
+function AutomationQueue({ brokerageId, fictional, openRecord, selectedDestination, onBack }: QueueProps & {
+  selectedDestination?: AutomationDestination; onBack: () => void;
+}) {
+  const endpoint = `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}&view=automation-events` +
+    (selectedDestination ? `&destinationId=${encodeURIComponent(selectedDestination.id)}` : "");
   const [status, setStatus] = useState<AutomationStatus | "">("");
   const [eventType, setEventType] = useState<AutomationEventType | "">("");
   const [page, setPage] = useState<AutomationEventPage>();
@@ -40,6 +69,8 @@ function AutomationQueue({ brokerageId, fictional, openRecord }: QueueProps) {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string>();
   const statusFilter = useRef<HTMLSelectElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (selectedDestination) heading.current?.focus(); }, [selectedDestination]);
   const openedBy = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -62,8 +93,17 @@ function AutomationQueue({ brokerageId, fictional, openRecord }: QueueProps) {
     setRead(previous => ({ before, generation: previous.generation + 1 }));
   }
 
-  return <div className="uwm-delivery-body record-form">
-    <p className="muted">Review the event payload and rehearse a delivery. Simulations stay in Orbit.</p>
+  const destination = page?.destination ?? selectedDestination;
+  return <div className="record-form">
+    {destination ? <>
+      <div className="document-item-head">
+        <h3 ref={heading} tabIndex={-1}>{destination.name} deliveries</h3>
+        <span className="pill">{destination.state}</span>
+      </div>
+      <div className="loan-application-actions"><Button type="button" size="sm" variant="outline" onClick={onBack}>Back to destinations</Button></div>
+      {destination.state === "Paused" && <p className="muted">Matching events continue to queue. Resume the destination to run simulations.</p>}
+      {destination.state === "Disconnected" && <p className="muted">This destination’s delivery history is read-only.</p>}
+    </> : <p className="muted">Review the event payload and rehearse a delivery. Simulations stay in Orbit.</p>}
     {selected && <DeliveryDetails key={selected} endpoint={endpoint} id={selected} fictional={fictional}
       openRecord={openRecord} onSaved={() => refresh()} onClose={() => {
         setSelected(undefined);
@@ -92,7 +132,8 @@ function AutomationQueue({ brokerageId, fictional, openRecord }: QueueProps) {
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {loading && <p className="muted" role="status">Loading automation events…</p>}
     {!loading && !error && page?.events.length === 0 && <p className="muted">
-      {status || eventType ? "No events match these filters." : "New leads, submitted 1003s, and recorded funding will appear here."}
+      {status || eventType ? "No events match these filters." : destination ? "New events that match this subscription will appear here." :
+        "New leads, submitted 1003s, and recorded funding will appear here."}
     </p>}
     {!!page?.events.length && <ul className="document-list" aria-label="Automation events">
       {page.events.map(({ payload, status }) => <li className="document-item" key={payload.eventId}>
@@ -140,7 +181,8 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
 
   async function attempt(item: AutomationEvent, simulateFailure: boolean) {
     if (saving || loading) return;
-    const key = JSON.stringify([item.attemptCount, simulateFailure]);
+    const destination = detail?.destination;
+    const key = JSON.stringify([item.attemptCount, simulateFailure, destination?.revision]);
     if (pending.current?.key !== key) pending.current = { key, id: crypto.randomUUID() };
     setSaving(true);
     setError("");
@@ -148,7 +190,8 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
     try {
       const result = await deliveryRequest(endpoint, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "attempt", id, operationId: pending.current.id, attempt: item.attemptCount, simulateFailure }),
+        body: JSON.stringify({ type: "attempt", id, operationId: pending.current.id, attempt: item.attemptCount, simulateFailure,
+          ...(destination ? { destinationId: destination.id, destinationRevision: destination.revision } : {}) }),
       });
       if (result.kind !== "event") throw new Error("Refresh the event to check the saved attempt.");
       pending.current = null;
@@ -160,6 +203,7 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
   }
 
   const item = detail?.event;
+  const available = !detail?.destination || detail.destination.state === "Active";
   return <section className="document-item record-form" aria-labelledby="automation-event-heading">
     <div className="document-item-head">
       <h3 id="automation-event-heading" ref={heading} tabIndex={-1}>{item ? automationEventLabels[item.payload.eventType] : "Event details"}</h3>
@@ -170,6 +214,9 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
     {notice && <p ref={receipt} tabIndex={-1} role="status" className="application-message">{notice}</p>}
     {item && <>
       <p className="muted">{item.payload.source} · {dateTime(item.payload.occurredAt)}</p>
+      {detail.subscription && <p className="muted">Subscription version {detail.subscription.revision} · {detail.subscription.name}</p>}
+      {detail.destination?.state === "Paused" && <p className="muted">Resume the destination before trying a simulation.</p>}
+      {detail.destination?.state === "Disconnected" && <p className="muted">This destination is disconnected.</p>}
       <details className="automation-payload">
         <summary>Delivery payload</summary>
         <pre aria-label="Delivery payload JSON">{JSON.stringify(item.payload, null, 2)}</pre>
@@ -183,10 +230,10 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
       </div>}
     </>}
     <div className="loan-application-actions">
-      {item && item.status !== "Simulated" && <Button type="button" size="sm" disabled={saving || loading} onClick={() => void attempt(item, false)}>
+      {available && item && item.status !== "Simulated" && <Button type="button" size="sm" disabled={saving || loading} onClick={() => void attempt(item, false)}>
         {saving ? "Recording…" : item.status === "Failed" ? "Retry simulation" : "Simulate delivery"}
       </Button>}
-      {fictional && item?.status === "Queued" && <Button type="button" size="sm" variant="outline" disabled={saving || loading}
+      {available && fictional && item?.status === "Queued" && <Button type="button" size="sm" variant="outline" disabled={saving || loading}
         onClick={() => void attempt(item, true)}>Simulate failure</Button>}
       {item && <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => openRecord(item.payload.resource)}>
         {item.payload.resource.kind === "lead" ? "Open lead" : "Open loan"}

@@ -5026,6 +5026,96 @@ try {
     assert.deepEqual((await read("&status=Failed")).events, []);
   });
 
+  await stage("Simulated destinations receive only selected events and keep independent replay history", async () => {
+    const base = (id = brokerage) => `/api/brokerages?brokerage=${id}`;
+    const settings = base() + "&view=automation-destinations";
+    const deliveries = id => base() + "&view=automation-events" + (id ? "&destinationId=" + id : "");
+    const read = async (url, staff = owner) => {
+      const response = await browse(staff, url);
+      assert.equal(response.status, 200);
+      return JSON.parse(response.text());
+    };
+    const create = (name, eventTypes) => ({ type: "createDestination", id: randomUUID(), name, eventTypes });
+    const leads = create("Fictional lead handoff", ["lead.created"]);
+    const closing = create("Fictional sales and funding", ["lead.created", "loan.funded"]);
+    assert.equal((await postResponse(settings, leads, officer)).status, 403);
+    assert.equal((await postResponse(settings, { ...leads, eventTypes: [] }, owner)).status, 400);
+    assert.equal((await postResponse(settings, { ...leads, url: "https://example.test" }, owner)).status, 400);
+    const created = await Promise.all([post(settings, leads, owner), post(settings, leads, owner)]);
+    assert.deepEqual(created[0], created[1]);
+    await post(settings, closing, owner);
+    assert.equal((await read(settings)).destinations.length, 2);
+    assert.equal((await browse(owner, base(lenderBrokerage) + "&view=automation-destinations&id=" + leads.id)).status, 404);
+    assert.deepEqual((await read(deliveries(leads.id))).events, []);
+    assert.deepEqual((await read(deliveries(closing.id))).events, []);
+
+    const newLead = async name => (await write(owner, { type: "loan", borrower: name, contactId: "", partnerId: null, officer: owner.name,
+      address: "", amount: 240000, purpose: "Purchase", stage: "Lead" })).loanWork.loanId;
+    const lead = await newLead("Fictional first destination lead");
+    const [original] = (await read(deliveries(leads.id))).events;
+    assert.equal(original.payload.resource.id, lead);
+    assert.equal(original.subscriptionRevision, 1);
+    assert.deepEqual((await read(deliveries(closing.id))).events[0].payload, original.payload);
+
+    const state = (id, revision, state) => ({ type: "setDestinationState", id, revision, state, operationId: randomUUID() });
+    const pause = state(leads.id, 1, "Paused");
+    await post(settings, pause, owner);
+    await post(settings, pause, owner);
+    const queuedWhilePaused = await newLead("Fictional paused destination lead");
+    const paused = await read(deliveries(leads.id));
+    assert.equal(paused.destination.state, "Paused");
+    assert.equal(paused.destination.revision, 2);
+    assert.equal(paused.events[0].payload.resource.id, queuedWhilePaused);
+    assert.equal(paused.events[0].subscriptionRevision, 2);
+    const id = original.payload.eventId;
+    const attempt = (destinationId, destinationRevision, attempt, simulateFailure = false) => ({ type: "attempt", id, destinationId,
+      destinationRevision, attempt, simulateFailure, operationId: randomUUID() });
+    assert.match((await postResponse(deliveries(leads.id), attempt(leads.id, 2, 0), owner)).result.error, /Resume/);
+    const closingDelivery = await post(deliveries(closing.id), attempt(closing.id, 1, 0), owner);
+    assert.equal(closingDelivery.event.status, "Simulated");
+    assert.equal((await read(deliveries(leads.id) + "&id=" + id)).event.status, "Queued");
+
+    const edit = { type: "editDestination", id: leads.id, revision: 2, operationId: randomUUID(), name: "Fictional lead handoff",
+      eventTypes: ["loan.funded"] };
+    const edited = await post(settings, edit, owner);
+    assert.equal(edited.destination.revision, 3);
+    assert.equal((await postResponse(settings, { ...edit, operationId: randomUUID() }, owner)).status, 409);
+    await post(settings, state(leads.id, 3, "Active"), owner);
+    const later = await newLead("Fictional lead after a subscription edit");
+    assert.ok(!(await read(deliveries(leads.id))).events.some(({ payload }) => payload.resource.id === later));
+    assert.ok((await read(deliveries(closing.id))).events.some(({ payload }) => payload.resource.id === later));
+    await loanAction(owner, later, "recordClosing", { revision: 0, closingDate: today });
+    await loanAction(owner, later, "recordFunding", { revision: 0, fundingDate: today });
+    assert.equal((await read(deliveries(leads.id) + "&eventType=loan.funded")).events[0].payload.resource.id, later);
+
+    assert.match((await postResponse(deliveries(leads.id), attempt(leads.id, 1, 0), owner)).result.error, /destination changed/);
+    const failure = attempt(leads.id, 4, 0, true);
+    const failed = await post(deliveries(leads.id), failure, owner);
+    await post(deliveries(leads.id), failure, owner);
+    assert.equal(failed.attempts.length, 1);
+    assert.deepEqual(failed.subscription.eventTypes, ["lead.created"]);
+    assert.deepEqual(failed.event.payload, original.payload);
+    const retried = await post(deliveries(leads.id), attempt(leads.id, 4, 1), owner);
+    assert.deepEqual(retried.attempts.map(({ outcome }) => outcome), ["Simulated", "Failed"]);
+    assert.deepEqual(retried.event.payload, original.payload);
+    assert.equal((await read(deliveries(closing.id) + "&id=" + id)).attempts.length, 1);
+
+    await post(settings, state(closing.id, 1, "Disconnected"), owner);
+    assert.equal((await postResponse(settings, state(closing.id, 2, "Active"), owner)).status, 409);
+    const closedBefore = (await read(deliveries(closing.id))).events.length;
+    const next = await newLead("Fictional lead after disconnect");
+    assert.equal((await read(deliveries(closing.id))).events.length, closedBefore);
+    assert.ok((await read(deliveries() + "&eventType=lead.created")).events.some(({ payload }) => payload.resource.id === next));
+    const pending = (await read(deliveries(closing.id) + "&status=Queued")).events[0].payload.eventId;
+    assert.match((await postResponse(deliveries(closing.id), { ...attempt(closing.id, 2, 0), id: pending }, owner)).result.error, /disconnected/);
+    assert.equal((await read(deliveries(closing.id) + "&id=" + id)).attempts.length, 1);
+
+    if (process.argv.includes("--preview")) {
+      await post(settings, create("Fictional partner intake", ["lead.created"]), owner);
+      await newLead("Fictional destination browser lead");
+    }
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
