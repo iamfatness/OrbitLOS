@@ -5,7 +5,8 @@ import { useState } from "react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
 import type { DisclosureDeadline } from "@/lib/disclosure-calendar-model";
 import { disclosurePackageStatus, disclosureResponses, disclosureTarget,
-  type DisclosurePackage, type DisclosureSource } from "@/lib/disclosure-model";
+  type DisclosurePackage } from "@/lib/disclosure-model";
+import { compareDisclosureTerms } from "@/lib/disclosure-change-model";
 import type { Loan, Workspace } from "@/lib/model";
 import { latestSelectedPricingRun, pricingInputsMatch } from "@/lib/pricing-model";
 import { feeKeys, feeLabels, sampleFeeLabel, type QuoteOption } from "@/lib/quote-worksheet";
@@ -14,6 +15,7 @@ import { Button } from "./ui/button";
 import { FeeWorksheetEditor } from "./quote-worksheet";
 import { LoanStageEditNotice, useLoanStageEdit } from "./loan-stage-edits";
 import { DisclosurePackageDocuments } from "./disclosure-templates";
+import { DisclosureTermChanges, SavedDisclosureTermChanges } from "./disclosure-term-changes";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -39,31 +41,13 @@ function QuoteDetails({ quote }: { quote: QuoteOption }) {
   </>;
 }
 
-function ChangedTerms({ previous, current }: { previous: DisclosurePackage; current: DisclosureSource }) {
-  const fields = ({ applicationRevision, quote }: DisclosureSource) => {
-    const { estimate } = quote;
-    return {
-      "Reviewed 1003 revision": String(applicationRevision),
-      "Product": quote.product, "Term": `${quote.years} years`, "Rate": `${quote.rate.toFixed(3)}%`,
-      "Loan amount": usd.format(quote.loanAmount), "Monthly principal and interest": usd.format(quote.principalAndInterest),
-      ...Object.fromEntries(feeKeys.map((key) => [feeLabels[key], sampleFeeLabel(estimate?.inputs, key)])),
-      "Points": cents(estimate?.points), "Lender credit": cents(estimate?.lenderCredit),
-      "Estimated closing costs": cents(estimate?.closingCosts), "Estimated cash to close": cents(estimate?.cashToClose),
-    } as Record<string, string>;
-  };
-  const before = fields(previous);
-  const changes = Object.entries(fields(current)).filter(([label, value]) => before[label] !== value);
-  return changes.length ? <ul aria-label="Changed sample terms">{changes.map(([label, value]) =>
-    <li key={label}>{label} · {before[label]} → {value}</li>)}</ul> :
-    <p className="muted">The displayed amounts match. Review the current application and quote before preparing another version.</p>;
-}
-
 function ChangeReview({ item }: { item: DisclosurePackage }) {
   const review = item.changeReview;
   return review && <div>
     <strong>Change review from version {review.fromVersion} · {review.reason}</strong>
     <p>{review.note}</p>
     <p className="muted">{review.actor} · {stamp(review.at)}</p>
+    <SavedDisclosureTermChanges changes={review.changes} legacyChanges={item.legacyChanges} />
   </div>;
 }
 
@@ -162,7 +146,7 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
     {current && reviewReason && <div className="work-queue">
       <strong>Review required · {reviewReason}</strong>
       <p>Review the updated terms and prepare a revised sample package to resolve the task. Prior responses stay with their version.</p>
-      {source && <ChangedTerms previous={current} current={source} />}
+      {source && <DisclosureTermChanges changes={compareDisclosureTerms(current, source)} />}
     </div>}
     {current && command && <section className="document-item" id={evidenceOnPackage ? evidenceTarget : undefined}
       tabIndex={evidenceOnPackage ? -1 : undefined} aria-label={`Sample disclosure package version ${current.version}`}>

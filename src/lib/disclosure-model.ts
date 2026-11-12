@@ -3,6 +3,7 @@ import { portalTokenPattern } from "./brokerage-model";
 import type { AllocatedFeeLine, FeeInputs, QuoteOption } from "./quote-worksheet";
 import { disclosureCalendarReference, type DisclosureCalendarBasis, type DisclosureDeadline } from "./disclosure-calendar-model";
 import type { DisclosureTemplateBasis, DisclosureTemplateOptions } from "./disclosure-template-model";
+import type { DisclosureTermChange } from "./disclosure-change-model";
 
 export const disclosureTarget = "loan-disclosures";
 export const findingDisclosureTarget = (caseId: string) => `${disclosureTarget}-finding-${caseId}`;
@@ -55,7 +56,8 @@ export type DisclosurePackage = DisclosureSource & {
   templateBasis?: DisclosureTemplateBasis | null;
   reviewReason: string | null;
   declineFollowUp: { at: string; actor: string; note: string } | null;
-  changeReview: { fromVersion: number; reason: string; at: string; actor: string; note: string } | null;
+  changeReview: { fromVersion: number; reason: string; at: string; actor: string; note: string; changes?: DisclosureTermChange[] } | null;
+  legacyChanges?: DisclosureTermChange[];
 };
 export type DisclosureWork = {
   source: DisclosureSource | null; unavailable: string | null; packages: DisclosurePackage[];
@@ -70,6 +72,7 @@ export type ClosingDisclosureReview = {
   applicationRevision: number; feeRevision: number; signers: DisclosureSigner[];
   feeAllocations?: AllocatedFeeLine[];
   changeReview: DisclosurePackage["changeReview"];
+  legacyChanges?: DisclosureTermChange[];
   current: boolean;
 };
 export type BorrowerDisclosure = {

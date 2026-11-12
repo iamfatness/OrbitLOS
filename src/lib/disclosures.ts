@@ -3,6 +3,7 @@ import { applicationDraft, type ApplicationDraft } from "./application-model";
 import { demoBrokerageId } from "./brokerage-model";
 import { easternDate, easternDayStart } from "./client-retention";
 import { changedDisclosureTarget, currentDisclosureCalendar } from "./disclosure-calendar";
+import { compareDisclosureTerms } from "./disclosure-change-model";
 import { disclosureSigningDeadline, storedDisclosureCalendarBasis, type DisclosureCalendarBasis } from "./disclosure-calendar-model";
 import { disclosureTemplateChanged, disclosureTemplateMatch, type DisclosureTemplateBasis } from "./disclosure-template-model";
 import { disclosureTemplatesForLoan, selectedDisclosureTemplate } from "./disclosure-templates";
@@ -45,6 +46,17 @@ function packageRows(db: Store, loanId: string, limit: number) {
     .all(loanId, limit) as unknown as PackageRow[];
 }
 
+function changeReviewEvidence(db: Store, loanId: string, raw: string | null, replacement: DisclosureSource) {
+  const changeReview: DisclosurePackage["changeReview"] = raw ? JSON.parse(raw) : null;
+  if (!changeReview || changeReview.changes) return { changeReview };
+  const before = db.prepare("SELECT quote,applicationRevision,feeRevision FROM disclosure_packages WHERE loanId=? AND version=?")
+    .get(loanId, changeReview.fromVersion);
+  if (!before) return { changeReview };
+  return { changeReview, legacyChanges: compareDisclosureTerms({
+    quote: JSON.parse(String(before.quote)), applicationRevision: Number(before.applicationRevision), feeRevision: Number(before.feeRevision),
+  }, replacement) };
+}
+
 export function readDisclosureWork(db: Store, loanId: string, now = new Date()): DisclosureWork {
   const current = disclosureSource(db, loanId);
   const templateOptions = current.source ?
@@ -64,7 +76,9 @@ export function readDisclosureWork(db: Store, loanId: string, now = new Date()):
       const source = JSON.parse(String(quote)) as DisclosurePackage["quote"];
       const feeAllocations = allocatedFeeLines(source.estimate?.inputs);
       return {
-        ...row, signers: JSON.parse(String(signers)), changeReview: changeReview ? JSON.parse(String(changeReview)) : null,
+        ...row, signers: JSON.parse(String(signers)), ...changeReviewEvidence(db, loanId, changeReview as string | null, {
+          quote: source, applicationRevision: Number(row.applicationRevision), feeRevision: Number(row.feeRevision),
+        }),
         ...(feeAllocations.length ? { feeAllocations } : {}),
         current: !!(latest && current.source && !latest.reviewReason && !latest.supersededAt &&
           row.version === latest.version && row.revision === latest.revision && matchesSource(latest, current.source)),
@@ -73,15 +87,18 @@ export function readDisclosureWork(db: Store, loanId: string, now = new Date()):
   const revisionReason = latest ? latest.reviewReason ?? (current.source ?
     matchesSource(latest, current.source) ? null : "Application, quote or fees changed" : current.error ?? null) : null;
   return { source: current.source ?? null, unavailable: current.error ?? null, revisionReason, closingReviews, suggestedDeadline, draftTargetChanged, templateOptions, packages: rows
-    .map((item) => ({
-      version: item.version, revision: item.revision, applicationRevision: item.applicationRevision, feeRevision: item.feeRevision,
-      preparedAt: item.preparedAt, issuedAt: item.issuedAt, signBy: item.signBy, supersededAt: item.supersededAt, reviewReason: item.reviewReason,
-      documents: JSON.parse(item.documents), signers: JSON.parse(item.signers), quote: JSON.parse(item.quote),
-      deadlineBasis: storedDisclosureCalendarBasis(item.deadlineBasis),
-      ...(item.templateBasis ? { templateBasis: JSON.parse(item.templateBasis) as DisclosureTemplateBasis } : {}),
-      declineFollowUp: item.declineFollowUp ? JSON.parse(item.declineFollowUp) : null,
-      changeReview: item.changeReview ? JSON.parse(item.changeReview) : null,
-    })) };
+    .map((item) => {
+      const quote = JSON.parse(item.quote) as DisclosurePackage["quote"];
+      return {
+        version: item.version, revision: item.revision, applicationRevision: item.applicationRevision, feeRevision: item.feeRevision,
+        preparedAt: item.preparedAt, issuedAt: item.issuedAt, signBy: item.signBy, supersededAt: item.supersededAt, reviewReason: item.reviewReason,
+        documents: JSON.parse(item.documents), signers: JSON.parse(item.signers), quote,
+        deadlineBasis: storedDisclosureCalendarBasis(item.deadlineBasis),
+        ...(item.templateBasis ? { templateBasis: JSON.parse(item.templateBasis) as DisclosureTemplateBasis } : {}),
+        declineFollowUp: item.declineFollowUp ? JSON.parse(item.declineFollowUp) : null,
+        ...changeReviewEvidence(db, loanId, item.changeReview, { quote, applicationRevision: item.applicationRevision, feeRevision: item.feeRevision }),
+      };
+    }) };
 }
 
 function taskId(prefix: string, item: Pick<PackageRow, "loanId" | "version">) {
@@ -286,7 +303,8 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
       if (!data.revisionNote) return { error: "Record an internal change-review note before preparing the revised package." } as const;
       if (data.reviewedPackageRevision !== latest.revision) return { error: "The package changed. Refresh the loan and review it again." } as const;
       changeReview = { fromVersion: latest.version, reason: latest.reviewReason ?? "Application or quote changed",
-        at: now, actor: staff?.name ?? "Demo staff", note: data.revisionNote };
+        at: now, actor: staff?.name ?? "Demo staff", note: data.revisionNote,
+        changes: compareDisclosureTerms({ ...latest, quote: JSON.parse(latest.quote) }, source.source) };
     }
     const version = (latest?.version ?? 0) + 1;
     if (latest) {
