@@ -29,8 +29,12 @@ import { borrowerHoursLabel, nextBorrowerContactTime } from "@/lib/borrower-hour
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 type Convert = (id: string, contactId: string | null, allowDuplicate: boolean, after: () => void, intakeReview?: QuotePrefillSelection) => void;
 
-function OwnerOptions({ members }: { members: BrokerageMember[] }) {
-  return <>{members.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}</>;
+function OwnerOptions({ members, compact = false }: { members: BrokerageMember[]; compact?: boolean }) {
+  return <>{members.map(member => {
+    const name = member.name || member.email;
+    const showEmail = name !== member.email && (!compact || members.some(other => other.email !== member.email && other.name === name));
+    return <option key={member.email} value={member.email}>{name}{showEmail && ` · ${member.email}`}</option>;
+  })}</>;
 }
 
 function RoutingForm({ routing, staff, members, busy, save, openOnEntry }: {
@@ -145,16 +149,19 @@ function LeadOwnerAssignment({ lead, members, busy, assign, staff }: {
   const ownerEmail = selection?.savedOwner === lead.officerEmail ? selection.ownerEmail : lead.officerEmail ?? "";
   const unavailableOwner = ownerEmail && !members.some(member => member.email === ownerEmail);
   return <>
-    {members.length > 0 && <form className="task-form" onSubmit={event => {
+    {members.length > 0 && <form onSubmit={event => {
       event.preventDefault();
       if (!busy) assign(ownerEmail || null);
     }}>
-      <label className="field">Lead owner<select value={ownerEmail} onChange={event => setSelection({ savedOwner: lead.officerEmail, ownerEmail: event.target.value })} disabled={busy}>
-        <option value="">Shared inbox</option>
-        {unavailableOwner && <option value={ownerEmail}>{lead.officer || ownerEmail} · Unavailable</option>}
-        <OwnerOptions members={members} />
-      </select></label>
-      <Button size="sm" type="submit" disabled={busy}>Save owner</Button>
+      <div className="loan-application-actions licensing-controls license-state-controls">
+        <label className="field">Lead owner<select value={ownerEmail}
+          onChange={event => setSelection({ savedOwner: lead.officerEmail, ownerEmail: event.target.value })} disabled={busy}>
+          <option value="">Shared inbox</option>
+          {unavailableOwner && <option value={ownerEmail}>{lead.officer || ownerEmail} · Unavailable</option>}
+          <OwnerOptions members={members} compact />
+        </select></label>
+        <Button size="sm" className="min-h-10" type="submit" disabled={busy}>Save owner</Button>
+      </div>
     </form>}
     {staff && workspaceFeatures(staff.brokerage).compliance &&
       <LeadLicenseStateReview key={lead.propertyState} brokerageId={staff.brokerage.id} leadId={lead.id}

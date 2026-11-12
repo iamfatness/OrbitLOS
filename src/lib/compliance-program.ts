@@ -137,6 +137,9 @@ function checkLicenseState(db: Store, tenant: string, data: Extract<ProgramReque
   const intakeBranch = storedQuoteRouting(lead?.routingReceipt)?.branch;
   const officer = selection?.officerEmail ? roster.find(member =>
     member.email === selection.officerEmail && member.status === "Active" && member.role !== "Processor") : undefined;
+  const officerName = officer && roster.some(member =>
+    member.email !== officer.email && member.status === "Active" && member.role !== "Processor" && member.name === officer.name)
+    ? `${officer.name} · ${officer.email}` : officer?.name || officer?.email;
   const branches = selection ? readBranches(db).flatMap(branch => {
     const atIntake = branch.id === intakeBranch?.id;
     const officerAssigned = officer ? branch.staff.some(assignment => assignment.email === officer.email && branchStaffCurrent(assignment, officer)) : undefined;
@@ -152,7 +155,7 @@ function checkLicenseState(db: Store, tenant: string, data: Extract<ProgramReque
   const byEntity = Map.groupBy(records.map(({ holder, ...record }) => ({ ...record, holder: licenseHolderRecord(holder).holder })), record => record.entityId);
   return { kind: "licenseStateCheck", jurisdiction: data.jurisdiction, asOf,
     ...(selection ? { assignment: {
-      officer: selection.officerEmail ? { name: officer?.name ?? null } : null,
+      officer: selection.officerEmail ? { name: officerName ?? null } : null,
       intakeBranchWithoutLink: intakeBranch && !branches.some(branch => branch.atIntake) ? intakeBranch.name : undefined,
       branches,
     } } : {}),
