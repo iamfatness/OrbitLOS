@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { applicationDraft } from "./application-model";
 import { addApplicationActivity } from "./applications";
-import { ausMethods, creditApplicantCount, creditAusServices, creditCoversApplication, mockRunMatchesApplication, type MockCreditAuthorization, type MockCreditAusResult, type MockCreditAusRun } from "./credit-aus-model";
+import { ausMethods, creditApplicantCount, creditAusServices, creditCoversApplication, mockAusScenarios, mockCreditScenarios, mockRunMatchesApplication, unconfirmedMockOrder, type MockCreditAuthorization, type MockCreditAusResult, type MockCreditAusRun } from "./credit-aus-model";
 import type { StaffIdentity } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 
@@ -9,11 +9,11 @@ const loanId = z.string().min(1).max(100);
 const revision = z.number().int().nonnegative();
 const attempt = { attemptId: z.uuid(), previousId: z.uuid().nullable() };
 const fields = { loanId, ...attempt, applicationRevision: revision.nullable().optional() };
-const ausScenario = z.enum(["eligible", "review", "failure", "uncertain"]);
+const ausScenario = z.enum(mockAusScenarios.map(([value]) => value));
 export const mockCreditInput = z.object({
   ...fields, type: z.literal("runMockCredit"), authorized: z.literal(true),
   borrowers: z.enum(["primary", "all"]).optional(),
-  scenario: z.enum(["ready", "failure", "uncertain"]),
+  scenario: z.enum(mockCreditScenarios.map(([value]) => value)),
 });
 export const mockAusInput = z.object({
   ...fields, type: z.literal("runMockAus"), method: z.enum(ausMethods), creditId: z.uuid(),
@@ -35,10 +35,12 @@ type PairedOrderInput = z.infer<typeof mockPairedAusInput>;
 type MockInput = SingleOrderInput | PairedOrderInput | z.infer<typeof mockReconcileInput>;
 
 type RunRow = Record<string, SqlValue>;
-type StoredResult = MockCreditAusResult & { borrowerCount?: number; reconciledAt?: string };
+type MockLookup = "rejected" | "inconclusive-first";
+type StoredResult = MockCreditAusResult & { borrowerCount?: number; reconciledAt?: string; lastCheckedAt?: string; mockLookup?: MockLookup };
 
 function readRun(row: RunRow): MockCreditAusRun {
-  const { borrowerCount, reconciledAt, ...result } = JSON.parse(String(row.result)) as StoredResult;
+  const { borrowerCount, reconciledAt, lastCheckedAt, ...result } = JSON.parse(String(row.result)) as StoredResult;
+  delete result.mockLookup;
   return {
     id: String(row.id), loanId: String(row.loanId), service: row.service as MockCreditAusRun["service"],
     reference: String(row.reference), creditId: row.creditId as string | null, retryOf: row.retryOf as string | null,
@@ -48,6 +50,7 @@ function readRun(row: RunRow): MockCreditAusRun {
     ...(typeof row.batchId === "string" ? { batchId: row.batchId } : {}),
     ...(borrowerCount !== undefined ? { borrowerCount } : {}),
     ...(reconciledAt !== undefined ? { reconciledAt } : {}),
+    ...(lastCheckedAt !== undefined ? { lastCheckedAt } : {}),
   };
 }
 
@@ -72,8 +75,12 @@ const findings = {
   },
 };
 
-function mockResult(service: MockCreditAusRun["service"], scenario: "ready" | "eligible" | "review" | "failure" | "uncertain"): MockCreditAusResult {
-  if (scenario === "uncertain") return { status: "Awaiting confirmation" };
+type MockScenario = typeof mockCreditScenarios[number][0] | typeof mockAusScenarios[number][0];
+
+function mockResult(service: MockCreditAusRun["service"], scenario: MockScenario): StoredResult {
+  if (scenario === "uncertain") return { status: unconfirmedMockOrder };
+  if (scenario === "uncertain-rejected") return { status: unconfirmedMockOrder, mockLookup: "rejected" };
+  if (scenario === "uncertain-unavailable") return { status: unconfirmedMockOrder, mockLookup: "inconclusive-first" };
   if (scenario === "failure") return { status: "Failed", reason: `The mock ${service === "Credit" ? "credit provider" : service + " service"} confirmed that no order was placed. You can retry.` };
   if (service === "Credit") return { status: "Report ready", score: 742 };
   const review = scenario === "review";
@@ -81,7 +88,7 @@ function mockResult(service: MockCreditAusRun["service"], scenario: "ready" | "e
 }
 
 type Attempt = {
-  id: string; loanId: string; service: MockCreditAusRun["service"]; result: MockCreditAusResult;
+  id: string; loanId: string; service: MockCreditAusRun["service"]; result: StoredResult;
   creditId: string | null; retryOf?: string; batchId?: string; applicationRevision: number | null;
   authorization?: MockCreditAuthorization; requestKey: string; borrowerCount: number;
 };
@@ -130,7 +137,7 @@ function runPairedAus(db: Store, input: PairedOrderInput, staff: StaffIdentity |
   }
   for (const method of ausMethods) {
     const previous = latestRun(db, loanId, method);
-    if (previous?.result.status === "Awaiting confirmation") return { error: pendingOrder };
+    if (previous?.result.status === unconfirmedMockOrder) return { error: pendingOrder };
     if ((previous?.id ?? null) !== orders[method].previousId) return { error: changedOrder };
     if (db.prepare("SELECT 1 FROM mock_credit_aus_runs WHERE id = ?").get(orders[method].attemptId)) return { error: reusedAttempt };
   }
@@ -147,13 +154,20 @@ function runPairedAus(db: Store, input: PairedOrderInput, staff: StaffIdentity |
 function reconcileOrder(db: Store, input: z.infer<typeof mockReconcileInput>, staff: StaffIdentity | null, now: string) {
   const row = db.prepare("SELECT * FROM mock_credit_aus_runs WHERE loanId = ? AND id = ?").get(input.loanId, input.attemptId);
   if (!row) return { error: "The original mock request is unavailable." };
-  const run = readRun(row);
-  if (run.reconciledAt) return { message: "The original mock result is already confirmed." };
-  if (run.result.status !== "Awaiting confirmation") return { error: "Only a request awaiting confirmation can be checked." };
-  const result = mockResult(run.service, "eligible");
+  const stored = JSON.parse(String(row.result)) as StoredResult;
+  if (stored.reconciledAt) return { message: "The original mock result is already confirmed." };
+  if (stored.status !== unconfirmedMockOrder) return { error: "Only a request awaiting confirmation can be checked." };
+  const service = row.service as MockCreditAusRun["service"];
+  const inconclusive = stored.mockLookup === "inconclusive-first" && !stored.lastCheckedAt;
+  const rejected = stored.mockLookup === "rejected";
+  const result = inconclusive ? { ...stored, lastCheckedAt: now } :
+    { ...mockResult(service, rejected ? "failure" : "eligible"), borrowerCount: stored.borrowerCount, reconciledAt: now };
   db.prepare("UPDATE mock_credit_aus_runs SET result = ? WHERE id = ? AND loanId = ?")
-    .run(JSON.stringify({ ...result, borrowerCount: run.borrowerCount, reconciledAt: now }), run.id, run.loanId);
-  addApplicationActivity(db, run.loanId, `Confirmed original mock ${run.service} result · ${run.reference} · ${staff?.name ?? "Demo loan officer"}`, now);
+    .run(JSON.stringify(result), input.attemptId, input.loanId);
+  const action = inconclusive ? "Checked unconfirmed" : "Confirmed original";
+  addApplicationActivity(db, input.loanId, `${action} mock ${service} result · ${result.status} · ${row.reference} · ${staff?.name ?? "Demo loan officer"}`, now);
+  if (inconclusive) return { message: "The mock lookup was inconclusive. The original order is still pending." };
+  if (rejected) return { message: "Mock provider confirmed no order was placed. You can retry." };
   return { message: "Original mock result confirmed." };
 }
 
@@ -172,7 +186,7 @@ export function runMockCreditAus(db: Store, input: MockInput, staff: StaffIdenti
   const applicationRevision = evidence.revision;
   if (input.applicationRevision !== undefined && input.applicationRevision !== applicationRevision) return { error: changedApplication };
   const previous = latestRun(db, loanId, service);
-  if (previous?.result.status === "Awaiting confirmation") return { error: pendingOrder };
+  if (previous?.result.status === unconfirmedMockOrder) return { error: pendingOrder };
   if ((previous?.id ?? null) !== previousId) return { error: changedOrder };
 
   const retry = input.type === "retryMockCreditAus";
@@ -195,6 +209,6 @@ export function runMockCreditAus(db: Store, input: MockInput, staff: StaffIdenti
     recordedBy: staff?.email || "Demo loan officer", recordedAt: now } : retry ? previous?.authorization : undefined;
   recordAttempt(db, { id: attemptId, loanId, service, result, creditId, applicationRevision, authorization, requestKey, borrowerCount,
     ...(retry ? { retryOf: input.previousId, batchId: previous?.batchId } : {}) }, staff, now);
-  if (result.status === "Awaiting confirmation") return { message: "Mock response missing. Check the original result in Credit & AUS." };
+  if (result.status === unconfirmedMockOrder) return { message: "Mock response missing. Check the original result in Credit & AUS." };
   return { message: result.status === "Failed" ? "Mock request failed. Retry from Credit & AUS." : `Mock ${service === "Credit" ? "credit report" : service + " findings"} ready for review.` };
 }

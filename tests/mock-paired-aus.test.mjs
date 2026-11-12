@@ -9,6 +9,8 @@ const { blankApplication } = await import("../src/lib/application-model.ts");
 const { blankBorrower } = await import("../src/lib/urla.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { mockCreditAusRuns, runMockCreditAus } = await import("../src/lib/mock-credit-aus.ts");
+const { readIncomingLoanWorkPage } = await import("../src/lib/incoming-loan-work.ts");
+const { readActionCounts } = await import("../src/lib/workspace-action-counts.ts");
 
 const loanId = "fictional-aus-loan";
 const at = "2026-11-09T17:00:00.000Z";
@@ -169,4 +171,60 @@ test("joint credit evidence binds both applicants and checks uncertain results w
   assert.deepEqual(read()[1], du);
   assert.match((await send(pair(report.id, 4))).error, /authorized mock credit/i);
   assert.equal(read().length, 4);
+});
+
+test("underwriting work follows loan ownership and clears only after a definitive lookup", async (t) => {
+  const { db, send, read } = fixture(t);
+  const other = { ...officer, name: "Fictional Backup LO", email: "backup@example.test" };
+  const processor = { ...officer, brokerage: { ...officer.brokerage, role: "Processor" } };
+  const queue = (staff = officer, options = {}, limit) =>
+    readIncomingLoanWorkPage(db, { view: "today", ...options }, staff, officer.brokerage.id, undefined, new Date(), limit);
+  const items = (staff) => queue(staff).items.filter(({ kind }) => kind === "underwriting");
+  const counts = () => readActionCounts(db, officer, officer.brokerage.id).today;
+  const baseline = counts();
+  const order = { type: "runMockCredit", attemptId: randomUUID(), previousId: null, authorized: true,
+    scenario: "uncertain-unavailable", applicationRevision: 3 };
+  assert.ok((await send(order)).message);
+  assert.deepEqual(items().map(({ id }) => id), [order.attemptId]);
+  assert.equal(counts(), baseline + 1);
+  const page = queue(officer, {}, 1);
+  assert.equal(page.items[0].id, order.attemptId);
+  assert.equal(page.next.kind, "underwriting");
+  assert.ok(queue(officer, { after: page.next }).items.every(({ id }) => id !== order.attemptId));
+  assert.deepEqual(items(other), []);
+  assert.ok(queue(processor).error);
+  assert.ok(queue({ ...officer, brokerage: { ...officer.brokerage, id: "other" } }).error);
+  assert.deepEqual(items({ ...officer, brokerage: { ...officer.brokerage, pilot: false } }), []);
+  const check = { type: "reconcileMockCreditAus", attemptId: order.attemptId };
+  const [pending] = read();
+  assert.match((await send(check)).message, /inconclusive/i);
+  assert.equal(read()[0].reference, pending.reference);
+  assert.ok(read()[0].lastCheckedAt);
+  assert.equal(counts(), baseline + 1);
+  assert.match((await send({ ...order, attemptId: randomUUID(), previousId: order.attemptId })).error, /original/i);
+
+  db.prepare("UPDATE loans SET officer = ?, officerEmail = ? WHERE id = ?").run(other.name, other.email, loanId);
+  assert.deepEqual(items(), []);
+  assert.deepEqual(items(other).map(({ id }) => id), [order.attemptId]);
+  assert.match((await send(check)).error, /access/i);
+  assert.match((await send(check, other)).message, /confirmed/i);
+  assert.deepEqual(items(other), []);
+  assert.equal(read().length, 1);
+  assert.equal(read()[0].reference, pending.reference);
+  assert.equal(read()[0].result.status, "Report ready");
+
+  const command = pair(order.attemptId);
+  command.orders.LPA.scenario = "uncertain-rejected";
+  assert.match((await send(command, other)).message, /LPA awaiting confirmation/i);
+  const [lpa, du] = read();
+  assert.deepEqual(items(other).map(({ id }) => id), [lpa.id]);
+  const reconcileLpa = { ...check, attemptId: lpa.id };
+  assert.match((await send(reconcileLpa, other)).message, /no order was placed/i);
+  assert.equal(read()[0].id, lpa.id);
+  assert.equal(read()[0].result.status, "Failed");
+  assert.deepEqual(read()[1], du);
+  assert.deepEqual(items(other), []);
+  assert.match((await send(reconcileLpa, other)).message, /already confirmed/i);
+  assert.match((await send({ type: "retryMockCreditAus", service: "LPA", attemptId: randomUUID(), previousId: lpa.id, applicationRevision: 3 }, other)).message, /ready/i);
+  assert.equal(read()[0].retryOf, lpa.id);
 });

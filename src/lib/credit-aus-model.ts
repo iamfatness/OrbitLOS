@@ -2,9 +2,23 @@ export const creditAusServices = ["Credit", "DU", "LPA"] as const;
 export type CreditAusService = (typeof creditAusServices)[number];
 export const ausMethods = ["DU", "LPA"] as const;
 export type AusMethod = (typeof ausMethods)[number];
-export const mockAusScenarios = [
-  ["eligible", "Eligible sample"], ["review", "Review required"], ["failure", "Confirmed failure"], ["uncertain", "Response missing"],
+export const unconfirmedMockOrder = "Awaiting confirmation";
+const missingResponseScenarios = [
+  ["uncertain", "Missing response · Accepted"],
+  ["uncertain-rejected", "Missing response · Rejected"],
+  ["uncertain-unavailable", "Missing response · Inconclusive first"],
 ] as const;
+export const mockCreditScenarios = [
+  ["ready", "Report ready"], ["failure", "Confirmed failure"], ...missingResponseScenarios,
+] as const;
+export const mockAusScenarios = [
+  ["eligible", "Eligible sample"], ["review", "Review required"], ["failure", "Confirmed failure"], ...missingResponseScenarios,
+] as const;
+export const creditAusAttemptTargetPrefix = "credit-aus-order-";
+
+export function creditAusAttemptTarget(id: string) {
+  return `${creditAusAttemptTargetPrefix}${id}`;
+}
 
 export interface MockCreditAuthorization {
   reference: string;
@@ -15,7 +29,7 @@ export interface MockCreditAuthorization {
 export type MockCreditAusResult =
   | { status: "Report ready"; score: number }
   | { status: "Findings ready"; recommendation: "Eligible sample" | "Review required"; findings: string[] }
-  | { status: "Awaiting confirmation" }
+  | { status: typeof unconfirmedMockOrder }
   | { status: "Failed"; reason: string };
 
 export interface MockCreditAusRun {
@@ -32,6 +46,7 @@ export interface MockCreditAusRun {
   batchId?: string;
   borrowerCount?: number;
   reconciledAt?: string;
+  lastCheckedAt?: string;
   result: MockCreditAusResult;
 }
 

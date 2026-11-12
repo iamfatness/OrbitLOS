@@ -54,6 +54,7 @@ import { useActionCounts } from "./use-action-counts";
 import { reviewTarget } from "@/lib/loan-review-model";
 import { WorkspaceSearch, type SearchSelection } from "./workspace-search";
 import { searchRecordUnavailable, searchTaskTarget, type SearchContact, type SearchRecord } from "@/lib/workspace-search-model";
+import { creditAusAttemptTarget, creditAusAttemptTargetPrefix, unconfirmedMockOrder } from "@/lib/credit-aus-model";
 import { ProcessorQueue } from "./processor-queue";
 import type { CalendarQuery, OfficerQueueItem } from "@/lib/officer-queue-model";
 import { stalledLoanUnavailable } from "@/lib/officer-dashboard-model";
@@ -803,6 +804,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           result.documentRequests.some((request) => request.id === item.id && request.revision === item.revision && request.status === "Received") :
           item.kind === "question" ? result.borrowerQuestions?.some((question) =>
             question.id === item.id && question.revision === item.revision && question.status === "Answered") :
+          item.kind === "underwriting" ? view === "today" && result.mockCreditAusRuns.some((run) =>
+            run.id === item.id && (run.applicationRevision ?? 0) === item.revision && run.result.status === unconfirmedMockOrder) :
           assigned?.loanId === item.id && assigned.revision === item.revision && !!assigned.processorEmail &&
           (view === "today" ? assigned.status === "Returned to LO" : assigned.status === "Ready for processing" && readyToAccept);
         if (!inQueue || !current || loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed") {
@@ -1056,7 +1059,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
       { kind: "manual-return-work", submissionId: item.returnSubmissionId === undefined ? item.id : item.returnSubmissionId,
         eventId: item.returnEventId, personal: true });
     const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` :
-      item.kind === "question" ? staffQuestionTarget(item.id) : "processing-handoff";
+      item.kind === "question" ? staffQuestionTarget(item.id) : item.kind === "underwriting" ? creditAusAttemptTarget(item.id) : "processing-handoff";
     void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
   }
 
@@ -1223,6 +1226,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     setModal(null);
     const trigger = exceptionTrigger.current;
     const original = recordTrigger.current;
+    const resolvedOrder = modal?.kind === "details" && modal.target?.startsWith(creditAusAttemptTargetPrefix) &&
+      loanWork?.mockCreditAusRuns.some((run) => creditAusAttemptTarget(run.id) === modal.target && run.result.status !== unconfirmedMockOrder);
     const pipelineLoan = section === "Pipeline" && modal && "loanId" in modal ? modal.loanId : undefined;
     exceptionTrigger.current = null;
     recordTrigger.current = null;
@@ -1230,7 +1235,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
       const replacement = pipelineLoan && document.querySelector<HTMLElement>(`[data-loan-record="${CSS.escape(pipelineLoan)}"]`);
       const target = trigger && section === "Exceptions" ?
         (trigger.isConnected ? trigger : document.getElementById("owner-exception-filter")) :
-        (original?.isConnected ? original : replacement || sectionHeading.current);
+        (original?.isConnected && !resolvedOrder ? original : replacement || sectionHeading.current);
       target?.focus({ preventScroll: true });
     });
   }

@@ -52,7 +52,7 @@ import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { fundingTaskId, reversedFundingTaskPrefix } from "@/lib/playbook-model";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
 import { IncomeWorksheet } from "./income-worksheet";
-import { creditApplicantCount, submittedApplicationRevision } from "@/lib/credit-aus-model";
+import { creditApplicantCount, creditAusAttemptTargetPrefix, submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
 import { CutoverInventoryDownload } from "./cutover-file-inventory";
@@ -518,7 +518,8 @@ function loanSection(target?: string) {
     target === manualLenderAcknowledgmentTarget) return "1003";
   if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-") ||
     target === serviceOrdersTarget || target.startsWith(serviceOrderTargetPrefix)) return "Conditions";
-  if (target === "credit-aus" || target === "loan-pricing" || target === "income-worksheet" || target === sharedQuoteReviewTarget) return "Pricing & credit";
+  if (target === "credit-aus" || target.startsWith(creditAusAttemptTargetPrefix) || target === "loan-pricing" ||
+    target === "income-worksheet" || target === sharedQuoteReviewTarget) return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" || target === closingDisclosureReviewTarget ||
     target === callReportFactsTarget || target.startsWith("closing-checklist-")) return "Closing";
   if (["loan-activity-overview", "loan-activity", "loan-tasks", "loan-retention", "loan-communications", "loan-audit-history", loanReviewsTarget, filePreflightRequestTarget].includes(target) ||
@@ -972,7 +973,9 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     const item = target ? element.querySelector<HTMLElement>(`#${CSS.escape(target)}`) : null;
     const content = details ? element.querySelector<HTMLElement>("#loan-section-content") : null;
     const focus = sectionEntry ? content : item ?? content;
-    if (target === manualLenderAcknowledgmentTarget) item?.closest("details")?.setAttribute("open", "");
+    if (target === manualLenderAcknowledgmentTarget || target?.startsWith(creditAusAttemptTargetPrefix)) {
+      item?.closest("details")?.setAttribute("open", "");
+    }
     if (focus instanceof HTMLDetailsElement) {
       focus.open = true;
       focus.querySelector("summary")?.focus({ preventScroll: true });

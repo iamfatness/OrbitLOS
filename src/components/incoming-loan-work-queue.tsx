@@ -60,17 +60,21 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
     {page && (page.items.length ? <ul className="loan-task-list">{page.items.map((item) => {
       const action = item.returnStatus ? manualReturnSteps[item.returnStatus].action :
         item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" :
-        item.kind === "lead-document" ? "Review lead document" : item.kind === "question" ? "Review borrower answer" : "Open handoff";
+        item.kind === "lead-document" ? "Review lead document" : item.kind === "question" ? "Review borrower answer" :
+          item.kind === "underwriting" ? "Open order" : "Open handoff";
       return <li className={item.returnEventId ? "loan-task lender-return-task" : "loan-task"} key={`${item.kind}:${item.id}:${item.returnEventId ?? ""}`}>
       <div className="loan-task-copy"><strong>{item.name} · {item.title}</strong>
-        <span>{item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
+        <span>{item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " :
+          item.kind === "underwriting" ? "Ordered " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
         {item.returnDeadline && <span className={item.returnDeadline.overdue ? "open-chip" : "muted"}>
           {item.returnDeadline.overdue ? "Return overdue since" : "Follow up by"} {dateTime(item.returnDeadline.dueAt)} ET
         </span>}
         {item.note && <span>{item.note}</span>}
         {item.returnFollowUp ? <><span>{lenderReturnFollowUpLabel(item.returnFollowUp)}</span><span>{item.returnFollowUp.note}</span></> :
           item.returnEventId && <span className="muted">No follow-up logged yet.</span>}</div>
-      <Button size="sm" variant="outline" disabled={paused} aria-label={`${item.kind === "document" ? `Review ${item.title.toLowerCase()}` : action} for ${item.name}`}
+      <Button size="sm" variant="outline" disabled={paused} aria-label={item.kind === "underwriting" ?
+        `Open order for ${item.name}, ${item.title.toLowerCase()}` :
+        `${item.kind === "document" ? `Review ${item.title.toLowerCase()}` : action} for ${item.name}`}
         onClick={() => open(item)}>{action}</Button>
       {item.kind !== "lead-document" && item.returnEventId && <div className="lender-return-follow-up">
         <LenderReturnFollowUp brokerageId={brokerageId} loanId={item.loanId} name={item.name}
@@ -79,7 +83,7 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
           onSaved={() => setAttempt((current) => current + 1)} />
       </div>}
     </li>;})}</ul> : <p className="empty-inline">{after ? "No more incoming items need attention." : view === "today" ?
-      "New 1003s, received documents, borrower answers, and lender or processor returns appear here." :
+      "New 1003s, received documents, borrower answers, unconfirmed orders, and lender or processor returns appear here." :
       "Received documents, borrower answers, and ready handoffs on assigned files appear here."}</p>)}
     {(after || page?.next) && <div className="loan-application-actions">
       {after && <Button size="sm" variant="outline" disabled={paused} onClick={() => setAfter(undefined)}>Newest incoming work</Button>}

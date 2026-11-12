@@ -27,3 +27,16 @@ The mock workflow already creates a revision-specific Today item, prevents a sec
 ## Activation gate
 
 Record the provider technical owner, sandbox broker and contact mapping, granted scopes, server-side credential references, test identities, expected response samples, verification method, and quota limits. Run one purchase and one rate-and-term refinance with synthetic records. Verify positive and negative results, isolate both the sandbox and brokerage scope, and exercise rotation, disablement and manual recovery. Record evidence before promoting each capability. Use a separate approved enrollment and credential configuration for production.
+
+## Credit and AUS order lookup
+
+Use synthetic, partner-approved borrowers. For each service, record the exact submitted 1003 revision, borrower scope, authorization evidence, original correlation key, attempt time, and any vendor reference. Keep the lookup tied to that order across a loan reassignment or an application correction. Record the provider's accepted and rejected signals separately from a timeout, empty response, or temporarily unavailable lookup.
+
+| Sandbox case | Expected Orbit behavior | Evidence to capture with the partner |
+| --- | --- | --- |
+| Original response is missing and lookup returns a matching accepted order | Apply the result under the original reference and clear the LO's Today item. Repeating the check creates no order. | Lookup identity, definitive status, matching borrower scope and revision, result reference, and provider order or charge count. |
+| Lookup definitively confirms rejection before acceptance | Preserve the original rejection, clear its confirmation item, and offer the documented retry path for that service. | Exact rejected status and reason, and partner confirmation that retry cannot duplicate an accepted order or charge. |
+| Lookup is inconclusive | Keep the original reference and the owner's Today item. Record the last check and block a replacement order until there is definitive evidence. | Timeout, missing record, or incomplete status, followed by a later lookup or manual escalation against the same key. |
+| Lookup returns a mismatched or conflicting reference | Keep the order pending and route the conflicting evidence to a scoped operator review. | Conflicting provider references, matching rules, and the partner escalation route. |
+
+The first three cases have deterministic mock scenarios. Their accepted and rejected responses are generated within Orbit. Matching, conflicting receipts, actual charges, and service-specific retry rules still require provider sandbox evidence.

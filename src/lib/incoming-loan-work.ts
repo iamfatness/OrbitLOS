@@ -1,12 +1,14 @@
 import { incomingLoanWorkProcessingStatuses, incomingLoanWorkQuery, incomingLoanWorkUnavailable, type IncomingLoanWorkItem,
   type IncomingLoanWorkPage } from "./incoming-loan-work-model";
 import { activeProcessingLoan, processingAcceptanceReady } from "./loan-processing";
+import { unconfirmedMockOrder } from "./credit-aus-model";
 import { latestManualReturnFollowUp, manualReturnDueAt, manualReturnLender, manualReturnPhase, manualReturnTitle, manualReturnWorkId,
   pendingManualReturn } from "./manual-lender-work";
 import { readPlaybook } from "./playbooks";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { isDemoStaff } from "./workspace-access";
+import { fictionalUwmWorkspace } from "./uwm-live";
 
 const pageSize = 8;
 const sparseReceivedLimit = 32;
@@ -57,6 +59,7 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     WHERE ${activeProcessingLoan} AND processing.status = 'Returned to LO' AND processing.processorEmail IS NOT NULL AND ${owned}`;
   const documentArgs = processing ? (team ? [] : [staff.email]) : ownerArgs;
   const leadDocuments = !processing && staff.brokerage.pilot;
+  const mockUnderwriting = !processing && fictionalUwmWorkspace(staff);
   const rows = db.prepare(`WITH incoming AS (
     SELECT 'document' AS kind, request.id, loan.id AS loanId, contact.name,
       coalesce(request.submittedAt, request.requestedAt) AS receivedAt, request.revision,
@@ -71,6 +74,12 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
       '${processing ? "Ready to accept" : "Returned from processing"}', ${processing && !team ? "loan.officer" : "processing.processorName"}, 0,
       nullif(processing.note, ''), NULL, NULL, NULL, NULL
     ${handoffs}
+    ${mockUnderwriting ? `UNION ALL
+    SELECT 'underwriting', attempt.id, loan.id, contact.name, attempt.requestedAt, coalesce(attempt.applicationRevision, 0),
+      'Unconfirmed mock ' || CASE attempt.service WHEN 'Credit' THEN 'credit' ELSE attempt.service END || ' result',
+      NULL, 0, NULL, NULL, NULL, NULL, NULL
+    FROM loans loan CROSS JOIN mock_credit_aus_runs attempt ON attempt.loanId = loan.id ${contacts}
+    WHERE ${activeProcessingLoan} AND ${owned} AND json_extract(attempt.result, '$.status') = ?` : ""}
     ${leadDocuments ? `UNION ALL
     SELECT 'lead-document', request.id, lead.id, lead.name, coalesce(request.submittedAt, request.requestedAt),
       request.revision, request.kind || ' · Lead', NULL, 0, NULL, NULL, NULL, NULL, NULL
@@ -88,7 +97,8 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     SELECT * FROM (SELECT * FROM incoming UNION ALL SELECT * FROM borrower_answers) ${after ? "WHERE (receivedAt, kind, id) < (?, ?, ?)" : ""}
     ORDER BY receivedAt DESC, kind DESC, id DESC LIMIT ?
   ) SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY receivedAt DESC, kind DESC, id DESC`)
-    .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(leadDocuments ? [staff.email] : []), ...documentArgs,
+    .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(mockUnderwriting ? [...ownerArgs, unconfirmedMockOrder] : []),
+      ...(leadDocuments ? [staff.email] : []), ...documentArgs,
       ...(after ? [after.receivedAt, after.kind, after.id] : []), limit + 1) as unknown as
       (Omit<IncomingLoanWorkItem, "linkedCondition" | "returnStatus" | "returnDeadline" | "returnEventId" | "returnFollowUp"> & {
         loanId: string; linkedCondition: number; returnStatus: IncomingLoanWorkItem["returnStatus"] | null; returnDueAt: string | null;
