@@ -638,3 +638,9 @@ Reused the 21st.dev-informed Brokerage action rows and the existing schedule edi
 The existing Staff access form, inline receipt and roster disclosures supply the 21st.dev-informed pattern. Impeccable's polish pass informed the compact count strip and aligned editor. UI UX Pro Max error-recovery guidance informed preserving a draft and refreshing the roster when the saved revision changes. Phone widths give the limit field its own row and keep the two actions together. The editor focuses its input, Cancel returns focus to Edit seat limit, and a save focuses its confirmation.
 
 The built fictional owner exercised the populated roster, a selected limit, an invitation that filled the last seat, interrupted responses, and canceling the invitation. The owner returned through the phone menu after reload. The LO could not see the controls or read the totals. The final 1440, 900 and 390 px editor and full-state captures are `.orbit/pilot-staff-seats-{editor,full}-*.png`.
+
+### Temporary access to a pilot support summary
+
+Impeccable Polish informed placement inside the selected request and shared alignment with the existing triage controls. UI UX Pro Max form and confirmation guidance informed labeled reviewer and duration selectors, retained input after an interruption and explicit confirmation for revocation. The approved 21st.dev-informed Partner permissions disclosure, receipt and list-detail patterns supply the existing component reference. Reviewers open a focused summary from Team → Shared with me and return to the grant by keyboard.
+
+The built owner and processor checked a selected request and populated access history, failed acknowledgments, approval replay, recorded views, canceled and confirmed revocation, and an open reviewer tab losing access on refocus. The final editor, active, revoked and reviewer captures at 1440, 900 and 390 px are `.orbit/pilot-support-access-{owner-form,owner-active,owner-revoked,reviewer}-*.png`.
