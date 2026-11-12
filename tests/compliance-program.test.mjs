@@ -10,6 +10,7 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 const { initializeStore } = await import("../src/lib/store.ts");
+const { initializeComplianceProgram } = await import("../src/lib/compliance-program.ts");
 const { updateBranch } = await import("../src/lib/branches.ts");
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
 
@@ -196,4 +197,20 @@ test("operational branch and officer license holders retain identity through arc
   const reassigned = work({ ...loanOfficer, revision: 1, requestId: crypto.randomUUID(), holder: { ...loanOfficer.holder, accessRevision: 3 } }, rehired);
   assert.equal(reassigned.licenses[1].holderAvailable, true);
   assert.equal(reassigned.licenses[1].holder.accessRevision, 3);
+});
+
+test("upgrading a pre-existing license register preserves company records", t => {
+  const f = fixture(t);
+  const entity = f.entity();
+  const id = crypto.randomUUID();
+  f.sqlite.exec("ALTER TABLE compliance_program_licenses DROP COLUMN holder");
+  f.sqlite.prepare("INSERT INTO compliance_program_licenses VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run(f.tenant, entity.id, id, "MI", "Fictional company license", "ORIGINAL-1", "Active", null, null, "Saved prior evidence", 2, now);
+  initializeComplianceProgram(f.db);
+  const { licenses } = f.run({ operation: "licenses", entityId: entity.id });
+  assert.equal(licenses[0].id, id);
+  assert.equal(licenses[0].revision, 2);
+  assert.equal(licenses[0].evidence, "Saved prior evidence");
+  assert.deepEqual(licenses[0].holder, { kind: "Company" });
+  assert.equal(licenses[0].holderAvailable, true);
 });
