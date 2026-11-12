@@ -541,3 +541,7 @@ Application `00498e79efca`. Reused Orbit native labeled forms and the list/detai
 ### Default workspace during a pause
 
 App `c39629d`. The existing pause screen opens a scoped available workspace and the Demo list explains the retained default in one sentence. Impeccable Clarify informed the outcome wording. UI UX Pro Max readable-text guidance informed the narrow check. Existing entry and list patterns were reused for the 21st.dev reference. Screenshots at 1440, 900 and 390 px showed the existing hierarchy, wrapped Demo copy, and a visible 44 px keyboard-focusable alternate action. See [UI review coverage](ui-review-coverage.md).
+
+### Michigan application and disclosure evidence
+
+App `e9aae63d8fb0`. Impeccable Operate informed the distinction between timing, receipt details and evidence entry. UI UX Pro Max error-summary guidance informed feedback beside the form with retained input and keyboard focus. The UI reuses Orbit's accepted disclosure, definition-list, field and feedback patterns. The selected form and populated owner and processor states were inspected at desktop, portrait and phone widths. See [UI review coverage](ui-review-coverage.md).

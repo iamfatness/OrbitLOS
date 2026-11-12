@@ -16,3 +16,9 @@ Storage is an append-only loan evidence ledger with revision checks, idempotent 
 ## Release acceptance
 
 Use fictional records to verify the initial five receipts, sixth receipt, office exception, each document evidence state, date comparisons, duplicate retry, stale revision, withdrawal and role restrictions. Confirm desktop, portrait and phone layouts with a populated file and selected evidence form. Check focus, validation and retained input after an error. User and lawyer review remain required before regulatory use. Record exact production release and eligible workspace after promotion.
+
+### Published pilot
+
+Application `e9aae63d8fb0` is live on OrbitLOS.com as Worker `8d95d30f-09ad-4ee1-bc9b-42c7d855ceb8`. Open a Michigan file in a fictional pilot and choose **Disclosures → TRID application and delivery evidence**. Owner and LO recording and assigned processor read-only access were exercised in separate isolated browser sessions. Live verification exercised the Demo page and signed-out boundaries.
+
+The browser pass verified the missing receipt state, corrected sixth receipt with original evidence retained, interrupted save and retry, concurrent stale change, electronic consent validation and calendar results. The built rehearsal covered the corrected Closing Disclosure review state, withdrawal, repeat request, and unrelated LO denial. See [UI review coverage](../ui-review-coverage.md). Real regulatory use remains subject to the existing owner and lawyer review.

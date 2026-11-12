@@ -1273,3 +1273,7 @@ Published application `00498e79efca` as Worker `87d41312-c616-4615-b4e9-e4af0006
 ### Temporary visit during a workspace pause
 
 Published Worker `2be8e8e9-e6c8-4680-b762-c77d4790a776`, app `c39629d`. A fictional pilot owner opened an alternate workspace from the pause screen, refreshed it, and opened the saved brokerage in a fresh session after reopening. The built rehearsal also verified the prior available-workspace URL and still covered revoked-access recovery. The public Demo copy and signed-out routes were checked staged and live. No production brokerage was paused for verification.
+
+### Michigan application and disclosure timing pilot
+
+Published app `e9aae63d8fb0` as Worker `8d95d30f-09ad-4ee1-bc9b-42c7d855ceb8`. The fictional owner corrected a receipt, the LO recorded the replacement and disclosure evidence, and the processor reviewed the timing without an edit control. The public Demo now describes the fictional Michigan workflow. No lender delivery occurred.
