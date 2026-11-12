@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { intakePropertyState } from "./property-state";
 import { referralPhone } from "./referral-matches";
 import type { InboxLead } from "./model";
 import type { EditableLoan } from "./loan-work-model";
@@ -56,6 +57,11 @@ export const saveLeadRoutingInput = z.object({
   realtorOwner: ownerEmail.nullable(), firstContactHours: z.number().int().min(1).max(72),
   secondAfterHours: z.number().int().min(1).max(168), finalAfterHours: z.number().int().min(1).max(336),
   quoteForm: z.enum(["Keep", "Enable or replace", "Disable"]),
+});
+
+export const correctLeadPropertyStateInput = z.strictObject({
+  type: z.literal("correctLeadPropertyState"), leadId: z.uuid(), revision: z.int().nonnegative(),
+  propertyState: intakePropertyState.unwrap(), reason: z.string().trim().min(4).max(240),
 });
 
 export const assignInboxLeadInput = z.object({

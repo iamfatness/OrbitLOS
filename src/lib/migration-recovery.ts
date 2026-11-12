@@ -40,12 +40,16 @@ function callbackSnapshot(db: Store, leadId: string, member: Record<string, SqlV
   return [runs, attempts, assignments, task, events];
 }
 
-function recordSnapshot(db: Store, table: Table, id: string) {
+function recordSnapshot(db: Store, table: Table, id: string, expected?: string) {
   const row = db.prepare(`SELECT * FROM ${table} WHERE ${primaryKey(table)} = ?`).get(id);
   const followUp = table === "referral_leads" ? db.prepare("SELECT * FROM lead_follow_up WHERE leadId = ?").get(id) :
     table === "call_campaign_members" && row ? callbackSnapshot(db, id, row) : undefined;
-  const baseline = row ? createHash("sha256").update(JSON.stringify([row, followUp])).digest("hex") : null;
-  return { row, baseline };
+  const hash = (snapshot: object) => createHash("sha256").update(JSON.stringify([snapshot, followUp])).digest("hex");
+  const baseline = row ? hash(row) : null;
+  // Older receipts were recorded before the lead state column existed.
+  const legacyBaseline = table === "referral_leads" && row?.propertyState === "" && expected && expected !== baseline
+    ? hash(Object.fromEntries(Object.entries(row).filter(([column]) => column !== "propertyState"))) : null;
+  return { row, baseline: legacyBaseline && expected === legacyBaseline ? legacyBaseline : baseline };
 }
 
 export function recordMigrationReceipt(db: Store, source: Pick<MigrationInput, "origin" | "batch">, input: MigrationRow[],
@@ -126,7 +130,7 @@ function buildRecoveryPlan(db: Store, receipt: MigrationImportReceipt) {
       keep("The original record state is unavailable.");
       continue;
     }
-    const { row, baseline } = recordSnapshot(db, table, id);
+    const { row, baseline } = recordSnapshot(db, table, id, item.baseline);
     if (!row) {
       if (table === "contacts" && db.prepare("SELECT 1 FROM contact_merges WHERE sourceId = ?").get(id)) {
         keep("This contact was merged into another record.");

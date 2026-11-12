@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { registerHooks } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -4437,4 +4438,70 @@ test("correction mode reimports only selected undone rows under the same source 
   assert.equal(recovery(originalId).rows.find(({ key }) => key === "Lead:lead").result, "Removed");
   assert.match((await command(request)).error, /preview changed/i);
   assert.match((await commit(selected)).message, /Reimported 3/);
+});
+
+test("lead property state correction is scoped, versioned, audited and transferred with CSV history", async t => {
+  const { db, staff } = fixture(t);
+  const lo = { name: "Assigned LO", email: "assigned@example.test", role: "LO", status: "Active",
+    brokerage: { ...staff.brokerage, role: "LO" } };
+  const unassigned = { ...lo, email: "unassigned@example.test" };
+  const processor = { ...lo, brokerage: { ...staff.brokerage, role: "Processor" } };
+  const write = (input, actor = staff) => executeCommand(db, input, actor, undefined, [lo]);
+  const csv = "name,phone,property state\nFictional Buyer,2485550101,mi";
+  assert.throws(() => parseCampaignLeadCsv(csv.replace(",mi", ",XX"), "2026-11-01"), /property state/);
+  const rows = parseCampaignLeadCsv(csv, "2026-11-01").map(row => ({ ...row, ownerEmail: lo.email }));
+  assert.equal(rows[0].propertyState, "MI");
+  const migration = { type: "migratePipeline", origin: "fictional-property", rows, decisions: {} };
+  const imported = await write({ ...migration, preview: (await write(migration)).migration.fingerprint });
+  const lead = imported.state.inboxLeads[0];
+  assert.equal(lead.propertyState, "MI");
+  const correction = { type: "correctLeadPropertyState", leadId: lead.id, revision: lead.followUp.revision,
+    propertyState: "OH", reason: "Borrower confirmed the property is in Ohio." };
+  assert.match((await write(correction, unassigned)).error, /outside your assigned work/i);
+  assert.ok((await write(correction, processor)).error);
+  assert.equal((await write(correction, lo)).message, "Property state saved.");
+  assert.match((await write(correction, lo)).message, /up to date/);
+  assert.match((await write({ ...correction, propertyState: "IN" })).error, /lead changed/i);
+  const events = db.prepare("SELECT actor,text FROM lead_events WHERE leadId=? AND text LIKE 'Property state changed%'").all(lead.id);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].actor, lo.name);
+  assert.match(events[0].text, /MI to OH.*Borrower confirmed/);
+  const snapshot = exportPilotPipeline(db, staff);
+  const file = migrationFile(snapshot.batches[0].csv);
+  const restoredRows = mappedMigrationRows(file, file.mapping);
+  assert.equal(restoredRows.find(row => row.type === "Lead").propertyState, "OH");
+  assert.equal(restoredRows.find(row => row.type === "Note" && row.text.includes("Property state changed")).leadEventActor, lo.name);
+  const destination = fixture(t);
+  const receive = input => executeCommand(destination.db, input, destination.staff);
+  const transfer = { type: "migratePipeline", origin: file.orbitSource, batch: file.batch, rows: restoredRows, decisions: {},
+    ownerMappings: { [lo.email]: "unassigned" } };
+  const restored = await receive({ ...transfer, preview: (await receive(transfer)).migration.fingerprint });
+  const restoredLead = restored.state.inboxLeads[0];
+  assert.equal(restoredLead.propertyState, "OH");
+  assert.match(restoredLead.followUp.events.find(event => event.actor === lo.name).text, /MI to OH/);
+  const converted = await receive({ type: "convertReferral", referralId: restoredLead.id, contactId: null });
+  const application = JSON.parse(destination.db.prepare("SELECT draft FROM applications WHERE loanId=?").get(converted.referralLoanId).draft);
+  assert.equal(application.propertyLocation.state, "OH");
+});
+
+test("older CSV batches and undo receipts remain usable when a lead had no recorded state", async t => {
+  const { db, staff } = fixture(t);
+  const importLead = input => executeCommand(db, input, staff);
+  const csv = "type,externalId,name,email,createdAt\nLead,prior,Fictional Prior,prior@example.test,2026-11-01";
+  const file = migrationFile(csv);
+  const rows = mappedMigrationRows(file, file.mapping);
+  assert.ok(!JSON.stringify(rows).includes("propertyState"));
+  const transfer = { type: "migratePipeline", origin: "fictional-prior", rows, decisions: {} };
+  const imported = await importLead({ ...transfer, preview: (await importLead(transfer)).migration.fingerprint });
+  const lead = imported.state.inboxLeads[0];
+  const { propertyState, ...beforeColumn } = db.prepare("SELECT * FROM referral_leads WHERE id=?").get(lead.id);
+  assert.equal(propertyState, "");
+  const followUp = db.prepare("SELECT * FROM lead_follow_up WHERE leadId=?").get(lead.id);
+  const oldHash = createHash("sha256").update(JSON.stringify([beforeColumn, followUp])).digest("hex");
+  const [receipt] = reviewMigrationRecovery(db, staff).imports;
+  db.prepare("UPDATE migration_import_rows SET baseline=? WHERE importId=? AND targetId=?").run(oldHash, receipt.id, lead.id);
+  assert.equal(reviewMigrationRecovery(db, staff, receipt.id).preview.rows[0].result, "Candidate");
+  assert.equal((await importLead({ type: "correctLeadPropertyState", leadId: lead.id, revision: lead.followUp.revision,
+    propertyState: "OH", reason: "Confirmed with borrower." })).message, "Property state saved.");
+  assert.equal(reviewMigrationRecovery(db, staff, receipt.id).preview.rows[0].result, "Keep");
 });

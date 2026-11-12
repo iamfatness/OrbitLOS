@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { intakePropertyState } from "./property-state";
 import { contactRoles, readCsv } from "./contact-csv";
 import { activityKinds, contactOutcomes, followUpOutcomes, followUpPurposes, leadSources } from "./model";
 import { leadOutcomes, outreachChannels } from "./lead-inbox-model";
@@ -10,7 +11,7 @@ const channelBlock = z.literal("Yes").optional();
 const channelBlockFields = { blockCalls: channelBlock, blockEmail: channelBlock, blockTexts: channelBlock };
 
 export const migrationColumns = ["type", "externalId", "parentId", "name", "email", "phone", "role", "ownerEmail",
-  "purpose", "source", "zip", "createdAt", "dueAt", "completedAt", "text", "taskPurpose",
+  "purpose", "source", "zip", "propertyState", "createdAt", "dueAt", "completedAt", "text", "taskPurpose",
   "parentType", "realtorId", "firstContactAt", "heldAt", "holdReason", "revisitDate", "optedOut",
   "activityKind", "activityOutcome", "leadEventKind", "leadOutcome", "leadEventActor", ...Object.values(channelFields)] as const;
 export type MigrationColumn = (typeof migrationColumns)[number];
@@ -95,6 +96,7 @@ export const migrationRow = z.discriminatedUnion("type", [
   z.object({ type: z.literal("Contact"), ...identity, role: z.enum(contactRoles), optedOut, ...channelBlockFields }),
   z.object({ type: z.literal("Lead"), ...identity, parentId: z.union([z.literal(""), externalId]), ownerEmail: email,
     purpose: z.enum(["Purchase", "Refinance"]), source: z.enum(leadSources), zip: z.string().regex(/^([0-9]{5})?$/),
+    propertyState: intakePropertyState.transform(value => value || undefined),
     createdAt: date, dueAt: optionalDate, realtorId: externalId.optional(), firstContactAt: date.optional(),
     heldAt: date.optional(), holdReason: z.string().trim().min(1).max(160).optional(), revisitDate: z.iso.date().optional(), optedOut, ...channelBlockFields }),
   z.object({ type: z.literal("Note"), externalId, parentId: externalId, createdAt: date, text: z.string().trim().min(1).max(1800),
@@ -173,6 +175,7 @@ export interface MigrationReport {
     label: string;
     status: "Create" | "Reuse contact" | "Previously imported" | "Skipped" | "Review" | "Suppressed" | "Undone";
     detail: string;
+    propertyState?: string;
     targetId?: string;
     correction?: boolean;
     channelBlocks?: { requested: number; blocked: number; added: number };
@@ -217,6 +220,7 @@ const aliases: Partial<Record<MigrationColumn, string[]>> = {
   type: ["record type", "object"], externalId: ["id", "record id", "source id"], parentId: ["parent", "related to id", "related id", "contact id"],
   name: ["full name"], ownerEmail: ["owner email", "assigned to"], createdAt: ["created date", "created"],
   dueAt: ["due date", "due"], completedAt: ["completed date"], text: ["body", "subject", "description"], zip: ["postal code", "zipcode"],
+  propertyState: ["subject property state", "property state code"],
   blockCalls: ["DoNotCall"], blockEmail: ["HasOptedOutOfEmail", "Email Opt Out"], blockTexts: ["Text Opt Out"],
 };
 const normalizeHeader = (value: string) => value.toLowerCase().replace(/[\s_-]/g, "");
@@ -241,6 +245,9 @@ export function migrationFile(input: string) {
   const mapping: Partial<Record<MigrationColumn, number>> = {};
   for (const column of migrationColumns) {
     const names = [column, ...aliases[column] ?? []].map(normalizeHeader);
+    if (column === "propertyState" && header.filter(value => names.includes(normalizeHeader(value))).length > 1) {
+      throw new Error("Use one source column for the property state.");
+    }
     if (Object.values(channelFields).some((field) => field === column) &&
       header.filter((value) => names.includes(normalizeHeader(value))).length > 1) {
       throw new Error(`Use one source column for ${column} so conflicting preferences can be reconciled before import.`);
@@ -335,9 +342,9 @@ export function mappedMigrationRows(file: ReturnType<typeof migrationFile>, mapp
 }
 
 export const migrationExample = [
-  "record type,record id,parent id,full name,email,phone,role,owner email,purpose,source,postal code,created date,due date,completed date,description",
-  "Contact,C-101,,Casey Example,casey@example.test,,Borrower,,,,,,,,",
-  "Lead,L-101,C-101,Casey Example,casey@example.test,,,,Purchase,Imported CRM,48304,2026-10-01,2026-10-02,,",
-  "Note,N-101,L-101,,,,,,,,,2026-10-01,,,Fictional buyer asked for a purchase quote.",
-  "Task,T-101,L-101,,,,,,,,,,2026-10-03,,Follow up on the purchase timeline",
+  "record type,record id,parent id,full name,email,phone,role,owner email,purpose,source,postal code,property state,created date,due date,completed date,description",
+  "Contact,C-101,,Casey Example,casey@example.test,,Borrower,,,,,,,,,",
+  "Lead,L-101,C-101,Casey Example,casey@example.test,,,,Purchase,Imported CRM,48304,MI,2026-10-01,2026-10-02,,",
+  "Note,N-101,L-101,,,,,,,,,,2026-10-01,,,Fictional buyer asked for a purchase quote.",
+  "Task,T-101,L-101,,,,,,,,,,,2026-10-03,,Follow up on the purchase timeline",
 ].join("\r\n");

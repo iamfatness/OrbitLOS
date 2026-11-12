@@ -7,7 +7,7 @@ import { isOpenOverdueCallbackPromise } from "./campaign-callback-exceptions";
 import { callbackExceptionChanged, callbackExceptionUnavailable } from "./campaign-callback-exceptions-model";
 import { defaultLeadRouting, leadArchiveRequest, leadSequenceSteps, type ArchivedLead, type LeadArchivePage,
   type LeadEvent, type LeadFollowUp, type LeadRouting, type restoreLeadInput,
-  type assignInboxLeadInput, type leadContactInput, type leadHoldInput, type leadOptOutInput, type leadSequenceInput, type saveLeadRoutingInput } from "./lead-inbox-model";
+  type assignInboxLeadInput, type correctLeadPropertyStateInput, type leadContactInput, type leadHoldInput, type leadOptOutInput, type leadSequenceInput, type saveLeadRoutingInput } from "./lead-inbox-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { blockedOutreachKeys, optOutLead, outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
@@ -21,7 +21,7 @@ import { dateTime } from "./utils";
 
 const hour = 3_600_000;
 const after = (at: string, hours: number) => new Date(Date.parse(at) + hours * hour).toISOString();
-type InboxAction = z.infer<typeof assignInboxLeadInput | typeof leadSequenceInput | typeof leadOptOutInput | typeof leadHoldInput> |
+type InboxAction = z.infer<typeof assignInboxLeadInput | typeof correctLeadPropertyStateInput | typeof leadSequenceInput | typeof leadOptOutInput | typeof leadHoldInput> |
   (Omit<z.infer<typeof leadContactInput>, "outcome"> & { outcome: NonNullable<LeadEvent["outcome"]> });
 type Outcome = { message: string } | { error: string };
 type LeadOwner = StaffIdentity & Partial<Pick<BrokerageMember, "role" | "status">>;
@@ -262,7 +262,7 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
     }
     if (!isOpenOverdueCallbackPromise(db, callbackPromiseId, data.leadId, now)) return { error: callbackExceptionChanged };
   }
-  const lead = db.prepare(`SELECT officerEmail, realtorId, resolvedAt, heldAt, email, phone, importedContactId AS contactId,
+  const lead = db.prepare(`SELECT officerEmail, realtorId, resolvedAt, heldAt, email, phone, propertyState, importedContactId AS contactId,
     ${leadChannelBlocksSql} AS blocked, ${leadBorrowerHoursSql} AS hours FROM referral_leads lead WHERE id = ?`).get(data.leadId);
   if (!lead || lead.resolvedAt || staff?.brokerage.role === "Processor") return { error: "This lead is no longer available." };
   const isOfficer = staff?.brokerage.role === "LO";
@@ -275,6 +275,17 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
     return lead.officerEmail && selfClaim ? claimConflict : { error: "This lead is outside your assigned work." };
   }
   const actor = staff?.name || "Demo workspace";
+  if (data.type === "correctLeadPropertyState") {
+    if (lead.propertyState === data.propertyState) return { message: "Property state is already up to date." };
+    if (followUpRow(db, data.leadId).revision !== data.revision) {
+      return { error: "This lead changed. Refresh the inbox and review its current property state before saving." };
+    }
+    db.prepare("UPDATE referral_leads SET propertyState = ? WHERE id = ?").run(data.propertyState, data.leadId);
+    advanceLeadRevision(db, data.leadId);
+    leadEvent(db, data.leadId, actor, now, `Property state changed from ${lead.propertyState || "Unknown"} to ${data.propertyState || "Unknown"} · ${data.reason}`);
+    accessEvent(db, staff, "Corrected lead property state", data.leadId, now);
+    return { message: "Property state saved." };
+  }
   const campaign = db.prepare("SELECT lastOutcome FROM call_campaign_members WHERE leadId = ?").get(data.leadId);
   const identity = { ...lead, leadId: data.leadId };
   const suppressed = () => campaign?.lastOutcome === "Opted out" || outreachSuppressed(blockedOutreachKeys(db, [identity]), identity);

@@ -57,7 +57,7 @@ import { loadProtectedPilotScenario, trackPilotBorrower, type ProtectPilotLinks 
 import { contactCsvDuplicateKeys, contactCsvKeys, contactImportRows } from "./contact-csv";
 import { matchingContactCsvKeys } from "./contact-directory";
 import { contactUnavailable, type ContactMutationResult } from "./contact-directory-model";
-import { assignInboxLeadInput, convertReferralInput, leadContactInput, leadHoldInput, leadOptOutInput, leadSequenceInput, restoreLeadInput,
+import { assignInboxLeadInput, correctLeadPropertyStateInput, convertReferralInput, leadContactInput, leadHoldInput, leadOptOutInput, leadSequenceInput, restoreLeadInput,
   saveLeadRoutingInput, type LeadInboxMutation } from "./lead-inbox-model";
 import { inboxLeadScope } from "./lead-inbox-query";
 import { quoteIntakeEvidence, quotePurpose } from "./quote-intake-model";
@@ -259,6 +259,7 @@ const command = z.discriminatedUnion("type", [
   exportReviewedApplication,
   z.object({ type: z.literal("completeLeadTask"), leadId: z.uuid(), taskId: z.uuid(), completed: z.boolean() }),
   assignInboxLeadInput,
+  correctLeadPropertyStateInput,
   leadContactInput,
   leadOptOutInput,
   leadHoldInput,
@@ -497,7 +498,7 @@ export type WorkspaceMutationScope = "inbox" | "tasks" | "realtors" | "migration
 type TaskMutationResult = { tasksChanged: true; message: string };
 const taskCommands = new Set(["completeTask", "reviewUwmAlert", "assignContactFollowUp", "rescheduleBorrowerCallback", "completeContactFollowUp"]);
 
-const inboxCommands = new Set(["assignInboxLead", "claimSharedRealtor", "completeLeadTask", "leadContact", "leadSequence", "leadHold",
+const inboxCommands = new Set(["assignInboxLead", "correctLeadPropertyState", "claimSharedRealtor", "completeLeadTask", "leadContact", "leadSequence", "leadHold",
   "dismissReferral", "restoreLead", "convertReferral", "leadOptOut", "saveLeadRouting", "saveRealtorClaimPolicy"]);
 
 function scopedLeadId(data: z.infer<typeof command>) {
@@ -505,6 +506,7 @@ function scopedLeadId(data: z.infer<typeof command>) {
     case "saveBorrowerChannels":
       return data.target === "lead" ? data.recordId : undefined;
     case "assignInboxLead":
+    case "correctLeadPropertyState":
     case "claimSharedRealtor":
     case "rescheduleCampaignCallback":
     case "recordCampaignFollowUp":
@@ -1313,6 +1315,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "assignInboxLead":
+        case "correctLeadPropertyState":
         case "leadOptOut":
         case "leadHold":
         case "leadSequence":

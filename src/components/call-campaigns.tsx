@@ -103,7 +103,7 @@ function CampaignImport({ campaign, staff, busy, save, rehearsal }: {
   const ready = report?.rows.filter((row) => row.status === "Create").length ?? 0;
   const suppressed = report?.rows.filter((row) => row.status === "Suppressed").length ?? 0;
   return <section className="integration record-form manager-panel" aria-label="Import campaign leads">
-    <div><h2>Import leads</h2><p className="muted">Upload a fictional CSV with name and phone. Email, purpose, ZIP, and source ID are optional.</p></div>
+    <div><h2>Import leads</h2><p className="muted">Upload a fictional CSV with name and phone. Email, purpose, ZIP, property state, and source ID are optional.</p></div>
     <div className="loan-application-actions">
       <Button size="sm" variant="outline" onClick={() => load(rehearsal ? campaignRehearsalCsv : campaignLeadExample)} disabled={busy}>
         {rehearsal ? "Load rehearsal leads" : "Load sample leads"}
@@ -124,6 +124,7 @@ function CampaignImport({ campaign, staff, busy, save, rehearsal }: {
       <strong>{imported ? "Import complete" : `${ready} ready · ${flagged.length} need review`}{suppressed > 0 && ` · ${suppressed} suppressed`}</strong>
       <ul className="document-list">{report.rows.map((row) => <li className="document-item" key={row.key}>
         <div className="document-item-head"><strong>{row.label}</strong><span className={row.status === "Review" || row.status === "Suppressed" ? "open-chip" : "pill"}>{imported && row.status === "Create" ? "Enrolled" : row.status}</span></div>
+        {row.propertyState && <small className="muted">CSV property state · {row.propertyState}</small>}
         {row.detail && <small className="muted">{row.detail}{imported && row.campaignEnrollment?.owner &&
           ` · First contact due ${dateTime(row.campaignEnrollment.firstContactDueAt)} ET`}</small>}
         {row.campaignDuplicates?.map((match) => <div key={match.id} className="loan-application-actions">

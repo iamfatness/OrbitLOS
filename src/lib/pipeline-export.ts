@@ -32,7 +32,7 @@ function readSnapshot(db: Store, origin: string) {
   const contacts = db.prepare(`SELECT contact.id AS externalId, contact.name, contact.email, contact.phone, contact.role, channels.blocked
     FROM contacts contact LEFT JOIN borrower_contact_channels channels ON channels.contactId = contact.id
     ORDER BY contact.id LIMIT ?`).all(limit);
-  const leads = db.prepare(`SELECT lead.id AS externalId, lead.name, lead.email, lead.phone, lead.purpose, lead.zip, lead.createdAt, lead.dueAt,
+  const leads = db.prepare(`SELECT lead.id AS externalId, lead.name, lead.email, lead.phone, lead.purpose, lead.zip, lead.propertyState, lead.createdAt, lead.dueAt,
     coalesce(lead.officerEmail, '') AS ownerEmail, coalesce(lead.importedContactId, '') AS parentId, lead.realtorId,
     coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL THEN 'Website quote request' ELSE 'Realtor referral' END) AS source,
     lead.heldAt, lead.holdReason, lead.revisitDate, follow.firstContactAt, member.lastOutcome, channels.blocked

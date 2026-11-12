@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { intakePropertyState } from "./property-state";
 import { borrowerChannelBlocked } from "./borrower-channel-model";
 import { readCsv } from "./contact-csv";
 import { leadContactFields, type LeadEvent } from "./lead-inbox-model";
@@ -243,14 +244,15 @@ export const campaignRehearsalCsv = [
 ].join("\r\n");
 
 export const campaignLeadExample = [
-  "name,phone,email,purpose",
-  "Morgan Sample,2485550112,morgan-campaign@example.test,Purchase",
-  "Taylor Sample,2485550113,taylor-campaign@example.test,Refinance",
-  "Avery Sample,2485550114,avery-campaign@example.test,Purchase",
+  "name,phone,email,purpose,property state",
+  "Morgan Sample,2485550112,morgan-campaign@example.test,Purchase,MI",
+  "Taylor Sample,2485550113,taylor-campaign@example.test,Refinance,OH",
+  "Avery Sample,2485550114,avery-campaign@example.test,Purchase,",
 ].join("\r\n");
 
 const importFields = z.object({ ...leadContactFields, phone: leadContactFields.phone.min(1),
   externalId: z.string().regex(/^[a-zA-Z0-9_.:@-]{1,100}$/), zip: z.string().regex(/^(?:\d{5})?$/),
+  propertyState: intakePropertyState.transform(value => value || undefined),
 });
 
 export function parseCampaignLeadCsv(input: string, createdAt: string): Extract<MigrationRow, { type: "Lead" }>[] {
@@ -258,6 +260,8 @@ export function parseCampaignLeadCsv(input: string, createdAt: string): Extract<
   const fields = header?.map((value) => value.toLowerCase().replace(/[\s_-]/g, "")) ?? [];
   const nameIndex = fields.findIndex((value) => value === "name" || value === "fullname");
   const phoneIndex = fields.findIndex((value) => value === "phone" || value === "phonenumber");
+  const stateColumns = fields.flatMap((value, index) => ["propertystate", "subjectpropertystate", "propertystatecode"].includes(value) ? [index] : []);
+  if (stateColumns.length > 1) throw new Error("Use one source column for the property state.");
   if (nameIndex < 0 || phoneIndex < 0) throw new Error("Include name and phone column headers.");
   if (rows.length < 1 || rows.length > 100) throw new Error("Include 1 to 100 leads per CSV.");
   return rows.map((row, index) => {
@@ -265,11 +269,11 @@ export function parseCampaignLeadCsv(input: string, createdAt: string): Extract<
     const rawPurpose = cell("purpose").toLowerCase();
     const phone = row[phoneIndex] ?? "";
     const parsed = importFields.safeParse({
-      name: row[nameIndex] ?? "", phone, email: cell("email"), zip: cell("zip"),
+      name: row[nameIndex] ?? "", phone, email: cell("email"), zip: cell("zip"), propertyState: row[stateColumns[0]] ?? "",
       purpose: rawPurpose === "refinance" ? "Refinance" : !rawPurpose || rawPurpose === "purchase" ? "Purchase" : rawPurpose,
       externalId: cell("id") || cell("externalid") || referralPhone(phone),
     });
-    if (!parsed.success || row.length > fields.length) throw new Error(`Check the name, phone, email, purpose, ZIP, and optional ID on lead row ${index + 1}.`);
+    if (!parsed.success || row.length > fields.length) throw new Error(`Check the name, phone, email, purpose, ZIP, property state, and optional ID on lead row ${index + 1}.`);
     return { ...parsed.data, type: "Lead", parentId: "", ownerEmail: "", source: "Imported CRM", createdAt, dueAt: "" };
   });
 }

@@ -121,7 +121,9 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
         const requested = migrationChannelMask(row);
         const target = requested && targetId ? currentChannelTarget(db, channelKind(row), targetId) : undefined;
         const channelBlocks = target ? { requested, blocked: effectiveChannelBlocks(db, target), added: 0 } : undefined;
-        return { key, label: recordLabel(row), status, detail, targetId, ...(channelBlocks ? { channelBlocks } : {}) };
+        return { key, label: recordLabel(row), status, detail, targetId,
+          ...(row.type === "Lead" && row.propertyState ? { propertyState: row.propertyState } : {}),
+          ...(channelBlocks ? { channelBlocks } : {}) };
       });
       return { migration: { rows, fingerprint: String(previous.contentHash),
         batch: { completed: true, nextPart: nextPart <= importBatch.partCount ? nextPart : null } },
@@ -175,7 +177,8 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
   for (const row of ordered) {
     const key = migrationKey(row);
     const label = recordLabel(row);
-    const result: Result = { key, label, status: "Create", detail: "", targetId: `planned:${key}` };
+    const result: Result = { key, label, status: "Create", detail: "", targetId: `planned:${key}`,
+      ...(row.type === "Lead" && row.propertyState ? { propertyState: row.propertyState } : {}) };
     plan.set(key, result);
     const known = targets.get(key);
     const decision = input.decisions[key];
@@ -350,9 +353,9 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
         const created = toInstant(row.createdAt);
         const matched = matchedContacts.get(key);
         db.prepare(`INSERT INTO referral_leads (id, requestId, name, email, phone, purpose, officer, officerEmail, createdAt,
-          dueAt, zip, importSource, importedContactId, realtorId, heldAt, holdReason, revisitDate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          dueAt, zip, propertyState, importSource, importedContactId, realtorId, heldAt, holdReason, revisitDate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(id, id, row.name, row.email, row.phone, row.purpose, owner.name, owner.email || null,
-            created, row.dueAt ? toInstant(row.dueAt) : firstContactDue(created, leadRouting(db)), row.zip, row.source,
+            created, row.dueAt ? toInstant(row.dueAt) : firstContactDue(created, leadRouting(db)), row.zip, row.propertyState ?? "", row.source,
             matched && isPlanned(matched) ? targets.get(matched.slice("planned:".length))! : matched ?? targets.get(`Contact:${row.parentId}`) ?? null,
             targets.get(`Contact:${row.realtorId}`) ?? null, row.heldAt ? toInstant(row.heldAt) : null, row.holdReason ?? null, row.revisitDate ?? null);
         if (row.firstContactAt) db.prepare("INSERT INTO lead_follow_up (leadId, firstContactAt) VALUES (?, ?)").run(id, toInstant(row.firstContactAt));

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { readArchivePage, readInboxWork } from "@/app/actions";
 import { LeadLicenseStateReview } from "./license-state-review";
+import { PropertyStateOptions } from "./property-state-field";
 import { workspaceFeatures, demoBrokerageId, type BrokerageMember } from "@/lib/brokerage-model";
 import { CrmFieldValues } from "./crm-fields";
 import { firstContactOverdue, leadInboxUnavailable, leadInboxViews, leadOutcomes, leadSequenceSteps, outreachChannels,
@@ -103,6 +104,40 @@ function LeadHeading({ lead, now, flagged }: { lead: InboxLeadSummary; now: numb
   </>;
 }
 
+function LeadPropertyStateEditor({ lead, busy, save }: { lead: InboxLead; busy: boolean; save: Save }) {
+  const details = useRef<HTMLDetailsElement>(null);
+  const summary = useRef<HTMLElement>(null);
+  const baseline = () => ({ revision: lead.followUp.revision, propertyState: lead.propertyState, reason: "" });
+  const [draft, setDraft] = useState<ReturnType<typeof baseline>>();
+  const stale = draft && draft.revision !== lead.followUp.revision;
+  const ready = draft && !stale && draft.propertyState !== lead.propertyState && draft.reason.trim().length >= 4;
+  return <details className="document-form license-state-review" ref={details}
+    onToggle={event => setDraft(event.currentTarget.open ? baseline() : undefined)}>
+    <summary ref={summary}>Correct property state</summary>
+    {draft && <form className="record-form w-full max-w-lg" onSubmit={event => {
+      event.preventDefault();
+      if (!ready || busy) return;
+      void save({ type: "correctLeadPropertyState", leadId: lead.id, ...draft }, () => {
+        if (details.current) details.current.open = false;
+        summary.current?.focus();
+      });
+    }}>
+      {stale && <p role="alert">The lead changed. The saved state is {lead.propertyState || "Unknown"}. Review it before saving.</p>}
+      <label className="field">Corrected property state<select value={draft.propertyState} disabled={busy}
+        onChange={event => setDraft({ ...draft, propertyState: event.target.value })}>
+        <PropertyStateOptions placeholder="Unknown or undecided" />
+      </select></label>
+      <label className="field">Reason for property state change
+        <textarea value={draft.reason} rows={2} minLength={4} maxLength={240} required disabled={busy}
+          onChange={event => setDraft({ ...draft, reason: event.target.value })} />
+      </label>
+      {stale ? <Button type="button" size="sm" variant="outline" disabled={busy}
+        onClick={() => setDraft({ ...draft, revision: lead.followUp.revision })}>Review current state</Button> :
+        <Button type="submit" size="sm" disabled={busy || !ready}>Save property state</Button>}
+    </form>}
+  </details>;
+}
+
 function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentId, save, convert, openCampaign, openConversation, close }: {
   lead: InboxLead; staff: WorkspaceStaff | null; members: BrokerageMember[]; now: number; busy: boolean; focusTaskId?: string; save: Save; convert: Convert;
   focusDocumentId?: string;
@@ -162,8 +197,9 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
         </section>}
         {lead.quoteConsent !== undefined && <QuoteConsentEvidence receipt={lead.quoteConsent} />}
         {intake && <a href={`#intake-review-${lead.id}`}>Review intake answers for the 1003</a>}
+        <LeadPropertyStateEditor lead={lead} busy={busy} save={save} />
         {staff?.brokerage.role === "Admin" && workspaceFeatures(staff.brokerage).compliance &&
-          <LeadLicenseStateReview key={lead.id} brokerageId={staff.brokerage.id} propertyState={lead.propertyState} />}
+          <LeadLicenseStateReview key={`${lead.id}:${lead.propertyState}`} brokerageId={staff.brokerage.id} propertyState={lead.propertyState} />}
         {isAdmin && members.length > 0 && <form className="task-form" key={lead.officerEmail ?? ""} onSubmit={(event) => {
           event.preventDefault();
           const email = String(new FormData(event.currentTarget).get("owner") ?? "");

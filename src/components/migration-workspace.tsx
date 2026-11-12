@@ -252,7 +252,7 @@ function PipelineMigration({ busy, save, brokerageId, openRecord, reviewCutover 
       <div className="table-scroll migration-evidence" tabIndex={0} role="region" aria-label="CRM reconciliation records"><table className="data-table" role="table"><thead><tr role="row">
         <th role="columnheader" scope="col">Source record</th><th role="columnheader" scope="col">Result</th><th role="columnheader" scope="col">{applied ? "Orbit record" : "Resolution"}</th></tr></thead>
         <tbody role="rowgroup">{report.rows.map((row) => <tr key={row.key} role="row">
-          <td role="cell"><strong>{row.label}</strong><small>{row.key}</small></td><td role="cell">{row.status === "Previously imported" && row.channelBlocks?.added ?
+          <td role="cell"><strong>{row.label}</strong>{row.propertyState && <small className="muted">CSV property state · {row.propertyState}</small>}<small>{row.key}</small></td><td role="cell">{row.status === "Previously imported" && row.channelBlocks?.added ?
             applied ? "Preferences updated" : "Update preferences" : applied && row.correction && (row.status === "Create" || row.status === "Reuse contact")
             ? "Reimported" : applied && row.status === "Create" ? "Created" : row.status}<small>{row.detail}</small>
             {row.channelBlocks && <ChannelEvidence {...row.channelBlocks} projected={!applied} />}</td>
