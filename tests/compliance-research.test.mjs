@@ -11,7 +11,7 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 const { initializeStore } = await import("../src/lib/store.ts");
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
-const { researchSources } = await import("../src/lib/compliance-research-model.ts");
+const { researchSources, stateRolloutSources } = await import("../src/lib/compliance-research-model.ts");
 const now = "2026-11-11T12:00:00.000Z";
 const filters = { jurisdiction: "", status: "", ownership: "all" };
 const unavailable = { error: "This compliance work is unavailable." };
@@ -43,6 +43,39 @@ test("catalog covers 50 states and 25 federal areas without unknown jurisdiction
   assert.equal(new Set(researchSources.map((entry) => entry.key)).size, 75);
   assert.equal(researchSources.filter((entry) => entry.jurisdiction === "US").length, 25);
   assert.equal(researchSources.some((entry) => entry.jurisdiction === "DC"), false);
+});
+test("state rollout tracks five independently owned areas across all 50 states", t => {
+  const f = fixture(t);
+  const query = { operation: "stateRollout", jurisdiction: "MI" };
+  const overview = f.run(query);
+  assert.equal(overview.kind, "stateRollout");
+  assert.equal(overview.states.length, 50);
+  assert.equal(stateRolloutSources.length, 250);
+  assert.equal(new Set(stateRolloutSources.map(item => item.key)).size, 250);
+  assert.ok(overview.states.every(item => item.total === 5 && item.tracked === 0));
+  assert.ok(stateRolloutSources.filter(item => item.key.endsWith("-REPORTING")).every(item => item.sourceDate && item.relatedSources.length));
+  assert.ok(overview.items.every(item => !item.cases.length));
+  assert.deepEqual(f.run({ ...query, jurisdiction: "DC" }), unavailable);
+  assert.deepEqual(f.run(query, f.lo), unavailable);
+  assert.deepEqual(f.run(query, f.owner, [], f.tenant), unavailable);
+  const item = f.open("STATE-MI-REPORTING").item;
+  assert.equal(f.open("STATE-MI-REPORTING").item.id, item.id);
+  assert.equal(JSON.parse(item.sourceSnapshot).researchBaseline, "2026-11-11");
+  assert.ok(JSON.parse(item.sourceSnapshot).relatedSources.length);
+  f.open("STATE-MI-REPORTING", "Control gap");
+  f.open("STATE-NV-LICENSING");
+  const updated = f.run(query);
+  assert.equal(updated.states.find(state => state.jurisdiction === "MI").tracked, 1);
+  assert.equal(updated.states.find(state => state.jurisdiction === "NV").tracked, 1);
+  assert.equal(updated.items.find(entry => entry.source.key === "STATE-MI-REPORTING").cases.length, 2);
+  assert.equal(f.list({ jurisdiction: "MI" }).counts.total, 2);
+  assert.equal(updated.coverage.legalApproval, false);
+  assert.equal(updated.coverage.runtimeEnforcement, false);
+  const otherTenant = "other";
+  const isolated = complianceCaseWork(f.db, { type: "research", input: query }, f.staff(f.owner, otherTenant), otherTenant, f.roster, now);
+  assert.equal(isolated.states.find(state => state.jurisdiction === "MI").tracked, 0);
+  f.db.prepare("UPDATE compliance_cases SET confidentiality = 'Restricted' WHERE id = ?").run(item.id);
+  assert.equal(f.run(query).items.find(entry => entry.source.key === "STATE-MI-REPORTING").cases.length, 1);
 });
 test("opening research is idempotent, canonical, and preserves research-only status", (t) => {
   const f = fixture(t);

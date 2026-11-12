@@ -986,6 +986,7 @@ button:disabled { cursor: default; }
 @media (max-width: 540px) {
   .compliance-work .compliance-row { align-items: stretch; flex-direction: column; }
   .compliance-work button { min-height: 44px; }
+  .compliance-research-panel .form-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .file-exception-panel .document-item { overflow-wrap: anywhere; }
 .file-exception-panel select { width: 100%; }

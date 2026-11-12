@@ -13,6 +13,7 @@ This is a source-linked research baseline and engineering specification, **not a
 - Machine-readable sources: [federal](federal-sources.json), [first 25 states](state-sources-a-m.json), [remaining 25 states](state-sources-m-w.json).
 - **Workspace → Compliance → Research & gaps**: pilot-admin source explorer and persistent requirement-review/control-gap workflow. See [implemented pilot slice](research-workspace-implementation.md) for access, storage, validation and remaining scope.
 - [FV7 reporting preparation](mcr-fv7-preflight.md) records the pinned schema, Michigan fictional pipeline rehearsal, and the data needed to connect it to quarterly review.
+- [50-state rollout criteria](state-rollout-criteria.md) defines what to verify for each jurisdiction and how to track the work in Orbit.
 
 The state JSON entries summarize research; full notes, multiple sources and unresolved issues live in the state documents. Federal and state sources must be read together. Common state workstreams are review prompts, not a representation that every state imposes an identical rule.
 

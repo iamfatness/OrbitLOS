@@ -1,0 +1,614 @@
+{
+  "AL": {
+    "summary": "Mortgage Brokers Licensing Act licensees; mortgage activity under Consumer Credit Act Department instructions accept NMLS MCR and previous-year financials instead of the annual report otherwise due May 1. Nonmortgage consumer-credit activity can retain a separate report. 2026 instructions",
+    "gap": "Zero unverified. Instructions retain Standard/Expanded terminology: reconcile with FV7 and §5-25-10 before encoding substitution or form selection.",
+    "sources": [
+      {
+        "label": "2026 instructions",
+        "url": "https://banking.alabama.gov/wp-content/uploads/2026/04/Annual-Report-Instructions-for-Mortgage-Companies.pdf"
+      },
+      {
+        "label": "§5-25-10",
+        "url": "https://alison.legislature.state.al.us/code-of-alabama?section=5-25-10"
+      }
+    ]
+  },
+  "AK": {
+    "summary": "Mortgage Broker/Lender Official annual form specifies March 15 for the prior calendar year; upload to NMLS Document Samples, with Q4 MCR affirmation. Regulator forms, annual form",
+    "gap": "Zero unverified. Form revision is 2019: confirm still-operative form, upload category, and annual financial requirements. N baseline remains separate.",
+    "sources": [
+      {
+        "label": "Regulator forms",
+        "url": "https://www.commerce.alaska.gov/web/dbs/ConsumerFinance/MortgageBrokerLendersOriginators/Forms.aspx"
+      },
+      {
+        "label": "annual form",
+        "url": "https://mortgage.nationwidelicensingsystem.org/slr/StateForms/MortgageBrokerLenderAnnualReportupdated.pdf"
+      }
+    ]
+  },
+  "AZ": {
+    "summary": "Mortgage Broker vs Mortgage Banker; separate commercial categories Regulator distinguishes these licenses and NMLS processes. N baseline is a candidate; no independent state reporting schedule verified. DIFI mortgage licensing",
+    "gap": "Zero, annual financials, state supplements, and commercial/residential applicability unresolved. Do not assign banker rules to broker-only entities.",
+    "sources": [
+      {
+        "label": "DIFI mortgage licensing",
+        "url": "https://difi.az.gov/licensing/mortgage-lending"
+      }
+    ]
+  },
+  "AR": {
+    "summary": "Securities Department mortgage company licensing NMLS company/control-person/branch/MLO structure verified; N baseline candidate. Arkansas Securities NMLS",
+    "gap": "State supplemental reporting, financials, zero returns unresolved. Bank Department bank call reports are not evidence for mortgage brokers.",
+    "sources": [
+      {
+        "label": "Arkansas Securities NMLS",
+        "url": "https://securities.arkansas.gov/loans/nmls/"
+      }
+    ]
+  },
+  "CA": {
+    "summary": "DRE real-estate broker with mortgage activity; DFPI CFL and CRMLA are distinct DRE BAR instructions specify annual filing within 90 days after fiscal-year end through online BAR. RE881 instructions. CRMLA has annual report March 1, Holden report March 31, MCR quarterly within 45 days, audited financials within 105 days fiscal-year end. DFPI requirements",
+    "gap": "DRE BAR instructs zero entries for no activity. Confirm BAR trigger under B&P10166.07; DRE threshold/trust-account/escrow supplements and CFL annual reports remain separate review tasks. CRMLA dates do not apply automatically to brokers.",
+    "sources": [
+      {
+        "label": "RE881 instructions",
+        "url": "https://bars.dre.ca.gov/pdfs/re881_Instructions.pdf"
+      },
+      {
+        "label": "DFPI requirements",
+        "url": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/requirements-after-a-california-residential-mortgage-lender-and-or-servicer-license-has-been-issued/"
+      }
+    ]
+  },
+  "CO": {
+    "summary": "Mortgage company; individual MLO distinct Rule 8.4 states quarterly MCR within 45 calendar days. 2025 manual chapter 9",
+    "gap": "Source retains Standard/Expanded and fiscal-year FC wording; resolve against current NMLS calendar-year broker FC/FV7 before production. Zero and other supplements unverified.",
+    "sources": [
+      {
+        "label": "2025 manual chapter 9",
+        "url": "https://dre.colorado.gov/sites/dre/files/documents/2025%20Colorado%20Real%20Estate%20Manual-Chapter%2009.pdf"
+      }
+    ]
+  },
+  "CT": {
+    "summary": "Mortgage lenders/brokers; servicers separately covered Commissioner confirms Q1 2026 FV7 MCR due May 15. Accuracy-correction no-action relief ran only through August 15, 2026. Official notice",
+    "gap": "Expired relief must not become an ongoing deadline extension. N baseline; zero, financial uploads, supplemental state reports unresolved.",
+    "sources": [
+      {
+        "label": "Official notice",
+        "url": "https://portal.ct.gov/dob/consumer-credit-division/consumer-credit-division/banking-commissioner-issues-no-action-regarding-use-of-form-version-7-to-file-first-quarter-2026-mcr"
+      }
+    ]
+  },
+  "DE": {
+    "summary": "Mortgage Loan Broker Chapter 21; Licensed Lender Chapter 22 distinct Department FAQ identifies Delaware Volume reporting twice yearly and Delaware Assets annually no later than April 1. Licensing FAQ, broker forms / regulation 2105",
+    "gap": "Exact volume periods, deadlines, delivery, assets applicability by license, and zero returns require current form review. N does not replace these automatically.",
+    "sources": [
+      {
+        "label": "Licensing FAQ",
+        "url": "https://banking.delaware.gov/faqs/licensing-help/"
+      },
+      {
+        "label": "broker forms / regulation 2105",
+        "url": "https://banking.delaware.gov/apply-for-a-license/mortgage-brokers/"
+      }
+    ]
+  },
+  "FL": {
+    "summary": "Mortgage Broker and Branch under Chapter 494; lender distinct License and NMLS route established. N baseline candidate. OFR mortgage brokers",
+    "gap": "Additional state reports, financial statements, zero reporting and current rule authority unresolved. Licensing page alone does not prove complete reporting coverage.",
+    "sources": [
+      {
+        "label": "OFR mortgage brokers",
+        "url": "https://flofr.gov/divisions-offices/division-of-consumer-finance/mortgage-broker-and-branches"
+      }
+    ]
+  },
+  "GA": {
+    "summary": "Mortgage broker/lender; GRMA collecting agent is a separate activity predicate MCR RMLA quarterly within 45 days; broker FC annually within 90 days calendar-year end; lender/servicer FC quarterly. GRMA collecting-agent remittances semiannual: Jan–Jun due first business day September; Jul–Dec first business day March. DBF reporting",
+    "gap": "DBF says MCR required while licensed/employing licensed MLOs even without originations; FC cannot simply be all zeros. FAQ. Confirm table-funding/fee-collection role before GRMA assignment.",
+    "sources": [
+      {
+        "label": "DBF reporting",
+        "url": "https://dbf.georgia.gov/mb-brokers-lenders-and-originators/mortgage-call-report-and-grma-reporting"
+      },
+      {
+        "label": "FAQ",
+        "url": "https://dbf.georgia.gov/mb-brokers-lenders-and-originators/mortgage-faq"
+      }
+    ]
+  },
+  "HI": {
+    "summary": "Mortgage Loan Originator Company (MLOC), sponsored individuals distinct Company reports cover sponsored MLOs; quarterly MCR within 45 days. DFI MLO FAQ",
+    "gap": "Zero and separate annual financial uploads unresolved. Avoid automatically using older training material's fiscal-year FC terminology instead of current NMLS form rules.",
+    "sources": [
+      {
+        "label": "DFI MLO FAQ",
+        "url": "https://www.cca.hawaii.gov/dfi/faq-mlo/"
+      }
+    ]
+  },
+  "ID": {
+    "summary": "Mortgage Broker/Lender (includes servicing); regulated-lender and exempt-entity categories separate Regulator forms establish licensing categories and NMLS route. N baseline candidate. Idaho mortgage forms",
+    "gap": "Additional reports, financial statements, zero treatment and exemptions unresolved. Corporate Secretary of State annual filings are not substitutes for mortgage reports.",
+    "sources": [
+      {
+        "label": "Idaho mortgage forms",
+        "url": "https://www.finance.idaho.gov/consumer-finance-bureau/mortgage/mortgage-forms/"
+      }
+    ]
+  },
+  "IL": {
+    "summary": "Residential mortgage license; activity may include brokering, lending and servicing Timely accurate MCR accepted instead of annual mortgage/brokerage/servicing/purchasing activity reports. IDFPR forms",
+    "gap": "Zero unverified. Separate audited financials, APLD, default/foreclosure, and conditional CRA requirements require review; MCR substitution does not establish their removal. Regulator scope",
+    "sources": [
+      {
+        "label": "IDFPR forms",
+        "url": "https://idfpr.illinois.gov/banks/resfin/forms/rfformsb.html"
+      },
+      {
+        "label": "Regulator scope",
+        "url": "https://idfpr.illinois.gov/banks/resfin.html"
+      }
+    ]
+  },
+  "IN": {
+    "summary": "Secretary of State Securities Division Loan Broker; DFI lender licenses distinct Broker licensing/NMLS route verified; N baseline candidate. Indiana loan brokers",
+    "gap": "Separate annual financials, activity reports, supplements and zero treatment unresolved. Do not import DFI lender obligations without matching entity license.",
+    "sources": [
+      {
+        "label": "Indiana loan brokers",
+        "url": "https://securities.sos.in.gov/loan-brokers/"
+      }
+    ]
+  },
+  "IA": {
+    "summary": "Mortgage Banker / Broker under Chapter 535B New rule 187—18.10 requires reports under §535B.18 on NMLS-established due dates; adoption effective October 21, 2026. Adoption notice, official supplement",
+    "gap": "N baseline; zero, extra financial filings, and transition application unresolved. Use effective-date versions, not superseded chapter wording.",
+    "sources": [
+      {
+        "label": "Adoption notice",
+        "url": "https://rules.iowa.gov/Notice/Details/0590D"
+      },
+      {
+        "label": "official supplement",
+        "url": "https://www.legis.iowa.gov/docs/aco/supplement/09-16-2026.pdf"
+      }
+    ]
+  },
+  "KS": {
+    "summary": "Mortgage Company: lending, brokering, servicing MCR and State-Specific Supplemental Form fulfill annual reporting under §9-2216a. State processing/underwriting lines SF600–SF660 required; other supplemental lines not required per agency page. OSBC forms",
+    "gap": "Validate FV7 line mapping and license scope; zero unverified. Separate year-to-date limited report on surrender has a 15-day deadline after request. Surrender report",
+    "sources": [
+      {
+        "label": "OSBC forms",
+        "url": "https://www.osbckansas.gov/consumer-mortgage-lending/applications-forms/"
+      },
+      {
+        "label": "Surrender report",
+        "url": "https://osbckansas.gov/cml/mc_limited_report_upon_surrender.pdf"
+      }
+    ]
+  },
+  "KY": {
+    "summary": "Mortgage Loan Company / Broker; HUD and nonprofit exemptions require separate analysis Agency identifies annual previous-year FHA loan counts for HUD-exempt entities. DFI mortgage licensing",
+    "gap": "N baseline for applicable licensees; HUD report deadline, destination, zero treatment, and financial supplements unverified. Exemption must not imply no reporting.",
+    "sources": [
+      {
+        "label": "DFI mortgage licensing",
+        "url": "https://kfi.ky.gov/newstatic_info.aspx?static_id=238"
+      }
+    ]
+  },
+  "LA": {
+    "summary": "Residential mortgage lending regime includes broker/lender/servicer; consumer-loan license distinct OFI establishes RMLA scope and licensing route. N baseline candidate. OFI FAQs",
+    "gap": "State-specific reports, annual financial upload and zero treatment unresolved. Do not automatically apply licensed consumer-lender annual reports to a mortgage broker.",
+    "sources": [
+      {
+        "label": "OFI FAQs",
+        "url": "https://ofi.la.gov/non-depository/residential-mortgage-lending/faqs/"
+      }
+    ]
+  },
+  "ME": {
+    "summary": "Residential mortgage Loan Broker; Supervised Lender separate §10-201 permits administrator-directed composite annual/quarterly reports and further reports. Maine statute. Current rules identify Chapter 707 for loan brokers. Official rule index",
+    "gap": "N baseline candidate; current broker reporting directions, volume/assessment report, deadlines and zero treatment unresolved. Supervised-lender 2026 instructions cannot establish broker obligations.",
+    "sources": [
+      {
+        "label": "Maine statute",
+        "url": "https://legis.maine.gov/statutes/9-A/title9-Asec10-201.html"
+      },
+      {
+        "label": "Official rule index",
+        "url": "https://mobile.maine.gov/sos/rulemaking/agency-rules/department-professional-and-financial-regulation-rules"
+      }
+    ]
+  },
+  "MD": {
+    "summary": "Mortgage Lender license includes brokering/lending/servicing Agency confirms combined scope; N baseline. 2023 regulator report. Renewal checklist permits requested CPA financial evidence where MCR insufficient for net-worth determination. Checklist",
+    "gap": "Checklist revision 2019 must be refreshed. Current significant-event reporting and covered-servicer governance are separate obligations. COMAR. Zero and all recurring supplements unresolved.",
+    "sources": [
+      {
+        "label": "2023 regulator report",
+        "url": "https://www.labor.maryland.gov/finance/finregannrep2023.pdf"
+      },
+      {
+        "label": "Checklist",
+        "url": "https://mortgage.nationwidelicensingsystem.org/slr/PublishedStateDocuments/MD-OFRRenewalChecklist.pdf"
+      },
+      {
+        "label": "COMAR",
+        "url": "https://regs.maryland.gov/us/md/exec/comar/09.03.06/index.full.html"
+      }
+    ]
+  },
+  "MA": {
+    "summary": "Mortgage Broker vs Mortgage Lender; dual license follows lender requirements January 2026 notice accepts MCR quarters for annual reporting; MCR within 45 days. Annual financial statements within 90 days fiscal-year end: broker CPA audited/reviewed; lender audited. 2026 notice",
+    "gap": "March 31 late-fee language is not a replacement quarterly deadline. Lender interim financials quarterly within 45 days. Financial statement letter. Zero and remaining supplements unresolved.",
+    "sources": [
+      {
+        "label": "2026 notice",
+        "url": "https://www.mass.gov/doc/important-notice-regarding-mortgage-broker-and-lender-annual-reports/download"
+      },
+      {
+        "label": "Financial statement letter",
+        "url": "https://www.mass.gov/info-details/mortgage-industry-letter-regarding-financial-statements"
+      }
+    ]
+  },
+  "MI": {
+    "summary": "MBLSLA first-mortgage and SMLA second-mortgage license/registration; employer of Michigan MLOs Quarterly MCR; annual broker FC versus quarterly lender/servicer FC; separate annual GAAP financial statements within 90 days fiscal-year end. FIS1077/FIS1080 activity reports retired since 2018. DIFS FAQ",
+    "gap": "Pilot details below. State-specific zero-activity instructions, financial disclosure form applicability and exact license predicates still require counsel sign-off.",
+    "sources": [
+      {
+        "label": "DIFS FAQ",
+        "url": "https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/1st-mortgage"
+      }
+    ]
+  },
+  "MN": {
+    "summary": "Residential Mortgage Originator company / Servicer, distinct individual MLO §58.141 requires NMLS reports of condition in NMLS form with prescribed information. 2026 statute, Commerce licensing",
+    "gap": "N baseline; additional financial/servicer prudential requirements, zero returns and exemptions unresolved. Company “originator” is not an individual MLO filing obligation.",
+    "sources": [
+      {
+        "label": "2026 statute",
+        "url": "https://www.revisor.mn.gov/statutes/cite/58.141"
+      },
+      {
+        "label": "Commerce licensing",
+        "url": "https://www.commerce.mn.gov/commerce/licensing/list/financial-institutions/mortgage/"
+      }
+    ]
+  },
+  "MS": {
+    "summary": "Mortgage Broker vs Mortgage Lender/Servicer Official 2026 rules distinguish brokers/lenders and covered-servicer governance; use N baseline pending reporting-specific review. DBCF mortgage page, rules amended April 23, 2026",
+    "gap": "Reporting deadlines/supplements/zero unresolved. Covered-servicer annual risk report to board is not automatically a broker filing. Department's own annual reports are not licensee report forms.",
+    "sources": [
+      {
+        "label": "DBCF mortgage page",
+        "url": "https://dbcf.ms.gov/mortgage/"
+      },
+      {
+        "label": "rules amended April 23, 2026",
+        "url": "https://dbcf.ms.gov/wp-content/uploads/2026/05/Final-Amendment.Title-5-Pt.-2.Mortgage-Company-Activities.pdf"
+      }
+    ]
+  },
+  "MO": {
+    "summary": "Residential Mortgage Loan Broker license can include brokering/funding/servicing/purchasing §443.885 annual prior-calendar-year activity report by March 1; director may accept equivalent report. Statute. Rule 20 CSR1140-30.300 specifies annual report, affidavit and HMDA substitute; categories without activity use “none.” Current rules",
+    "gap": "Confirm whether current NMLS MCR is accepted as equivalent and current submission route; do not presume replacement. Annual bond increase, if required, due May 1. Division guidance",
+    "sources": [
+      {
+        "label": "Statute",
+        "url": "https://www.revisor.mo.gov/main/OneSection.aspx?bid=24604&section=443.885"
+      },
+      {
+        "label": "Current rules",
+        "url": "https://s1.sos.mo.gov/cmsimages/adrules/csr/current/20csr/20c1140-30.pdf"
+      },
+      {
+        "label": "Division guidance",
+        "url": "https://finance.mo.gov/mortgage-licensing"
+      }
+    ]
+  },
+  "MT": {
+    "summary": "Mortgage broker MCR; broker/lender/servicer licenses distinct. Broker guide Quarterly within 45 days; guide says annual FC within 90 days of fiscal year end. Agency FAQ requires reporting when licensed/employing licensed MLOs during period even without originations.",
+    "gap": "Resolve guide/FV7 FC conflict; check additional current state schedules and source relocation.",
+    "sources": [
+      {
+        "label": "Broker guide",
+        "url": "https://connectmt.mt.gov/BFID/mortgage-consumer-finance/MBguide"
+      },
+      {
+        "label": "Agency FAQ",
+        "url": "https://boe.mt.gov/BFID/mortgage-consumer-finance/faq"
+      }
+    ]
+  },
+  "NE": {
+    "summary": "Mortgage banker license/registration can encompass brokerage; agency licensing page, 2011 reporting order. Historical order: quarterly production within 45 days; financial information within 90 days of fiscal year end. Not independently verified.",
+    "gap": "Current FV7 treatment and state supplements; historical order alone is not production authority for current FC.",
+    "sources": [
+      {
+        "label": "agency licensing page",
+        "url": "https://ndbf.nebraska.gov/industries/mortgage-lending-license"
+      },
+      {
+        "label": "2011 reporting order",
+        "url": "https://ndbf.nebraska.gov/sites/default/files/doc/industries/mb/mtgrptcndtn2011.pdf"
+      }
+    ]
+  },
+  "NV": {
+    "summary": "NRS 645B mortgage company Monthly Activity Report, plus MCR. Agency FAQ, forms index. MAR for previous month due 15th of following month. FAQ explicitly requires statement when no loans made.",
+    "gap": "Current MLD Form 503 schema, delivery/receipt rules, financial statement obligations, and other license regimes.",
+    "sources": [
+      {
+        "label": "Agency FAQ",
+        "url": "https://prod.mld.nv.gov/faqs/mortgage-companies/"
+      },
+      {
+        "label": "forms index",
+        "url": "https://www.mld.nv.gov/industry-info/mortgage-companies-and-mortgage-loan-originators-nrs-645b/"
+      }
+    ]
+  },
+  "NH": {
+    "summary": "RSA 397-A banker/broker/servicer NMLS reporting plus sworn annual financial statement. RSA 397-A:13. Separate statement within 90 days of fiscal year end; MCR schedule via NMLS. Not independently verified.",
+    "gap": "Statement certification and attachment validation; extra commissioner-requested reports.",
+    "sources": [
+      {
+        "label": "RSA 397-A:13",
+        "url": "https://gc.nh.gov/rsa/html/XXXV/397-A/397-A-13.htm"
+      }
+    ]
+  },
+  "NJ": {
+    "summary": "Residential Mortgage Broker annual state report, separate from NMLS MCR/financials. DOBI broker instructions. Published 2025 annual report due May 1, 2026. Required even if no business or ceased business during licensed year.",
+    "gap": "Confirm next reporting year's instructions/deadline; separate lender form and exemptions.",
+    "sources": [
+      {
+        "label": "DOBI broker instructions",
+        "url": "https://www.nj.gov/dobi/bankdedfund/ded_resmortbroker.htm"
+      }
+    ]
+  },
+  "NM": {
+    "summary": "Mortgage Loan Company Act NMLS reports of condition. Agency-hosted Act, §58-21-32. Act delegates reporting content to NMLS; MCR baseline candidate. Not verified.",
+    "gap": "PDF is a 2009 Act copy: current law, license applicability, state annual-report requirement and current forms require confirmation.",
+    "sources": [
+      {
+        "label": "Agency-hosted Act, §58-21-32",
+        "url": "https://www.rld.nm.gov/uploads/FileLinks/23708bf3a25f4c8eb06a80812273e1a9/Mortgage_Loan_Company_Act_2009.pdf"
+      }
+    ]
+  },
+  "NY": {
+    "summary": "Registered broker annual Volume of Operations Report (VOOR); licensed banker form distinct. DFS mortgage companies, 2025 broker instructions. 2025 broker VOOR due June 22, 2026, including mail postmark. Not verified.",
+    "gap": "Next-year date; nil return and registration-status rules. Do not reuse banker/servicer forms.",
+    "sources": [
+      {
+        "label": "DFS mortgage companies",
+        "url": "https://www.dfs.ny.gov/apps_and_licensing/mortgage_companies"
+      },
+      {
+        "label": "2025 broker instructions",
+        "url": "https://www.dfs.ny.gov/system/files/documents/2026/04/2025-Registered-Mortgage-Broker-VOOR-Instructions.pdf"
+      }
+    ]
+  },
+  "NC": {
+    "summary": "Broker/lender/servicer state annual report and financial statements; broker verification of deposit; broker/lender loan-level upload; MCR. NCCOB deadline sheet, revised August 1, 2025. Annual report and broker deposit verification March 31; statements 90 days after fiscal year end; loan-level data and MCR quarterly May 15/August 14/November 14/February 14. Not verified.",
+    "gap": "Exact loan-level schema/scope, nil returns, current-year relief and portal permissions.",
+    "sources": [
+      {
+        "label": "NCCOB deadline sheet, revised August 1, 2025",
+        "url": "https://nccob.nc.gov/financial-institutions/nde-reporting-deadline/open"
+      }
+    ]
+  },
+  "ND": {
+    "summary": "Money broker license and residential mortgage MCR framework. DFI nondepository FAQ, Century Code index, §13-10-18. MCR baseline candidate; separate state activity-report deadline not established. Not verified.",
+    "gap": "Retrieve operative §13-10-18 and money broker report instructions; distinguish residential mortgage from other money brokering.",
+    "sources": [
+      {
+        "label": "DFI nondepository FAQ",
+        "url": "https://www.nd.gov/dfi/about-dfi/non-depository/frequently-asked-questions-non-depository"
+      },
+      {
+        "label": "Century Code index, §13-10-18",
+        "url": "https://ndlegis.gov/prod/general-information/north-dakota-century-code/"
+      }
+    ]
+  },
+  "OH": {
+    "summary": "Mortgage business reporting through NMLS MCR. Division reporting page. Quarterly within 45 calendar days of quarter end. Not verified.",
+    "gap": "License-specific supplemental/financial requirements; consumer-finance annual reports are a separate regime.",
+    "sources": [
+      {
+        "label": "Division reporting page",
+        "url": "https://com.ohio.gov/divisions-and-programs/financial-institutions/reports/reports"
+      }
+    ]
+  },
+  "OK": {
+    "summary": "MCR enforcement for mortgage business. 2025 official consent order. Order identifies Q4 2024 February 14, 2025, Q1 2025 May 15, Q2 2025 August 14. Not verified.",
+    "gap": "Obtain current general reporting rule, license scope, FC and supplements; enforcement examples do not establish every present obligation.",
+    "sources": [
+      {
+        "label": "2025 official consent order",
+        "url": "https://oklahoma.gov/content/dam/ok/en/okdocc/documents/enforcement-actions/2025/Consent%20Order%20Luxe%20Mortgage%20Group%20LLC%2025-0092-DIS%20FILED_Redacted.pdf"
+      }
+    ]
+  },
+  "OR": {
+    "summary": "Banker/broker annual business report under ORS 86A.112; NMLS reporting additionally documented in agency enforcement. ORS chapter 86A, 2023 agency order. Statute: annual business report May 1 or another director-established date. Historic order: MCR quarterly within 45 days. Not verified.",
+    "gap": "Determine whether current MCR satisfies/substitutes annual report, current director dates and FC rules. Do not double-count or silently remove annual duty.",
+    "sources": [
+      {
+        "label": "ORS chapter 86A",
+        "url": "https://www.oregonlegislature.gov/bills_laws/ors/ors086A.html?ID=17699"
+      },
+      {
+        "label": "2023 agency order",
+        "url": "https://dfr.oregon.gov/AdminOrders/SOTLFinalOrder_SIGG.pdf"
+      }
+    ]
+  },
+  "PA": {
+    "summary": "Department/NMLS periodic reporting under 7 Pa.C.S. §6135(a)(3). Official Title 7. Department determines schedule; MCR baseline candidate, state additions not verified. Not verified.",
+    "gap": "Reconcile current mortgage licensing chapter with older annual-report rules before assigning a March 1 or other deadline.",
+    "sources": [
+      {
+        "label": "Official Title 7",
+        "url": "https://www.legis.state.pa.us/WU01/LI/LI/CT/HTM/07/07.HTM"
+      }
+    ]
+  },
+  "RI": {
+    "summary": "Loan broker/lender/servicer quarterly and annual financial statements uploaded under NMLS Financial Statement Summary. Active 230-RICR-40-10-2, §2.5. Financial statements prepared at least quarterly and quarterly/annual statements uploaded; exact upload deadline not established here. Not verified.",
+    "gap": "Separate statement upload from FC; verify MCR and upload deadlines. Use active rule, not archived reg_id=12191.",
+    "sources": [
+      {
+        "label": "Active 230-RICR-40-10-2, §2.5",
+        "url": "https://rules.sos.ri.gov/regulations/part/230-40-10-2"
+      }
+    ]
+  },
+  "SC": {
+    "summary": "SCDCA mortgage brokers annual reporting via MCR and separate mortgage log; lenders regulated separately. Broker page, lending/log instructions. 2025 mortgage log due March 31, 2026; MCR separate. Written No Activity attestation when no qualifying SC credit decision during 2025, including lender decision on broker applications.",
+    "gap": "Next-year form/date; broker vs lender delivery agency; decisions/pipeline mapping and HMDA relationship.",
+    "sources": [
+      {
+        "label": "Broker page",
+        "url": "https://www.consumer.sc.gov/business-resourceslaws/licensing/mortgage-broker"
+      },
+      {
+        "label": "lending/log instructions",
+        "url": "https://consumerfinance.sc.gov/index.php/regulated-institutions/mortgage-lending"
+      }
+    ]
+  },
+  "SD": {
+    "summary": "Mortgage Brokerage license is arranging loans for fee; lender/servicer separate. Division mortgage page. MCR baseline candidate; additional mortgage report cadence not verified. Not verified.",
+    "gap": "Current state report instructions and exclusions for nonresidential-only licenses. Do not import money-lender annual-return rules.",
+    "sources": [
+      {
+        "label": "Division mortgage page",
+        "url": "https://dlr.sd.gov/banking/mortgage_licenses/default.aspx"
+      }
+    ]
+  },
+  "TN": {
+    "summary": "Mortgage lender/broker/servicer framework. Department mortgage page; official rules index search identifies 0180-17-.16 Annual Report. Specific current deadline unverified; MCR baseline candidate. Not verified.",
+    "gap": "Official rule PDF returned 403; retrieve readable current rule, annual report instructions and financial-statement requirements.",
+    "sources": [
+      {
+        "label": "Department mortgage page",
+        "url": "https://www.tn.gov/content/tn/tdfi/mortgage-consumer-lending/mortgage.html"
+      },
+      {
+        "label": "Official rule PDF",
+        "url": "https://publications.tnsosfiles.com/rules/0180/0180-17.20101029.pdf"
+      }
+    ]
+  },
+  "TX": {
+    "summary": "SML mortgage companies/registered mortgage bankers MCR; processing/underwriting SSSF fields where activities apply. SML FAQ, SSSF notice. Quarterly May 15/August 14/November 14/February 14; processor/underwriter SF600–660 requirement begins Q1 2026. FAQ requires MCR even with no originations.",
+    "gap": "SSSF activity applicability, FV7 mapping; OCCC-regulated entities are a separate scope inquiry.",
+    "sources": [
+      {
+        "label": "SML FAQ",
+        "url": "https://www.sml.texas.gov/mortgage-origination/faqs/"
+      },
+      {
+        "label": "SSSF notice",
+        "url": "https://www.sml.texas.gov/news/announcement-new-state-specific-supplemental-form-requirement-for-texas-mortgage-call-reports/"
+      }
+    ]
+  },
+  "UT": {
+    "summary": "DRE historic MCR instructions. Official Q1 2013 newsletter. Historical source: quarterly MCR and annual FC fiscal-year +90 days. Not verified.",
+    "gap": "Current DRE reporting authority, license class, FV7 calendar/fiscal reconciliation and state supplements. Historic newsletter is insufficient for launch.",
+    "sources": [
+      {
+        "label": "Official Q1 2013 newsletter",
+        "url": "https://commerce.utah.gov/wp-content/uploads/2023/04/newsletter_q1-2013.pdf"
+      }
+    ]
+  },
+  "VT": {
+    "summary": "Mortgage broker quarterly MCR; annual report and annual financial statements in statute. DFR broker rule §6, 8 V.S.A. §2120. MCR 45 days after quarter end; statutory annual report April 1; statements 90 days after fiscal year end (statutory exception for commercial-only lender). Final quarter/annual MCR still required after surrender; nil activity otherwise not verified.",
+    "gap": "Whether accepted MCR fulfills annual-report duty; license classes, extensions and current forms.",
+    "sources": [
+      {
+        "label": "DFR broker rule §6",
+        "url": "https://dfr.vermont.gov/reg-bul-ord/mortgage-brokers"
+      },
+      {
+        "label": "8 V.S.A. §2120",
+        "url": "https://legislature.vermont.gov/statutes/section/08/072/02120"
+      }
+    ]
+  },
+  "VA": {
+    "summary": "Licensed mortgage lender/broker quarterly MCR and NMLS financial information. 10VAC5-160-90(B). Quarterly MCR with frequency/dates/form specified by NMLS. Not independently verified.",
+    "gap": "Additional commissioner requests and role-specific financial treatment; independent MLO requirements separate.",
+    "sources": [
+      {
+        "label": "10VAC5-160-90(B)",
+        "url": "https://law.lis.virginia.gov/admincode/title10/agency5/chapter160/section90/"
+      }
+    ]
+  },
+  "WA": {
+    "summary": "Broker MCR and FC; consumer-loan-company assessment is distinct. DFI MCR page, 2026 relief CLAMB-26-01. General MCR quarterly 45 days; Q1 2026 only extended to July 14, 2026. Older DFI page says annual FC fiscal-year +90 days. Not independently verified.",
+    "gap": "Reconcile FC with FV7; relief must be period-specific. Consumer-loan annual assessment cannot be assigned to broker-only entity.",
+    "sources": [
+      {
+        "label": "DFI MCR page",
+        "url": "https://dfi.wa.gov/mortgage-brokers/mortgage-call-reports"
+      },
+      {
+        "label": "2026 relief CLAMB-26-01",
+        "url": "https://dfi.wa.gov/sites/default/files/2026-02/CLAMB-26-01.pdf"
+      }
+    ]
+  },
+  "WV": {
+    "summary": "Separate 2025 Mortgage Broker Annual Report, lender annual report and Statistical Activity Report are linked by DFI mortgage page. Annual broker report exists; deadline not verified. Not verified.",
+    "gap": "Broker form download is legacy Word and browser extraction failed; inspect form, filing instructions, statistical report scope/cadence and MCR relationship.",
+    "sources": [
+      {
+        "label": "DFI mortgage page",
+        "url": "https://dfi.wv.gov/mortgage-licensing-and-regulation"
+      },
+      {
+        "label": "Broker form download",
+        "url": "https://dfi.wv.gov/media/95/download?inline="
+      }
+    ]
+  },
+  "WI": {
+    "summary": "Broker reviewed financial statements; banker audited statements. DFI mortgage FAQs. Annual statements via NMLS within six months of fiscal year end. Not verified.",
+    "gap": "Keep state CPA statement separate from FV7 FC; validate MCR applicability and additional current schedules.",
+    "sources": [
+      {
+        "label": "DFI mortgage FAQs",
+        "url": "https://dfi.wi.gov/Pages/FinancialServices/MortgageBanking/FAQs.aspx"
+      }
+    ]
+  },
+  "WY": {
+    "summary": "Broker/lender renewal annual report and NMLS reports of condition. Official Title 40, §§40-23-109 and 40-23-131. License expires December 31; statute requires annual renewal at least 30 days before expiration, accompanied by prescribed report. MCR per NMLS. Not verified.",
+    "gap": "Current commissioner form/renewal workflow and interaction with MCR; do not replace statutory language with an assumed calendar date.",
+    "sources": [
+      {
+        "label": "Official Title 40, §§40-23-109 and 40-23-131",
+        "url": "https://www.wyoleg.gov/statutes/compress/title40.pdf"
+      }
+    ]
+  }
+}

@@ -1977,6 +1977,16 @@ try {
     const researchQueue = await research(owner, { operation: "list", filters: { jurisdiction: "MI", status: "Awaiting review", ownership: "mine" } });
     assert.equal(researchQueue.counts.total, 1);
     assert.equal(researchQueue.items[0].id, researchCase.item.id);
+    const stateRollout = { operation: "stateRollout", jurisdiction: "MI" };
+    assert.ok((await research(officer, stateRollout)).error);
+    const statewide = await research(owner, stateRollout);
+    assert.equal(statewide.states.length, 50);
+    assert.equal(statewide.items.length, 5);
+    const reportingArea = statewide.items.find(item => item.source.key === "STATE-MI-REPORTING");
+    assert.ok(reportingArea.source.relatedSources.length);
+    const reportingReview = await research(owner, { operation: "open", sourceKey: reportingArea.source.key, kind: "Requirement review" });
+    assert.equal((await research(owner, stateRollout)).items.find(item => item.source.key === reportingArea.source.key).cases[0].id, reportingReview.item.id);
+    assert.equal((await research(owner, stateRollout)).coverage.legalApproval, false);
     const program=(staff,input,target=brokerage)=>action(staff,"accessComplianceCases",{type:"program",input},undefined,target);
     const entityRequest={operation:"createEntity",requestId:randomUUID(),name:"Michigan Pilot Compliance LLC",nmls:"",scopeNote:"Michigan pilot; user review and lawyer approval required before launch"};
     assert.ok((await program(officer,entityRequest)).error);

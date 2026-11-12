@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { researchRequest, researchSources, sourceSnapshot, type ResearchRequest } from "./compliance-research-model";
+import { getResearchSource, researchRequest, researchSources, sourceSnapshot, stateRolloutSources, type ResearchRequest } from "./compliance-research-model";
 import { complianceWorkUnavailable, type complianceCaseStatuses } from "./compliance-case-model";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import type { WorkspaceStaff } from "./staff-store";
@@ -10,8 +10,8 @@ const changed = { error: "This research work changed. Refresh before saving." };
 const coverage = { legalApproval: false, runtimeEnforcement: false, evaluatedFiles: null } as const;
 type Row = { id: string; title: string; kind: "Requirement review" | "Control gap"; status: (typeof complianceCaseStatuses)[number];
   ownerEmail: string; ownerAccessRevision: number; revision: number; updatedAt: string;
-  sourceKey: string; jurisdiction: string; sourceSnapshot: string; nextAction: string; followUpOn: string | null };
-const columns = "c.id, c.title, c.kind, c.status, c.ownerEmail, c.ownerAccessRevision, c.revision, c.updatedAt, r.sourceKey, r.jurisdiction, r.sourceSnapshot, r.nextAction, r.followUpOn";
+  sourceKey: string; jurisdiction: string; sourceSnapshot: string; nextAction: string; followUpOn: string | null; evidenceReference: string };
+const columns = "c.id, c.title, c.kind, c.status, c.ownerEmail, c.ownerAccessRevision, c.revision, c.updatedAt, r.sourceKey, r.jurisdiction, r.sourceSnapshot, r.nextAction, r.followUpOn, r.evidenceReference";
 const source = "compliance_cases c JOIN compliance_research_work r ON r.brokerageId = c.brokerageId AND r.caseId = c.id";
 const scope = "c.brokerageId = ? AND c.confidentiality = 'General' AND c.loanId IS NULL";
 
@@ -22,7 +22,7 @@ function read(db: Store, brokerageId: string, id: string) {
 function project(row: Row, roster: readonly VersionedBrokerageMember[], today: string) {
   const owner = roster.find((member) => member.email === row.ownerEmail && member.status === "Active" && member.role === "Admin" &&
     (member.accessRevision ?? 0) === row.ownerAccessRevision);
-  const currentSource = researchSources.find((entry) => entry.key === row.sourceKey);
+  const currentSource = getResearchSource(row.sourceKey);
   return { ...row, ownerName: owner?.name ?? null, ownerAvailable: Boolean(owner), overdue: Boolean(row.followUpOn && row.followUpOn < today),
     sourceChanged: !currentSource || sourceSnapshot(currentSource) !== row.sourceSnapshot };
 }
@@ -31,8 +31,11 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly VersionedBrok
     WHERE brokerageId = ? AND caseId = ? ORDER BY revision DESC LIMIT 51`).all(staff.brokerage.id, row.id);
   return { kind: "researchDetail", coverage, item: project(row, roster, now.slice(0, 10)),
     owners: roster.filter((member) => member.status === "Active" && member.role === "Admin").map(({ email, name }) => ({ email, name })),
-    history: history.slice(0, 50).map((entry) => ({ revision: Number(entry.revision), actor: String(entry.actor), at: String(entry.at),
-      action: String(entry.action), note: String((JSON.parse(String(entry.payload)) as { request?: { note?: string } }).request?.note ?? "") })),
+    history: history.slice(0, 50).map((entry) => {
+      const { request } = JSON.parse(String(entry.payload)) as { request?: { note?: string; evidenceReference?: string } };
+      return { revision: Number(entry.revision), actor: String(entry.actor), at: String(entry.at),
+        action: String(entry.action), note: request?.note ?? "", evidenceReference: request?.evidenceReference };
+    }),
     moreHistory: history.length > 50 } as const;
 }
 function event(db: Store, staff: WorkspaceStaff, row: Pick<Row, "id" | "revision">, now: string, action: string, request: object, requestId: string | null) {
@@ -46,6 +49,33 @@ export function complianceResearchWork(db: Store, input: ResearchRequest, staff:
   const parsed = researchRequest.safeParse(input);
   if (!parsed.success) return unavailable;
   const data = parsed.data;
+  if (data.operation === "stateRollout") {
+    const selected = stateRolloutSources.filter(entry => entry.jurisdiction === data.jurisdiction);
+    if (!selected.length) return unavailable;
+    const rows = db.prepare(`SELECT ${columns} FROM ${source} WHERE ${scope} AND r.jurisdiction != 'US'`).all(staff.brokerage.id);
+    const tracked = new Map<string, Row[]>();
+    const rolloutKeys = new Set(stateRolloutSources.map(entry => entry.key));
+    for (const row of rows) {
+      const item = { ...row } as Row;
+      if (!rolloutKeys.has(item.sourceKey)) continue;
+      const cases = tracked.get(item.sourceKey) ?? [];
+      cases.push(item);
+      tracked.set(item.sourceKey, cases);
+    }
+    const states = researchSources.filter(entry => entry.jurisdiction !== "US").map(entry => {
+      const work = stateRolloutSources.filter(item => item.jurisdiction === entry.jurisdiction);
+      return { jurisdiction: entry.jurisdiction, name: entry.title, tracked: work.filter(item => tracked.has(item.key)).length, total: work.length };
+    });
+    const items = selected.map(entry => ({
+      source: entry,
+      cases: (tracked.get(entry.key) ?? []).map(row => {
+        const item = project(row, roster, now.slice(0, 10));
+        const { id, kind, status, ownerName, overdue, sourceChanged, followUpOn, evidenceReference } = item;
+        return { id, kind, status, ownerName, overdue, sourceChanged, followUpOn, evidenceReference };
+      }),
+    }));
+    return { kind: "stateRollout", coverage, states, items } as const;
+  }
   if (data.operation === "list") {
     const { filters, after } = data;
     if (filters.jurisdiction && !researchSources.some((entry) => entry.jurisdiction === filters.jurisdiction)) return unavailable;
@@ -71,7 +101,7 @@ export function complianceResearchWork(db: Store, input: ResearchRequest, staff:
       items: page, next: rows.length > 20 ? { id: page.at(-1)!.id, snapshot } : null } as const;
   }
   if (data.operation === "open") {
-    const entry = researchSources.find((item) => item.key === data.sourceKey);
+    const entry = getResearchSource(data.sourceKey);
     if (!entry) return unavailable;
     const key = `research:${data.kind}:${entry.key}`;
     const previous = db.prepare("SELECT id FROM compliance_cases WHERE brokerageId = ? AND caseKey = ?").get(staff.brokerage.id, key);
@@ -100,8 +130,8 @@ export function complianceResearchWork(db: Store, input: ResearchRequest, staff:
   if (!owner) return { error: "Choose an active brokerage admin to own this research work." };
   db.prepare(`UPDATE compliance_cases SET ownerEmail = ?, ownerAccessRevision = ?, status = ?, revision = revision + 1, updatedAt = ?
     WHERE brokerageId = ? AND id = ? AND revision = ?`).run(owner.email, owner.accessRevision ?? 0, data.status, now, staff.brokerage.id, row.id, row.revision);
-  db.prepare("UPDATE compliance_research_work SET nextAction = ?, followUpOn = ? WHERE brokerageId = ? AND caseId = ?")
-    .run(data.nextAction, data.followUpOn, staff.brokerage.id, row.id);
+  db.prepare("UPDATE compliance_research_work SET nextAction = ?, followUpOn = ?, evidenceReference = ? WHERE brokerageId = ? AND caseId = ?")
+    .run(data.nextAction, data.followUpOn, data.evidenceReference ?? row.evidenceReference, staff.brokerage.id, row.id);
   event(db, staff, { id: row.id, revision: row.revision + 1 }, now, "Updated research work", data, data.requestId);
   return detail(db, staff, roster, read(db, staff.brokerage.id, row.id)!, now);
 }

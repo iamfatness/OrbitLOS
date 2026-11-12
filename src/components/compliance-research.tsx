@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import { complianceCaseStatuses } from "@/lib/compliance-case-model";
-import { researchBaseline, researchSources, type ResearchFilters, type ResearchRequest, type ResearchSource } from "@/lib/compliance-research-model";
+import { researchBaseline, researchKinds, researchSources, type ResearchFilters, type ResearchRequest, type ResearchSource } from "@/lib/compliance-research-model";
 import type { complianceResearchWork } from "@/lib/compliance-research";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -21,7 +21,10 @@ function Jurisdiction({ value, all, change }: { value: string; all?: boolean; ch
   </select></label>;
 }
 
-function ResearchEditor({ detail, pending, save }: { detail: Detail; pending: boolean; save: (input: Omit<Extract<ResearchRequest, { operation: "save" }>, "requestId">) => void }) {
+function ResearchEditor({ detail, pending, save, heading }: {
+  detail: Detail; pending: boolean; heading: RefObject<HTMLHeadingElement | null>;
+  save: (input: Omit<Extract<ResearchRequest, { operation: "save" }>, "requestId">) => void;
+}) {
   const { item } = detail;
   const savedSource = JSON.parse(item.sourceSnapshot) as ResearchSource & { researchBaseline: string };
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -29,17 +32,18 @@ function ResearchEditor({ detail, pending, save }: { detail: Detail; pending: bo
     const form = new FormData(event.currentTarget);
     save({ operation: "save", caseId: item.id, expectedRevision: item.revision,
       status: String(form.get("status")) as (typeof complianceCaseStatuses)[number], ownerEmail: String(form.get("owner")),
-      followUpOn: String(form.get("followUpOn")) || null, nextAction: String(form.get("nextAction")), note: String(form.get("note")) });
+      followUpOn: String(form.get("followUpOn")) || null, nextAction: String(form.get("nextAction")),
+      evidenceReference: String(form.get("evidenceReference")), note: String(form.get("note")) });
   }
-  return <div className="record-form">
-    <h3 tabIndex={-1}>{item.title}</h3>
+  return <section className="record-form" aria-label="Research case">
+    <h3 ref={heading} tabIndex={-1}>{item.title}</h3>
     <p className="muted">{item.kind} · {item.status} · Revision {item.revision}</p>
     {!item.ownerAvailable && <p role="alert">The recorded owner is no longer eligible. Assign an active brokerage admin.</p>}
     {item.sourceChanged && <p role="alert">The research source has changed or is unavailable. Review current authority; this case retains its original source snapshot.</p>}
     <details className="document-form"><summary>Research basis · {savedSource.researchBaseline}</summary>
       <p>{savedSource.summary}</p><p>{savedSource.applicability}</p><p>{savedSource.gap}</p>
-      <p><strong>Evidence to investigate:</strong> {savedSource.evidence}</p>
-      <a className="underline" target="_blank" rel="noreferrer" href={savedSource.sourceUrl}>Official source</a>
+      <p><strong>Evidence to investigate</strong> · {savedSource.evidence}</p>
+      <ResearchLinks source={savedSource} />
     </details>
     <form key={`${item.id}:${item.revision}`} className="record-form" onSubmit={submit}>
       <fieldset disabled={pending} className="record-form">
@@ -54,6 +58,7 @@ function ResearchEditor({ detail, pending, save }: { detail: Detail; pending: bo
         </div>
         <p className="muted">This date is an internal planning target. It does not calculate or change a legal deadline.</p>
         <label className="field">Next action<textarea name="nextAction" required maxLength={500} rows={2} defaultValue={item.nextAction} /></label>
+        <label className="field">Evidence reference (optional)<input name="evidenceReference" maxLength={250} defaultValue={item.evidenceReference} /></label>
         <label className="field">Reason or progress note<textarea name="note" required maxLength={1000} rows={3} /></label>
         <p className="muted">General research only. Keep borrower data, confidential investigations and privileged advice out of these notes.</p>
         <div><Button type="submit" size="sm">{pending ? "Saving…" : "Save research work"}</Button></div>
@@ -62,15 +67,31 @@ function ResearchEditor({ detail, pending, save }: { detail: Detail; pending: bo
     <details className="document-form"><summary>Review history</summary>
       <ul className="loan-task-list">{detail.history.map((entry) => <li key={entry.revision} className="loan-task compliance-row">
         <div className="loan-task-copy"><strong>{entry.action}</strong><span>{entry.actor} · {dateTime(entry.at)} ET · Revision {entry.revision}</span>
+          {entry.evidenceReference && <span>Evidence · {entry.evidenceReference}</span>}
           {entry.note && <span>{entry.note}</span>}</div>
       </li>)}</ul>{detail.moreHistory && <p>Showing the most recent 50 changes.</p>}
     </details>
-  </div>;
+  </section>;
+}
+
+function ResearchLinks({ source }: { source: ResearchSource }) {
+  const links = new Map((source.relatedSources ?? []).map(link => [link.url, link]));
+  if (!links.has(source.sourceUrl)) links.set(source.sourceUrl, { label: "Starting authority", url: source.sourceUrl });
+  return <ul>{[...links.values()].map(link =>
+    <li key={link.url}><a className="underline" target="_blank" rel="noreferrer" href={link.url}>{link.label}</a></li>)}</ul>;
 }
 
 export function ComplianceResearch({ brokerageId, paused }: { brokerageId: string; paused: boolean }) {
-  const [view, setView] = useState<"Sources" | "Research work">("Sources");
+  const [view, setView] = useState<"Sources" | "Research work" | "State rollout">("Sources");
   const [jurisdiction, setJurisdiction] = useState("US");
+  const [rolloutState, setRolloutState] = useState("MI");
+  const rolloutSelect = useRef<HTMLSelectElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const feedback = useRef<HTMLParagraphElement>(null);
+  const origin = useRef<string | null>(null);
+  const enteringCase = useRef(false);
+  const returning = useRef(false);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(initialFilters);
   const [after, setAfter] = useState<List["next"]>(null);
@@ -81,7 +102,8 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
   const [response, setResponse] = useState<{ key: string; data: Result }>();
   const attempt = useRef<{ key: string; id: string }>(null);
   const request = useMemo<ResearchRequest>(() => caseId ? { operation: "read", caseId } :
-    { operation: "list", filters, ...(after ? { after } : {}) }, [caseId, filters, after]);
+    view === "State rollout" ? { operation: "stateRollout", jurisdiction: rolloutState } :
+    { operation: "list", filters, ...(after ? { after } : {}) }, [caseId, view, rolloutState, filters, after]);
   const key = JSON.stringify([brokerageId, request, revision]);
   const activeBrokerage = useRef<string | null>(brokerageId);
   useEffect(() => { activeBrokerage.current = brokerageId; return () => { activeBrokerage.current = null; }; }, [brokerageId]);
@@ -89,16 +111,38 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
     if (paused || (view === "Sources" && !caseId)) return;
     let active = true;
     void accessComplianceCases({ type: "research", input: request }, brokerageId).then((result) => {
-      if (active && ("error" in result || result.kind === "researchList" || result.kind === "researchDetail")) setResponse({ key, data: result });
+      if (active && ("error" in result || result.kind === "researchList" || result.kind === "researchDetail" || result.kind === "stateRollout")) {
+        setResponse({ key, data: result });
+      }
     }, () => { if (active) setResponse({ key, data: { error: "Could not load research work. Refresh to try again." } }); });
     return () => { active = false; };
   }, [brokerageId, caseId, key, paused, request, view]);
   const data = response?.key === key ? response.data : undefined;
   const detail = data && "kind" in data && data.kind === "researchDetail" ? data : undefined;
   const list = data && "kind" in data && data.kind === "researchList" ? data : undefined;
+  const rollout = data && "kind" in data && data.kind === "stateRollout" ? data : undefined;
+  const selectedState = rollout?.states.find(item => item.jurisdiction === rolloutState);
+  useEffect(() => { if (message) feedback.current?.focus(); }, [message]);
+  useEffect(() => {
+    if (detail && enteringCase.current) {
+      enteringCase.current = false;
+      heading.current?.focus();
+    }
+    if (!caseId && returning.current && (view === "Sources" || data)) {
+      returning.current = false;
+      const button = origin.current && panel.current?.querySelector<HTMLButtonElement>(`[data-research-action="${CSS.escape(origin.current)}"]`);
+      (button || rolloutSelect.current)?.focus();
+    }
+  }, [caseId, data, detail, view]);
   const matches = researchSources.filter((entry) => entry.jurisdiction === jurisdiction &&
     `${entry.title} ${entry.summary} ${entry.gap} ${entry.evidence}`.toLowerCase().includes(search.trim().toLowerCase()));
   function changeFilters(next: ResearchFilters) { setFilters(next); setAfter(null); setMessage(undefined); }
+  function openCase(id: string, action: string) {
+    origin.current = action;
+    enteringCase.current = true;
+    setCaseId(id);
+    setMessage(undefined);
+  }
   async function mutate(input: Extract<ResearchRequest, { operation: "open" }> | Omit<Extract<ResearchRequest, { operation: "save" }>, "requestId">) {
     if (pending || paused) return;
     setPending(true); setMessage(undefined);
@@ -111,33 +155,86 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
       if ("error" in result) { setMessage({ text: result.error, error: true }); return; }
       if (result.kind !== "researchDetail") { setMessage({ text: "Unexpected response. Refresh before continuing.", error: true }); return; }
       attempt.current = null;
-      setCaseId(result.item.id); setView("Research work"); refresh((value) => value + 1);
-      setMessage({ text: input.operation === "open" ? "Research work opened. Existing work is reused." : "Research work saved. Legal approval remains unverified." });
+      if (input.operation === "open") openCase(result.item.id, `${input.sourceKey}:${input.kind}`);
+      else setMessage({ text: "Research work saved." });
+      refresh((value) => value + 1);
     } catch { setMessage({ text: "The response was interrupted. Retry the same save or refresh to check its outcome.", error: true }); }
     finally { if (activeBrokerage.current === brokerageId) setPending(false); }
   }
-  return <div className="integration manager-panel record-form">
+  return <div className="integration manager-panel record-form compliance-research-panel" ref={panel}>
     <h2>Research &amp; control gaps</h2>
     <p className="muted">50 states · 25 federal research areas · Baseline {researchBaseline}. DC and territories require separate research.</p>
     <div className="document-item"><strong>Legal approval and enforcement remain unverified</strong>
       <p>Track review work and missing controls. Workflow status and notes do not approve a jurisdiction or verify compliance.</p></div>
     <div className="loan-application-actions">
-      {(["Sources", "Research work"] as const).map((option) => <Button key={option} size="sm" disabled={pending}
-        variant={view === option && !caseId ? "default" : "outline"} onClick={() => { setView(option); setCaseId(undefined); setMessage(undefined); }}>{option}</Button>)}
-      {(view === "Research work" || caseId) && <Button size="sm" variant="outline" disabled={pending || paused}
+      {(["Sources", "State rollout", "Research work"] as const).map((option) => <Button key={option} size="sm" disabled={pending}
+        aria-pressed={view === option} variant={view === option ? "default" : "outline"}
+        onClick={() => { setView(option); setCaseId(undefined); setMessage(undefined); }}>{option}</Button>)}
+      {(view !== "Sources" || caseId) && <Button size="sm" variant="outline" disabled={pending || paused}
         onClick={() => { setAfter(null); refresh((value) => value + 1); }}>Refresh research work</Button>}
     </div>
-    {message && <p role={message.error ? "alert" : "status"}>{message.text}</p>}
-    {view === "Sources" && !caseId ? <>
+    {message && <p ref={feedback} tabIndex={-1} role={message.error ? "alert" : "status"}>{message.text}</p>}
+    {caseId && <div><Button size="sm" variant="outline" disabled={pending} onClick={() => {
+      returning.current = true;
+      enteringCase.current = false;
+      setCaseId(undefined);
+      setMessage(undefined);
+    }}>Back to {view === "State rollout" ? "state rollout" : view.toLowerCase()}</Button></div>}
+    {view === "State rollout" && !caseId ? <section className="record-form" aria-label="State rollout">
+      <label className="field">State<select ref={rolloutSelect} value={rolloutState} disabled={pending} onChange={event => setRolloutState(event.target.value)}>
+        {states.map(item => <option key={item.key} value={item.jurisdiction}>{item.title}</option>)}
+      </select></label>
+      {!data && <p role="status">{paused ? "State rollout is unavailable while the workspace is paused." : "Loading state rollout…"}</p>}
+      {data && "error" in data && <p role="alert">{data.error}</p>}
+      {rollout && <>
+        <div role="status">
+          <p>{selectedState?.name} · {selectedState?.tracked} of {selectedState?.total} review areas tracked</p>
+          <p className="muted">{rollout.states.filter(item => item.tracked > 0).length} of {rollout.states.length} states have tracked review work.</p>
+        </div>
+        <details className="document-form"><summary>Tracking by state</summary>
+          <ul className="document-list">{rollout.states.map(item => <li key={item.jurisdiction} className="document-item">
+            <div><strong>{item.name}</strong><p>{item.tracked} of {item.total} review areas tracked</p></div>
+            <Button size="sm" variant="outline" disabled={item.jurisdiction === rolloutState || pending || paused}
+              onClick={event => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                rolloutSelect.current?.focus();
+                setRolloutState(item.jurisdiction);
+              }}>Review {item.name}</Button>
+          </li>)}</ul>
+        </details>
+        {rollout.items.map(({ source, cases }) => <section aria-label={source.title} className="document-item record-form" key={source.key}>
+          <h3>{source.title}</h3>
+          <details className="document-form"><summary>Open questions and evidence</summary>
+            <p>{source.summary}</p><p>{source.applicability}</p><p>{source.gap}</p><p>{source.evidence}</p><ResearchLinks source={source} />
+          </details>
+          {researchKinds.map(kind => {
+            const item = cases.find(entry => entry.kind === kind);
+            return <div className="loan-task compliance-row" key={kind}>
+              <div className="loan-task-copy"><strong>{kind}</strong>
+                <span>{item ? `${item.status} · ${item.ownerName ?? "Owner unavailable"}` : "Untracked"}</span>
+                {item?.followUpOn && <span>Internal follow-up · {item.followUpOn} UTC</span>}
+                {item?.evidenceReference && <span>Evidence · {item.evidenceReference}</span>}
+                {item?.sourceChanged && <span>Source changed since tracking began</span>}
+                {item?.overdue && <span>Past internal follow-up date</span>}
+              </div>
+              <Button data-research-action={`${source.key}:${kind}`} size="sm" variant="outline" disabled={pending || paused} onClick={() => {
+                if (item) openCase(item.id, `${source.key}:${kind}`);
+                else void mutate({ operation: "open", sourceKey: source.key, kind });
+              }}>{item ? `Open ${kind.toLowerCase()}` : `Track ${kind.toLowerCase()}`}</Button>
+            </div>;
+          })}
+        </section>)}
+      </>}
+    </section> : view === "Sources" && !caseId ? <>
       <div className="form-grid"><Jurisdiction value={jurisdiction} change={(value) => { setJurisdiction(value); setSearch(""); }} />
         <label className="field">Search research<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} /></label></div>
       {matches.map((entry) => <article key={entry.key} className="document-item record-form">
         <h3>{entry.title}</h3><p>{entry.summary}</p><p className="muted">{entry.applicability}</p><p><strong>Gap:</strong> {entry.gap}</p>
         <details><summary>Evidence to investigate</summary><p>{entry.evidence}</p></details>
         <a className="underline" target="_blank" rel="noreferrer" href={entry.sourceUrl}>Official source</a>
-        <div className="loan-application-actions"><Button size="sm" disabled={pending || paused}
+        <div className="loan-application-actions"><Button data-research-action={`${entry.key}:Requirement review`} size="sm" disabled={pending || paused}
           onClick={() => void mutate({ operation: "open", sourceKey: entry.key, kind: "Requirement review" })}>Track requirement review</Button>
-          <Button size="sm" variant="outline" disabled={pending || paused}
+          <Button data-research-action={`${entry.key}:Control gap`} size="sm" variant="outline" disabled={pending || paused}
             onClick={() => void mutate({ operation: "open", sourceKey: entry.key, kind: "Control gap" })}>Track control gap</Button></div>
       </article>)}{!matches.length && <p>No research matches. Clear the search to see this jurisdiction.</p>}
     </> : <>
@@ -149,12 +246,12 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
       </div>}
       {!data && <p role="status">Loading research work…</p>}
       {data && "error" in data && <p role="alert">{data.error}</p>}
-      {detail && <ResearchEditor detail={detail} pending={pending || paused} save={(input) => void mutate(input)} />}
+      {detail && <ResearchEditor detail={detail} heading={heading} pending={pending || paused} save={(input) => void mutate(input)} />}
       {list && <><p>{list.counts.total} research items · {list.counts.overdue} past internal follow-up date (UTC). Loan compliance has not been evaluated.</p>
         <ul className="loan-task-list">{list.items.map((item) => <li key={item.id} className="loan-task compliance-row">
           <div className="loan-task-copy"><strong>{item.title}</strong><span>{item.status} · {item.ownerName ?? "Owner unavailable"}</span>
             <span>{item.nextAction}</span><span>{item.followUpOn ? `Internal follow-up: ${item.followUpOn}${item.overdue ? " · Overdue" : ""}` : "No internal follow-up date"}</span></div>
-          <Button size="sm" variant="outline" onClick={() => { setCaseId(item.id); setMessage(undefined); }}>Open research work</Button>
+          <Button data-research-action={item.id} size="sm" variant="outline" onClick={() => openCase(item.id, item.id)}>Open research work</Button>
         </li>)}</ul>{!list.items.length && <p>No research work matches. Open Sources to track a review; an empty queue does not indicate compliance.</p>}
         <div className="loan-application-actions">{after && <Button size="sm" variant="outline" onClick={() => setAfter(null)}>First page</Button>}
           {list.next && <Button size="sm" variant="outline" onClick={() => setAfter(list.next)}>Next page</Button>}</div>

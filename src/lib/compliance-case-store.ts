@@ -33,12 +33,15 @@ export function initializeComplianceCases(db: Store) {
     );
     CREATE TABLE IF NOT EXISTS compliance_research_work (
       brokerageId TEXT NOT NULL, caseId TEXT NOT NULL, sourceKey TEXT NOT NULL, jurisdiction TEXT NOT NULL,
-      sourceSnapshot TEXT NOT NULL, nextAction TEXT NOT NULL, followUpOn TEXT,
+      sourceSnapshot TEXT NOT NULL, nextAction TEXT NOT NULL, followUpOn TEXT, evidenceReference TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (brokerageId, caseId),
       FOREIGN KEY (brokerageId, caseId) REFERENCES compliance_cases(brokerageId, id)
     );
     CREATE INDEX IF NOT EXISTS compliance_research_jurisdiction ON compliance_research_work(brokerageId, jurisdiction, caseId);
   `);
+  if (!db.prepare("PRAGMA table_info(compliance_research_work)").all().some(({ name }) => name === "evidenceReference")) {
+    db.exec("ALTER TABLE compliance_research_work ADD COLUMN evidenceReference TEXT NOT NULL DEFAULT ''");
+  }
 }
 
 export function initializeComplianceInventory(db: Store) {
