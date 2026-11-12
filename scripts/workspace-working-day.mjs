@@ -5617,10 +5617,19 @@ try {
       address: "", amount: 350000, purpose: "Purchase", stage: "Lead" });
     const loanId = created.loanWork.loanId;
     await team(owner, { type: "assign", loanId, previousEmail: owner.email, email: officer.email });
-    const { token } = (await file(officer, loanId)).applications[0];
+    const start = (await file(officer, loanId)).applications[0];
+    const linked = (await loanAction(officer, loanId, "enableJointApplication", { revision: start.revision })).loanWork.applications[0];
+    const token = linked.token, coToken = linked.joint.token;
     const initial = await borrower(token, { type: "read" });
-    const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
-    const submitted = await borrower(token, { type: "submit", revision: initial.revision, step: applicationSteps.length - 1, draft });
+    const draft = { ...primaryJointDraft(sampleApplication(initial.draft)), confirmedDemo: true };
+    draft.urla.primary.joint.fields.initials = "FFB";
+    await borrower(token, { type: "submit", revision: initial.revision, step: applicationSteps.length - 1, draft });
+    const jointPath = "/api/joint-application";
+    const coStart = await post(jointPath, { type: "read", token: coToken });
+    const completed = await post(jointPath, { type: "submit", token: coToken, revision: coStart.revision, step: coBorrowerReviewStep,
+      draft: sampleCoBorrower(coStart.draft), confirmedDemo: true });
+    assert.equal(completed.complete, true);
+    const submitted = (await file(officer, loanId)).applications[0];
     await loanAction(officer, loanId, "reviewApplication", { revision: submitted.revision });
     const priced = await loanAction(officer, loanId, "runPricing", { applicationRevision: submitted.revision, scenario: {
       purpose: "Purchase", loanAmount: Number(draft.loanAmount), propertyValue: Number(draft.estimatedValue), purchasePrice: null,
@@ -5643,18 +5652,21 @@ try {
     const terms = async () => (await realtor(link.token)).referrals.find(item => item.borrowerName === borrowerName)?.financing;
     await post(staffPath, request, officer);
     assert.equal((await borrower(token, { type: "status" })).loanStatus.realtorFinancing.permission, "Pending");
+    assert.equal((await post(jointPath, { type: "read", token: coToken })).realtorFinancing.permission, "Pending");
     assert.equal((await postResponse(staffPath, publish, officer)).status, 409);
     const approval = { type: "respond", token, requestId: request.requestId, operationId: randomUUID(), decision: "Approve" };
     await post(borrowerPath, approval);
     await post(borrowerPath, approval);
+    assert.equal((await postResponse(staffPath, publish, officer)).status, 409);
+    await post(borrowerPath, { ...approval, token: coToken, operationId: randomUUID() });
     assert.equal(await terms(), undefined);
     const result = await post(staffPath, publish, officer);
     assert.deepEqual(await terms(), { ...staffView.preview.terms, publishedAt: result.request.publishedAt });
     assert.ok(!(await realtor(realtorToken)).referrals.some(item => item.borrowerName === borrowerName));
-    await post(borrowerPath, { ...approval, operationId: randomUUID(), decision: "Revoke" });
+    await post(borrowerPath, { ...approval, token: coToken, operationId: randomUUID(), decision: "Revoke" });
     assert.equal(await terms(), undefined);
     assert.equal((await postResponse(staffPath, publish, officer)).status, 409);
-    return { loanId, token, realtorToken: link.token, borrowerName, partnerName };
+    return { loanId, token, coToken, realtorToken: link.token, borrowerName, partnerName };
   });
 
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
