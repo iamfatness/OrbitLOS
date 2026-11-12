@@ -94,7 +94,11 @@ test("broker agreement evidence keeps state triggers and corrections with the ac
     ["Repeated local hour, order unresolved", "Repeated local hour, order unresolved"]);
   const ilSave = save(illinois, { state: "IL", applicationSigned: date("09:30"), consideration: date("08:30"),
     deliveredCopy: date("09:03"), incorporatedDisclosureVersion: "Fictional disclosure v1" });
-  assert.deepEqual(record(ilSave).review.timing.map(item => item.result), ["Before", "After"]);
+  assert.deepEqual(record(ilSave).review.timing.map(item => item.result), ["Before", "After", "After"]);
+  const ilCopy = record({ ...ilSave, requestId: crypto.randomUUID(), expectedRevision: 1, correction: "Fictional signed copy review",
+    facts: { ...ilSave.facts, signed: date("01:10", "2026-11-01"), deliveredCopy: date("01:45", "2026-11-01") } });
+  assert.equal(ilCopy.review.timing[2].result, "Repeated local hour, order unresolved");
+  assert.match(ilCopy.review.gaps.join(" "), /timing of executed copy delivery/);
   const wiSave = save(wisconsin, { state: "WI", form: "MB302TRID", disclosureVersion: "Fictional MB600 v1",
     disclosureDelivered: date("08:30"), explanation: date("08:45"), acknowledgment: date("09:00") });
   assert.deepEqual(record(wiSave).review.timing.map(item => item.result), ["Before", "Before", "Same recorded minute"]);

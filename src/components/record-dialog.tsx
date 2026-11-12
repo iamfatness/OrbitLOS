@@ -749,7 +749,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && agreementState &&
         <StateBrokerAgreement key={`${staff.brokerage.id}:${loan.id}:${agreementState}`} state={agreementState} loanId={loan.id}
           brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
-      {section === "Disclosures" && canOpenDisclosures && staff?.brokerage.pilot && benefitState && loan.purpose === "Refinance" &&
+      {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && benefitState && loan.purpose === "Refinance" &&
         <StateRefinanceBenefit key={`${staff.brokerage.id}:${loan.id}:${benefitState}`} state={benefitState} loanId={loan.id}
           brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Compliance" && staff?.brokerage.pilot && <ComplianceQueue key={`${loan.id}:${target}`} brokerageId={staff.brokerage.id}

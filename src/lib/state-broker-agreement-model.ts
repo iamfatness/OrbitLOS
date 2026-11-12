@@ -97,8 +97,12 @@ export function reviewBrokerAgreement(facts: BrokerAgreementFacts) {
     case "IL":
       compare("Agreement relative to application signature", facts.signed, facts.applicationSigned, "Before");
       compare("Agreement relative to consideration", facts.signed, facts.consideration, "Before");
+      const copyOrder = chronology(facts.deliveredCopy, facts.signed);
+      timing.push({ label: "Executed copy relative to signing", result: copyOrder });
       if (!facts.deliveredCopy) gaps.push("Record delivery of the executed agreement copy.");
-      if (chronology(facts.deliveredCopy, facts.signed) === "Before") gaps.push("Review why the recorded copy delivery predates signing.");
+      else if (copyOrder === "Before") gaps.push("Review why the recorded copy delivery predates signing.");
+      else if (copyOrder !== "After" && copyOrder !== "Same recorded minute")
+        gaps.push("Review the timing of executed copy delivery relative to signing.");
       if (!facts.incorporatedDisclosureVersion) gaps.push("Identify the incorporated brokerage disclosure.");
       break;
     case "WI":
