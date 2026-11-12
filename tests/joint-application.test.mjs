@@ -341,8 +341,13 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.match((await f.run("prepareDisclosurePackage", { ...prepare(1, 2), revisionNote,
     reviewedPackageRevision: current().revision - 1 })).error, /package changed/);
   await apply("prepareDisclosurePackage", { ...prepare(1, 2), revisionNote, reviewedPackageRevision: current().revision });
-  assert.deepEqual(current().changeReview, { fromVersion: 1, reason: "Fees changed", actor: f.officer.name, note: revisionNote,
+  const { changes: savedChanges, ...reviewFacts } = current().changeReview;
+  assert.deepEqual(reviewFacts, { fromVersion: 1, reason: "Fees changed", actor: f.officer.name, note: revisionNote,
     at: current().preparedAt });
+  const feeChange = savedChanges.find(change => change.key === "fee:settlement");
+  assert.equal(feeChange.before, "$1,000.00");
+  assert.match(feeChange.after, /\$1,250\.00.*Seller \$250\.00.*Fictional Title Co/);
+  assert.deepEqual(JSON.parse(f.db.prepare("SELECT changeReview FROM disclosure_packages WHERE loanId=? AND version=2").get(f.loanId).changeReview).changes, savedChanges);
   assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-review:")));
   assert.deepEqual(current().signers.map(({ status }) => status), ["Pending", "Pending"]);
   assert.equal(work().packages[1].signers[0].status, "Signed");
@@ -408,6 +413,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(firstPacket.preparedBy, f.processor.name);
   assert.equal(firstPacket.snapshot.disclosure.signers[0].receipt, signature.receipt);
   assert.equal(firstPacket.snapshot.disclosure.changeReview.note, revisionNote);
+  assert.deepEqual(firstPacket.snapshot.disclosure.changeReview.changes, savedChanges);
   assert.equal(firstPacket.snapshot.disclosure.feeAllocations[0].payee, settlement.payee);
   assert.equal(firstPacket.snapshot.disclosure.feeAllocations[0].borrower, 100_000);
   assert.equal(firstPacket.snapshot.checklist[0].completedAt, null);
@@ -421,6 +427,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   const text = [...firstPdf.matchAll(/<([\da-f]+)> Tj/g)].map(([, hex]) => Buffer.from(hex, "hex").toString("latin1")).join("\n");
   assert.match(text, /FICTIONAL CLOSING REHEARSAL/);
   assert.match(text, /Confirm fictional title checklist/);
+  assert.match(text, /Before: \$1,000\.00/);
   assert.match(text, /Borrower \$1,000.00 · Seller \$250.00 · Paid to Fictional Title Co/);
   assert.ok(text.includes(signature.receipt));
   const manyRows = Array.from({ length: 80 }, (_, index) => ({
@@ -551,12 +558,23 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   await apply("prepareClosingPacket", { previousVersion: 2, disclosureVersion: version().version, disclosureRevision: version().revision }, f.processor);
   assert.deepEqual(loadPacket(2), packetTwo);
   assert.equal(loadPacket(3).snapshot.disclosure.feeAllocations[0].payee, "Replacement Title Co");
+  const renamedFee = loadPacket(3).snapshot.disclosure.changeReview.changes.find(change => change.key === "fee:settlement");
+  assert.match(renamedFee.before, /Fictional Title Co/);
+  assert.match(renamedFee.after, /Replacement Title Co/);
   assert.equal(loan().closingPacketWork.packets[0].current, true);
   await apply("selectOffer", { runId: run.id, offerId: run.offers[1].id });
   assert.equal(work().revisionReason, "Selected quote changed");
   assert.equal(loan().closingPacketWork.canPrepare, false);
   assert.equal(loan().closingPacketWork.packets[0].current, false);
   assert.equal(loadPacket(3).snapshot.disclosure.version, 6);
+  const priorReview = closing().find(review => review.version === 2);
+  assert.deepEqual(priorReview.changeReview.changes, savedChanges);
+  f.db.prepare("UPDATE disclosure_packages SET changeReview=? WHERE loanId=? AND version=2").run(JSON.stringify(reviewFacts), f.loanId);
+  const legacy = closing().find(review => review.version === 2);
+  assert.equal(legacy.changeReview.changes, undefined);
+  assert.deepEqual(legacy.legacyChanges, savedChanges);
+  assert.equal(loadPacket(1).pdf, firstPdf);
+  assert.ok(!JSON.stringify(primaryPackage()).includes("Before:"));
 });
 
 test("joint borrower links isolate drafts and finalize only after both portions arrive", async (t) => {

@@ -86,6 +86,9 @@ export function closingPacketPdf({ version, preparedAt, preparedBy, snapshot }: 
     const review = disclosure.changeReview;
     rows([`Change review from v${review.fromVersion}: ${review.reason}`,
       `${review.actor} on ${stamp(review.at)}`, review.note], 12);
+    for (const change of review.changes ?? []) {
+      rows([`${change.label} · Before: ${change.before} · After: ${change.after}`], 24);
+    }
   }
   if (disclosure.feeAllocations?.length) {
     y -= 7;

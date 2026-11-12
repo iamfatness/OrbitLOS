@@ -71,7 +71,7 @@ export default function DemoPage() {
           <li>Apply a reusable question set to a submitted 1003. Choose the prompts, borrower, and deadline for each request before adding them to the portal.</li>
           <li>Confirm the signed sample package from Closing. A replacement leaves the earlier confirmation and receipts in history.</li>
           <li>Download a versioned sample closing packet with the confirmed disclosure, mock signer receipts, and the checklist as it stood at preparation.</li>
-          <li>Change sample fees or select revised terms to reopen the closing review. Find the replacement confirmation in your work queue and retrieve the prior signed packet from history.</li>
+          <li>Change sample fees or select revised terms to reopen the closing review. Compare before-and-after values in the saved review and retrieve the prior signed packet from history.</li>
           <li>Open file preflight, jump to the exact missing sample fee or lender condition, and assign a review of the current evidence. Changes to the file flag an earlier approval as out of date.</li>
           <li>Configure separate closing and funding checks, then open the exact evidence from a manager hold. Resolve the issue or record an admin override with a reason.</li>
           <li>Open a settlement exception on the exact funding cycle. Review the difference between sample purchase advice and receipts, and keep corrections in the cycle history.</li>

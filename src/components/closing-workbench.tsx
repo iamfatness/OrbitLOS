@@ -16,6 +16,7 @@ import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftA
 import { feeAllocationLabel, feeLabels } from "@/lib/quote-worksheet";
 import { dateTime } from "@/lib/utils";
 import { ClosingGateEvidence, useLoanClosingGates } from "./closing-gates";
+import { SavedDisclosureTermChanges } from "./disclosure-term-changes";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
@@ -90,7 +91,10 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
     {!!entry.feeAllocations?.length && <ul aria-label="Sample fee allocations">
       {entry.feeAllocations.map((line) => <li key={line.key}>{feeLabels[line.key]} · {feeAllocationLabel(line)}</li>)}
     </ul>}
-    {entry.changeReview && <p>Change review by {entry.changeReview.actor} · {entry.changeReview.reason} · {entry.changeReview.note}</p>}
+    {entry.changeReview && <>
+      <p>Change review by {entry.changeReview.actor} · {entry.changeReview.reason} · {entry.changeReview.note}</p>
+      <SavedDisclosureTermChanges changes={entry.changeReview.changes} legacyChanges={entry.legacyChanges} />
+    </>}
   </>;
   return <section className="document-item" id={closingDisclosureReviewTarget} tabIndex={-1} aria-label="Sample disclosures for closing">
     <div className="document-item-head"><strong>Sample disclosures for closing</strong><span className="pill">Mock evidence</span></div>
@@ -105,6 +109,10 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
       </div>}
       <p>1003 revision {item.applicationRevision} · Fee worksheet revision {item.feeRevision}</p>
       {signerRows(item.signers)}
+      {item.changeReview && <div className="record-form">
+        <p><strong>Changes recorded for package v{item.version}</strong></p>
+        <SavedDisclosureTermChanges changes={item.changeReview.changes} legacyChanges={item.legacyChanges} />
+      </div>}
       {active && status === "Mock signing complete" && !revisionReason && <div>
         <Button size="sm" className="min-h-11" disabled={busy} onClick={() => void save({ type: "confirmClosingDisclosure", loanId: loan.id,
           version: item.version, revision: item.revision })}>Confirm sample package for closing</Button>
