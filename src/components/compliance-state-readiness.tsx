@@ -3,11 +3,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
-import { stateControlStatuses, stateCounselDecisions, stateReadinessFacts } from "@/lib/compliance-state-readiness-model";
+import { stateControlStatuses, stateCounselDecisions, stateReadinessFacts, type StateReadinessFacts } from "@/lib/compliance-state-readiness-model";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
 type Readiness = Extract<ComplianceCaseResult, { kind: "stateReadiness" }>;
+const emptyFacts: StateReadinessFacts = { counsel: "Pending counsel", control: "Open", counselEvidence: "", controlEvidence: "", nextAction: "" };
+const notes = [
+  ["counselEvidence", "Counsel decision reference"],
+  ["controlEvidence", "Test or rehearsal evidence reference"],
+  ["nextAction", "Next action"],
+] as const;
+const fields = [["counsel", "Counsel disposition"], ["control", "Control status"], ...notes] as const;
 
 export function ComplianceStateReadiness({ brokerageId, entityId, jurisdiction, scopeRevision, paused }: {
   brokerageId: string; entityId: string; jurisdiction: string; scopeRevision: number; paused: boolean;
@@ -20,6 +27,11 @@ export function ComplianceStateReadiness({ brokerageId, entityId, jurisdiction, 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [readKey, setReadKey] = useState("");
+  const [draft, setDraft] = useState<{ revision: number; base: StateReadinessFacts; facts: StateReadinessFacts }>();
+  const requestedRead = JSON.stringify([sourceKey, refresh]);
+  const reading = readKey !== requestedRead;
+  const saveButton = useRef<HTMLButtonElement>(null);
   const retry = useRef<{ body: string; id: string } | undefined>(undefined);
   const feedback = useRef<HTMLParagraphElement>(null);
 
@@ -32,11 +44,12 @@ export function ComplianceStateReadiness({ brokerageId, entityId, jurisdiction, 
       if ("error" in result) throw new Error(result.error);
       if (result.kind !== "stateReadiness") throw new Error("Could not load the requirement evidence.");
       setData(result);
+      setReadKey(requestedRead);
     }).catch(error => {
       if (current) setError(error instanceof Error && !(error instanceof TypeError) ? error.message : "Could not load the requirement evidence.");
     });
     return () => { current = false; };
-  }, [brokerageId, entityId, jurisdiction, open, paused, refresh, scopeRevision, sourceKey]);
+  }, [brokerageId, entityId, jurisdiction, open, paused, requestedRead, scopeRevision, sourceKey]);
   useEffect(() => { if (error || notice) feedback.current?.focus(); }, [error, notice]);
 
   const items = data?.items ?? [];
@@ -45,19 +58,38 @@ export function ComplianceStateReadiness({ brokerageId, entityId, jurisdiction, 
     (item.recorded.facts.control === "Open" && item.recorded.facts.counsel !== "Counsel advised out of scope");
   const choices = items.filter(item => filter === "all" || (filter === "counsel" ? counselOpen(item) : controlOpen(item)));
   const selected = items.find(item => item.key === sourceKey);
-  const facts = selected?.recorded?.facts;
+  const savedFacts = selected?.recorded?.facts ?? emptyFacts;
+  const savedRevision = selected?.recorded?.revision ?? 0;
+  const facts = draft?.facts ?? savedFacts;
+  const conflicting = draft && draft.revision !== savedRevision;
+  const differences = conflicting ? fields.filter(([key]) => draft.base[key] !== savedFacts[key] && facts[key] !== savedFacts[key]) : [];
+
+  function update<K extends keyof StateReadinessFacts>(key: K, value: StateReadinessFacts[K]) {
+    setDraft({ revision: draft?.revision ?? savedRevision, base: draft?.base ?? savedFacts, facts: { ...facts, [key]: value } });
+  }
+
+  function resolveConflict(keepDraft: boolean) {
+    if (!draft) return;
+    const merged = Object.fromEntries(fields.map(([key]) =>
+      [key, facts[key] === draft.base[key] ? savedFacts[key] : facts[key]])) as StateReadinessFacts;
+    setDraft(keepDraft ? { revision: savedRevision, base: savedFacts, facts: merged } : undefined);
+    setError("");
+    setNotice("");
+    requestAnimationFrame(() => saveButton.current?.focus());
+  }
   function select(key: string) {
     setError("");
     setNotice("");
     setSourceKey(key);
+    setDraft(undefined);
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected || data?.readOnly || busy || paused) return;
-    const parsed = stateReadinessFacts.safeParse(Object.fromEntries(new FormData(event.currentTarget)));
+    if (!selected || data?.readOnly || busy || paused || reading || conflicting) return;
+    const parsed = stateReadinessFacts.safeParse(facts);
     if (!parsed.success) { setError(parsed.error.issues.map(issue => issue.message).join(" ")); return; }
     const input = { operation: "save", entityId, jurisdiction, scopeRevision, sourceKey,
-      expectedRevision: selected.recorded?.revision ?? 0, facts: parsed.data };
+      expectedRevision: savedRevision, facts: parsed.data };
     const body = JSON.stringify(input);
     if (retry.current?.body !== body) retry.current = { body, id: crypto.randomUUID() };
     setBusy(true);
@@ -68,6 +100,7 @@ export function ComplianceStateReadiness({ brokerageId, entityId, jurisdiction, 
       if ("error" in result) throw new Error(result.error);
       if (result.kind !== "stateReadinessSaved") throw new Error("Save could not be confirmed. Retry the same evidence.");
       retry.current = undefined;
+      setDraft(undefined);
       setNotice(`Requirement evidence version ${result.revision} recorded.`);
       setRefresh(value => value + 1);
     } catch (error) {
@@ -81,7 +114,9 @@ export function ComplianceStateReadiness({ brokerageId, entityId, jurisdiction, 
       <p className="muted">Scope version {scopeRevision}. Record references to decisions, tests and procedures. Keep privileged advice and borrower details out of notes.</p>
       {(error || notice) && <p ref={feedback} tabIndex={-1} role={error ? "alert" : "status"}>{error || notice}</p>}
       {!data && !error && <p role="status">{paused ? "Requirement evidence is unavailable while the workspace is paused." : "Loading requirement evidence…"}</p>}
-      {data?.readOnly && <p role="status">This scope is historical or its basis has changed. Save a current scope to record evidence for it.</p>}
+      {data?.readOnly && <p role="status">{data.historical ? "This scope is historical." :
+        data.licenseBasisMissing ? "This scope predates the saved license basis. Save a current scope to record evidence." :
+          "The license, entity or research basis changed. Save a current scope to record evidence."}</p>}
       {data && <>
         <p>{items.filter(counselOpen).length} pending counsel · {items.filter(controlOpen).length} open controls · {items.length} specific requirements</p>
         <label className="field">Review filter<select value={filter} disabled={busy} onChange={event => { setFilter(event.target.value); select(""); }}>
@@ -96,7 +131,7 @@ export function ComplianceStateReadiness({ brokerageId, entityId, jurisdiction, 
       </>}
       <div className="loan-application-actions">
         <Button type="button" size="sm" variant="outline" className="min-h-11" disabled={busy || paused} onClick={() => {
-          setData(undefined); setError(""); setNotice(""); setRefresh(value => value + 1);
+          setError(""); setNotice(""); setRefresh(value => value + 1);
         }}>Refresh requirement evidence</Button>
         {data && <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={() => {
           downloadSampleFile(JSON.stringify({ entityId, jurisdiction, scopeRevision, historical: data.historical, scopeChanged: data.scopeChanged,
@@ -109,19 +144,29 @@ export function ComplianceStateReadiness({ brokerageId, entityId, jurisdiction, 
         <p>{selected.evidenceNeeded}</p>
         {selected.counselQuestion && <p>{selected.counselQuestion}</p>}
         <p><a className="underline" href={selected.sourceUrl} target="_blank" rel="noreferrer">Authority saved with this scope</a></p>
-        {data?.readOnly ? <p>{facts?.counsel ?? "Pending counsel"} · {facts?.control ?? "Open"}</p> :
-          <form className="record-form" key={`${selected.key}:${selected.recorded?.revision ?? 0}`} onSubmit={save}>
-            <fieldset className="record-form" disabled={busy || paused}>
+        {data?.readOnly ? <p>{savedFacts.counsel} · {savedFacts.control}</p> :
+          <form className="record-form" onSubmit={save}>
+            {conflicting && <div className="document-item record-form" role="status">
+              <p>A newer version was recorded. {differences.length ? `Review changes to ${differences.map(([, label]) => label.toLowerCase()).join(", ")}.` : "You can keep your edits and use the saved values for the other fields."}</p>
+              <div className="loan-application-actions">
+                <Button size="sm" type="button" variant="outline" className="min-h-11" disabled={busy || paused || reading} onClick={() => resolveConflict(false)}>Use saved evidence</Button>
+                <Button size="sm" type="button" variant="outline" className="min-h-11" disabled={busy || paused || reading} onClick={() => resolveConflict(true)}>Keep my edits</Button>
+              </div>
+            </div>}
+            <fieldset className="record-form" disabled={busy || paused || reading}>
               <div className="form-grid items-start">
-                <label className="field">Counsel disposition<select name="counsel" defaultValue={facts?.counsel ?? "Pending counsel"}>
+                <label className="field">Counsel disposition<select value={facts.counsel}
+                  onChange={event => update("counsel", event.target.value as StateReadinessFacts["counsel"])}>
                   {stateCounselDecisions.map(value => <option key={value}>{value}</option>)}</select></label>
-                <label className="field">Control status<select name="control" defaultValue={facts?.control ?? "Open"}>
+                <label className="field">Control status<select value={facts.control}
+                  onChange={event => update("control", event.target.value as StateReadinessFacts["control"])}>
                   {stateControlStatuses.map(value => <option key={value}>{value}</option>)}</select></label>
               </div>
-              <label className="field">Counsel decision reference<textarea name="counselEvidence" rows={2} maxLength={1000} defaultValue={facts?.counselEvidence} /></label>
-              <label className="field">Test or rehearsal evidence reference<textarea name="controlEvidence" rows={2} maxLength={1000} defaultValue={facts?.controlEvidence} /></label>
-              <label className="field">Next action<textarea name="nextAction" rows={2} maxLength={1000} defaultValue={facts?.nextAction} /></label>
-              <div><Button size="sm" type="submit" className="min-h-11">{busy ? "Recording…" : "Record requirement evidence"}</Button></div>
+              {notes.map(([key, label]) => <label className="field" key={key}>{label}
+                <textarea rows={2} maxLength={1000} value={facts[key]} onChange={event => update(key, event.target.value)} />
+              </label>)}
+              <div><Button ref={saveButton} size="sm" type="submit" className="min-h-11" disabled={reading || !!conflicting}>
+                {busy ? "Recording…" : "Record requirement evidence"}</Button></div>
             </fieldset>
           </form>}
         {data?.historySourceKey === sourceKey && data.history.length > 0 && <details className="details-section">

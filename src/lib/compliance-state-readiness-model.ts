@@ -16,7 +16,7 @@ export const stateReadinessFacts = z.strictObject({
     ctx.addIssue({ code: "custom", path: ["controlEvidence"], message: "Enter the test or rehearsal evidence reference." });
 });
 const scope = { entityId: z.uuid(), jurisdiction: z.string().regex(/^[A-Z]{2}$/), scopeRevision: z.number().int().positive() };
-const sourceKey = z.string().regex(/^REQ-[A-Z]{2}-[A-Z]+-[A-Z0-9]+$/).max(30);
+const sourceKey = z.string().regex(/^REQ-[A-Z]{2}-[A-Z]+-[A-Z0-9]+(?:-[A-Z0-9]+)*$/).max(30);
 export const stateReadinessRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("read"), ...scope, sourceKey: sourceKey.optional() }),
   z.strictObject({ operation: z.literal("save"), ...scope, sourceKey, requestId: z.uuid(),

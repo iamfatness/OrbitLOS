@@ -253,6 +253,9 @@ test("state requirement evidence is versioned by entity, state, source and exact
     const state = work("stateReadiness", { ...query, jurisdiction, sourceKey: undefined });
     assert.ok(state.items.some(item => item.key.startsWith(`REQ-${jurisdiction}-LICENSING-`)), jurisdiction);
     assert.ok(state.items.every(item => item.recorded === null), jurisdiction);
+    for (const { key } of state.items) {
+      assert.equal(work("stateReadiness", { ...query, jurisdiction, sourceKey: key }).historySourceKey, key, key);
+    }
   }
   assert.equal(work("stateReadiness", query).legalApproval, false);
   assert.ok(work("stateReadiness", query, f.lo).error);

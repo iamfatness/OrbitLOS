@@ -27,6 +27,7 @@ export default function DemoPage() {
           <li>See recorded company license coverage and renewal work from the Brokerage overview.</li>
           <li>In a fictional pilot, link state reporting obligations to a saved scope and flag new periods for review when the reporting basis changes.</li>
           <li>Track compliance research, case ownership and evidence across all 50 states in a fictional pilot.</li>
+          <li>Record counsel and control evidence against a saved brokerage scope and reopen the historical review.</li>
           <li>On a fictional Michigan loan, review application and disclosure receipt dates, borrower intent to proceed, and fee timing.</li>
           <li>In a fictional Michigan loan, review charge and rate guarantee evidence and record when the application booklet was provided.</li>
           <li>Compare itemized charges on the original Loan Estimate and Closing Disclosure, and see which differences need review.</li>
