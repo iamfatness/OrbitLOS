@@ -34,7 +34,7 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
     result.push("Lender evidence or access records changed. Reconcile those records before restoring; Orbit will not rewind them automatically.");
   if(before.activeLoanHolds || current.activeLoanHolds)
     result.push("A loan has an active retention hold. Keep the workspace paused and use the incident recovery review.");
-  const programTables=["compliance_program_entities","compliance_program_items","compliance_program_events","compliance_program_reviews","compliance_state_scope_versions",
+  const programTables=["compliance_program_entities","compliance_program_licenses","compliance_program_items","compliance_program_events","compliance_program_reviews","compliance_state_scope_versions",
     "compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work",
     "compliance_learning_versions","compliance_learning_assignments","compliance_learning_events","compliance_trid_evidence"];
   if(programTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))

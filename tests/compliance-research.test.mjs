@@ -139,17 +139,42 @@ test("state scope saves an exact entity and source basis without granting approv
     counselPacketReference: "",
   } };
   assert.equal(work("stateScope", query).revision, 0);
+  const operational = { ...f.staff(), brokerage: { ...f.staff().brokerage, pilot: false, features: { uwm: false, compliance: true } } };
+  assert.equal(complianceCaseWork(f.db, { type: "stateScope", input: query }, operational, f.tenant, f.roster, now).revision, 0);
+  assert.ok(complianceCaseWork(f.db, { type: "stateScope", input: query }, {
+    ...operational, brokerage: { ...operational.brokerage, features: { uwm: false, compliance: false } },
+  }, f.tenant, f.roster, now).error);
   assert.ok(work("stateScope", save, f.lo).error);
   assert.ok(work("stateScope", { ...query, jurisdiction: "DC" }).error);
   assert.ok(work("stateScope", { ...query, entityId: crypto.randomUUID() }).error);
+  const license = { operation: "saveLicense", requestId: crypto.randomUUID(), id: crypto.randomUUID(), entityId: entity.id,
+    revision: 0, jurisdiction: "MI", licenseType: "Fictional broker authority", licenseNumber: "FICTIONAL-001",
+    status: "Active", effectiveOn: null, expiresOn: null, evidence: "Fictional register reference" };
+  assert.equal(work("program", license).kind, "programLicenses");
+  assert.equal(work("program", { ...license, id: crypto.randomUUID(), requestId: crypto.randomUUID(), jurisdiction: "OH" }).kind, "programLicenses");
   const first = work("stateScope", save);
   assert.equal(first.legalApproval, false);
   assert.equal(first.revision, 1);
+  assert.deepEqual(first.licenseSummary, [
+    { holder: "Company", counts: { current: 1, expired: 0, review: 0 } },
+    { holder: "Branch", counts: { current: 0, expired: 0, review: 0 } },
+    { holder: "Loan officer", counts: { current: 0, expired: 0, review: 0 } },
+  ]);
+  assert.deepEqual(JSON.parse(first.savedBasis.licenses).map(({ id, revision }) => ({ id, revision })), [{ id: license.id, revision: 1 }]);
   assert.equal(work("stateScope", save).history.length, 1);
   assert.ok(work("stateScope", { ...save, requestId: crypto.randomUUID() }).error);
   const newScope = { ...save, requestId: crypto.randomUUID(), expectedRevision: 1,
     facts: { ...save.facts, products: "Purchase and refinance", counselPacketReference: "Fictional counsel packet" } };
-  assert.equal(work("stateScope", newScope).revision, 2);
+  assert.equal(work("program", { ...license, requestId: crypto.randomUUID(), revision: 1, status: "Expired" }).kind, "programLicenses");
+  const second = work("stateScope", newScope);
+  assert.equal(second.revision, 2);
+  assert.equal(second.licensesChanged, false);
+  assert.equal(second.licenseSummary[0].counts.expired, 1);
+  assert.equal(JSON.parse(second.savedBasis.licenses)[0].revision, 2);
+  const replay = work("stateScope", save);
+  assert.equal(replay.revision, 1);
+  assert.equal(replay.latestRevision, 2);
+  assert.equal(replay.licensesChanged, true);
   const historical = work("stateScope", { ...query, revision: 1 });
   assert.deepEqual(historical.facts, save.facts);
   assert.deepEqual(historical.savedBasis, first.savedBasis);

@@ -331,9 +331,9 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
   if (!parsed.success) return unavailable;
   const data = parsed.data;
   if (!staff.brokerage.pilot && (staff.brokerage.role !== "Admin" ||
-      (data.type !== "research" && data.type !== "program"))) return unavailable;
+      (data.type !== "research" && data.type !== "program" && data.type !== "stateScope"))) return unavailable;
   return db.transaction(() => {
-    if (data.type === "stateScope") return complianceStateScopeWork(db, data.input, staff, now);
+    if (data.type === "stateScope") return complianceStateScopeWork(db, data.input, staff, roster, now);
     if (data.type === "trid") return { kind: "trid" as const, result: tridEvidenceWork(db, data.input, staff, now) };
     if (data.type === "obligations") return { kind: "obligations" as const, result: complianceObligationsWork(db, data.input, staff, roster, now) as unknown };
     if (data.type === "learning") return { kind: "learning" as const, result: complianceLearningWork(db, data.input, staff, roster, now) as unknown };

@@ -1240,4 +1240,16 @@ button:disabled { cursor: default; }
 }
 .licensing-entity { overflow-wrap: anywhere; }
 .licensing-entity p { margin: 4px 0 0; }
+.compliance-state-scope > summary { min-height: 44px; padding-block: 12px; }
+.state-scope-body { max-width: 50rem; }
+.state-scope-controls .field { flex: 1 1 15rem; }
+.state-scope-body .field { max-width: none; }
+.state-scope-body .field textarea { width: 100%; }
+.state-scope-register { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--background); }
+.state-scope-register h3 { font-weight: 600; }
+.state-scope-register li { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.state-scope-register li + li { margin-top: 6px; }
+.state-scope-facts { display: grid; gap: 8px; overflow-wrap: anywhere; }
+.state-scope-facts dt { font-weight: 600; }
+.state-scope-facts dd { white-space: pre-wrap; }
 .state-rollout-requirement + .state-rollout-requirement { border-top: 1px solid var(--line); padding-top: 12px; }
