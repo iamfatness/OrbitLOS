@@ -2,14 +2,11 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
-import { licenseFields, licenseHolder, licenseHolderKinds, licenseJurisdictions, licenseRenewalLookahead, licenseRenewalOwner, licenseStatuses,
+import { countLicenseRecords, licenseFields, licenseHolder, licenseHolderKinds, licenseJurisdictions, licenseRenewalLookahead, licenseRenewalOwner, licenseStatuses,
   type LicenseHistory, type LicenseHolder, type LicenseRenewalOwner, type LicenseRenewalTarget, type ProgramEntity, type ProgramLicense, type ProgramLicenses, type ProgramRequest } from "@/lib/compliance-program-model";
-import { researchSources } from "@/lib/compliance-research-model";
+import { licenseStateName as stateName, LicenseRecordStatus } from "./license-state-review";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
-
-const stateNames = new Map(researchSources.map(source => [source.jurisdiction, source.title]));
-const stateName = (code: string) => code === "DC" ? "District of Columbia" : stateNames.get(code) ?? code;
 
 const ownerKey = ({ email, accessRevision }: LicenseRenewalOwner) => JSON.stringify({ email, accessRevision });
 
@@ -114,6 +111,8 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
   const licenses = current?.licenses;
   const visible = licenses?.filter(item => (!filter || item.jurisdiction === filter) && (!renewalOnly || item.renewal));
   const renewals = licenses?.filter(item => item.renewal).length ?? 0;
+  const currentCompanyStates = current ? [...new Set(current.licenses.filter(item =>
+    item.holder.kind === "Company" && countLicenseRecords([item], current.asOf).current > 0).map(item => item.jurisdiction))] : [];
   const selected = typeof editing === "object" ? editing : undefined;
   const selectedEntity = entities?.find(item => item.id === entityId);
   const holderChoices = current?.holderChoices.filter(choice => choice.holder.kind === holderKind) ?? [];
@@ -264,12 +263,20 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
       <div className="loan-application-actions licensing-controls">
         <label className="field">Filter by state<select value={filter} onChange={event => setFilter(event.target.value)}>
           <option value="">All states</option>
-          {[...new Set(licenses.map(item => item.jurisdiction))].map(code => <option key={code} value={code}>{code} · {stateName(code)}</option>)}
+          {licenseJurisdictions.map(code => <option key={code} value={code}>{code} · {stateName(code)}</option>)}
         </select></label>
         <Button size="sm" className="min-h-10" variant={renewalOnly ? "default" : "outline"} aria-pressed={renewalOnly}
           onClick={() => setRenewalOnly(value => !value)}>Renewal review ({renewals})</Button>
         <Button ref={add} size="sm" className="min-h-10" disabled={paused} onClick={() => choose("new")}>Add license</Button>
       </div>
+      {!filter && !renewalOnly && <p className="muted">{currentCompanyStates.length
+        ? `Current company records on file in ${currentCompanyStates.join(", ")}.`
+        : "No current company license records on file for this entity."}</p>}
+      {filter && !renewalOnly && current && <section className="work-queue" aria-label={`${stateName(filter)} license records`}>
+        <h3>{stateName(filter)} license records</h3>
+        {licenseHolderKinds.map(kind => <p key={kind}><strong>{kind}</strong> · <LicenseRecordStatus counts={countLicenseRecords(
+          licenses.filter(license => license.jurisdiction === filter && license.holder.kind === kind), current.asOf)} /></p>)}
+      </section>}
       {renewalOnly && <p className="muted">Shows past expiration dates and active licenses expiring within {licenseRenewalLookahead} days.</p>}
       {visible?.length ? <ul className="loan-task-list">{visible.map(item => <li key={item.id} className="loan-task compliance-row">
         <div className="loan-task-copy">
@@ -285,7 +292,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
         </div>
         <Button id={`edit-license-${item.id}`} size="sm" variant="outline" disabled={paused}
           aria-label={`Edit ${item.jurisdiction} license ${item.licenseNumber}`} onClick={() => choose(item)}>Edit license</Button>
-      </li>)}</ul> : <p>{licenses.length ? "No licenses match these filters." : "No licenses recorded for this entity. Add a license to start its state register."}</p>}
+      </li>)}</ul> : <p>{filter && !renewalOnly ? `No ${stateName(filter)} licenses recorded for this entity.` : licenses.length ? "No licenses match these filters." : "No licenses recorded for this entity. Add a license to start its state register."}</p>}
     </> : !feedback && <p role="status">{paused ? "License editing is paused." : !entities || entityId ? "Loading license register…" : "Select or add a legal entity to record its licenses."}</p>}
   </div>;
 }

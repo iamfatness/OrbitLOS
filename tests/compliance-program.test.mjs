@@ -305,3 +305,34 @@ test("Today counts and lists only renewals assigned to the current admin access 
   assert.equal(count(f.owner), beforeOwner);
   assert.equal(count(f.backup), beforeBackup + 1);
 });
+
+test("property-state check reports company records per entity, honors dates and excludes branch and tenant records", t => {
+  const f = fixture(t);
+  const primary = f.entity();
+  const other = f.create({name:"Other company"}).entities.find(({id}) => id !== primary.id);
+  const save = (entityId, number, fields = {}) => f.run({ operation:"saveLicense", requestId:crypto.randomUUID(),
+    id:crypto.randomUUID(), entityId, revision:0, jurisdiction:"MI", licenseType:"Broker license", licenseNumber:number,
+    status:"Active", effectiveOn:null, expiresOn:null, evidence:"", ...fields });
+  assert.equal(save(primary.id,"THROUGH-TODAY",{expiresOn:"2026-11-11"}).kind,"programLicenses");
+  assert.equal(save(primary.id,"PAST",{expiresOn:"2026-11-10"}).kind,"programLicenses");
+  assert.equal(save(primary.id,"FUTURE",{effectiveOn:"2026-11-12"}).kind,"programLicenses");
+  assert.equal(save(primary.id,"PENDING",{status:"Pending"}).kind,"programLicenses");
+  assert.equal(save(primary.id,"OHIO",{jurisdiction:"OH"}).kind,"programLicenses");
+  const branch = JSON.stringify({holder:{kind:"Branch",id:crypto.randomUUID()},label:"Fictional branch"});
+  f.db.prepare("UPDATE compliance_program_licenses SET holder=? WHERE brokerageId=? AND licenseNumber='OHIO'").run(branch,f.tenant);
+  f.db.prepare("UPDATE compliance_program_licenses SET holder=NULL WHERE brokerageId=? AND licenseNumber='THROUGH-TODAY'").run(f.tenant);
+  const request = {operation:"licenseStateCheck",jurisdiction:"MI"};
+  assert.deepEqual(f.run(request).entities, [
+    {id:primary.id,name:primary.name,company:{current:1,expired:1,review:2}},
+    {id:other.id,name:other.name,company:{current:0,expired:0,review:0}},
+  ]);
+  assert.equal(f.run({...request,jurisdiction:"OH"}).entities[0].company.current,0);
+  assert.ok(f.run({...request,jurisdiction:"XX"}).error);
+  assert.ok(f.run(request,f.lo).error);
+  const unrelated = f.staff(f.owner,crypto.randomUUID());
+  assert.deepEqual(complianceCaseWork(f.db,{type:"program",input:request},unrelated,unrelated.brokerage.id,f.roster,now).entities,[]);
+  const operational = {...f.staff(),brokerage:{...f.staff().brokerage,pilot:false,features:{uwm:false,compliance:true}}};
+  assert.equal(complianceCaseWork(f.db,{type:"program",input:request},operational,f.tenant,f.roster,now).entities.length,2);
+  assert.ok(complianceCaseWork(f.db,{type:"program",input:request},
+    {...operational,brokerage:{...operational.brokerage,features:{uwm:false,compliance:false}}},f.tenant,f.roster,now).error);
+});

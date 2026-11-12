@@ -3,7 +3,7 @@ import { readBranches } from "./branches";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
-import { licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseRenewalQueue, type LicenseHistory, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
+import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseRenewalQueue, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -19,6 +19,7 @@ export function initializeComplianceProgram(db: Store) {
     PRIMARY KEY(brokerageId,entityId,id), FOREIGN KEY(brokerageId,entityId) REFERENCES compliance_program_entities(brokerageId,id));
   CREATE UNIQUE INDEX IF NOT EXISTS compliance_program_license_number ON compliance_program_licenses(
     brokerageId,entityId,jurisdiction,licenseType COLLATE NOCASE,licenseNumber COLLATE NOCASE);
+  CREATE INDEX IF NOT EXISTS compliance_program_license_state ON compliance_program_licenses(brokerageId,jurisdiction,entityId);
   CREATE INDEX IF NOT EXISTS compliance_program_license_renewals ON compliance_program_licenses(brokerageId,expiresOn,entityId,id)
     WHERE expiresOn IS NOT NULL AND status IN ('Active','Expired');
   CREATE TABLE IF NOT EXISTS compliance_program_items (
@@ -130,6 +131,16 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   if (!parsed.success) return unavailable;
   const data = parsed.data, tenant = staff.brokerage.id;
   if (data.operation === "entities") return entities(db, tenant);
+  if (data.operation === "licenseStateCheck") {
+    const asOf = now.slice(0, 10);
+    const records = db.prepare(`SELECT entityId,status,effectiveOn,expiresOn FROM compliance_program_licenses
+      WHERE brokerageId=? AND jurisdiction=? AND (holder IS NULL OR json_extract(holder,'$.holder.kind')='Company')`)
+      .all(tenant, data.jurisdiction) as (Pick<LicenseFields, "status" | "effectiveOn" | "expiresOn"> & { entityId: string })[];
+    const byEntity = Map.groupBy(records, record => record.entityId);
+    const result: LicenseStateCheck = { kind: "licenseStateCheck", jurisdiction: data.jurisdiction, asOf,
+      entities: entities(db, tenant).entities.map(({ id, name }) => ({ id, name, company: countLicenseRecords(byEntity.get(id) ?? [], asOf) })) };
+    return result;
+  }
   const owners = new Map(roster.filter(member => member.status === "Active" && member.role === "Admin").map(member => [member.email,
     { email: member.email, accessRevision: member.accessRevision ?? 0, name: member.name }]));
   if (data.operation === "licenseRenewals") {
@@ -182,7 +193,7 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
     ];
     const choices = new Map(holderChoices.map(choice => [JSON.stringify(choice.holder), choice.label]));
     const { today, renewalThrough } = renewalWindow(now);
-    const list = (): ProgramLicenses => ({ kind: "programLicenses", entity, holderChoices, renewalOwners: [...owners.values()], licenses: db.prepare(`SELECT id,jurisdiction,
+    const list = (): ProgramLicenses => ({ kind: "programLicenses", entity, asOf: today, holderChoices, renewalOwners: [...owners.values()], licenses: db.prepare(`SELECT id,jurisdiction,
       licenseType,licenseNumber,status,effectiveOn,expiresOn,evidence,revision,updatedAt,holder,renewalOwner FROM compliance_program_licenses
       WHERE brokerageId=? AND entityId=? ORDER BY jurisdiction,licenseType,licenseNumber`).all(tenant, entity.id).map(row => {
       const { holder: rawHolder, renewalOwner: rawOwner, ...record } = row;

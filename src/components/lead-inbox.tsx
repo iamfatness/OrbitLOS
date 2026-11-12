@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { readArchivePage, readInboxWork } from "@/app/actions";
-import { demoBrokerageId, type BrokerageMember } from "@/lib/brokerage-model";
+import { LeadLicenseStateReview } from "./license-state-review";
+import { workspaceFeatures, demoBrokerageId, type BrokerageMember } from "@/lib/brokerage-model";
 import { CrmFieldValues } from "./crm-fields";
 import { firstContactOverdue, leadInboxUnavailable, leadInboxViews, leadOutcomes, leadSequenceSteps, outreachChannels,
   type ArchivedLead, type InboxLeadSummary, type LeadArchivePage, type LeadInboxPage, type LeadInboxView, type LeadRouting, type leadSequenceActions } from "@/lib/lead-inbox-model";
@@ -161,6 +162,8 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
         </section>}
         {lead.quoteConsent !== undefined && <QuoteConsentEvidence receipt={lead.quoteConsent} />}
         {intake && <a href={`#intake-review-${lead.id}`}>Review intake answers for the 1003</a>}
+        {staff?.brokerage.role === "Admin" && workspaceFeatures(staff.brokerage).compliance &&
+          <LeadLicenseStateReview key={lead.id} brokerageId={staff.brokerage.id} />}
         {isAdmin && members.length > 0 && <form className="task-form" key={lead.officerEmail ?? ""} onSubmit={(event) => {
           event.preventDefault();
           const email = String(new FormData(event.currentTarget).get("owner") ?? "");

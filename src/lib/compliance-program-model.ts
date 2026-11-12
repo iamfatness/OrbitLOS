@@ -1,9 +1,10 @@
 import { z } from "zod";
 
 export const licenseJurisdictions = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" ");
+const licenseJurisdiction = z.string().refine(state => licenseJurisdictions.includes(state));
 export const licenseStatuses = ["Active", "Pending", "Expired", "Inactive", "Surrendered"] as const;
 export const licenseFields = z.object({
-  jurisdiction: z.string().refine(state => licenseJurisdictions.includes(state)),
+  jurisdiction: licenseJurisdiction,
   licenseType: z.string().trim().min(2).max(120),
   licenseNumber: z.string().trim().min(1).max(80),
   status: z.enum(licenseStatuses),
@@ -34,7 +35,20 @@ export type LicenseRenewalItem = LicenseRenewalCursor & {
 export type LicenseRenewalQueue = { kind: "licenseRenewals"; total: number; items: LicenseRenewalItem[]; next: LicenseRenewalCursor | null };
 export type ProgramLicense = LicenseFields & { id: string; revision: number; updatedAt: string; holder: LicenseHolder;
   holderLabel: string; holderAvailable: boolean; renewalOwner: LicenseRenewalAssignment | null; renewal: "Past expiration" | "Expires soon" | null };
-export type ProgramLicenses = { kind: "programLicenses"; entity: ProgramEntity; licenses: ProgramLicense[];
+export type LicenseRecordCounts = { current: number; expired: number; review: number };
+export function countLicenseRecords(records: readonly (Pick<LicenseFields, "status" | "effectiveOn" | "expiresOn"> &
+  { holderAvailable?: boolean })[], asOf: string): LicenseRecordCounts {
+  const counts = { current: 0, expired: 0, review: 0 };
+  for (const record of records) {
+    if (record.status === "Expired" || (record.status === "Active" && record.expiresOn && record.expiresOn < asOf)) counts.expired++;
+    else if (record.status === "Active" && record.holderAvailable !== false && (!record.effectiveOn || record.effectiveOn <= asOf)) counts.current++;
+    else counts.review++;
+  }
+  return counts;
+}
+export type LicenseStateCheck = { kind: "licenseStateCheck"; jurisdiction: string; asOf: string;
+  entities: { id: string; name: string; company: LicenseRecordCounts }[] };
+export type ProgramLicenses = { kind: "programLicenses"; entity: ProgramEntity; asOf: string; licenses: ProgramLicense[];
   holderChoices: LicenseHolderChoice[]; renewalOwners: (LicenseRenewalOwner & { name: string })[] };
 export type LicenseHistory = { kind: "licenseHistory"; entries: { id: string; actor: string; at: string; action: string;
   note: string; evidence: string; expiresOn: string | null; status: string; renewalOwner: string | null | undefined }[]; more: boolean };
@@ -51,6 +65,7 @@ export const programRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("licenseRenewals"), scope: z.enum(["mine", "brokerage"]).optional(), after: licenseRenewalCursor.optional() }),
   z.strictObject({ operation: z.literal("licenseHistory"), entityId: z.uuid(), licenseId: z.uuid() }),
   z.strictObject({ operation: z.literal("licenses"), entityId: z.uuid() }),
+  z.strictObject({ operation: z.literal("licenseStateCheck"), jurisdiction: licenseJurisdiction }),
   z.strictObject({ operation: z.literal("saveLicense"), ...change, entityId: z.uuid(), id: z.uuid(), revision: z.number().int().nonnegative(), ...licenseFields.shape, holder: licenseHolder.optional(),
     renewalOwner: licenseRenewalOwner.nullable().optional(), renewalNote: z.string().trim().max(500).optional() }),
   z.strictObject({ operation: z.literal("month"), ...scope }),
