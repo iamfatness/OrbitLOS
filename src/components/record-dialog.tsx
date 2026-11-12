@@ -52,6 +52,7 @@ import { DisclosureWorkbench } from "./disclosure-workbench";
 import { TridEvidencePanel } from "./trid-evidence-panel";
 import { StateBrokerAgreement } from "./state-broker-agreement";
 import { StateRefinanceBenefit } from "./state-refinance-benefit";
+import { KansasConsumerNotice } from "./kansas-consumer-notice";
 import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
@@ -751,6 +752,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && benefitState && loan.purpose === "Refinance" &&
         <StateRefinanceBenefit key={`${staff.brokerage.id}:${loan.id}:${benefitState}`} state={benefitState} loanId={loan.id}
+          brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
+      {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && application?.hasKansasProperty &&
+        <KansasConsumerNotice key={`${staff.brokerage.id}:${loan.id}:KS`} loanId={loan.id}
           brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Compliance" && staff?.brokerage.pilot && <ComplianceQueue key={`${loan.id}:${target}`} brokerageId={staff.brokerage.id}
         loanId={loan.id} initialCaseId={target?.startsWith(complianceCaseTarget("")) ? target.slice(complianceCaseTarget("").length) : undefined}

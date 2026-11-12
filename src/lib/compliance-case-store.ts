@@ -7,11 +7,13 @@ import type { Store } from "./store";
 import { initializeTridEvidence } from "./trid-evidence";
 import { initializeStateBrokerAgreement } from "./state-broker-agreement";
 import { initializeStateRefinanceBenefit } from "./state-refinance-benefit";
+import { initializeKansasNotice } from "./kansas-consumer-notice";
 
 export function initializeComplianceCases(db: Store) {
   initializeTridEvidence(db);
   initializeStateBrokerAgreement(db);
   initializeStateRefinanceBenefit(db);
+  initializeKansasNotice(db);
   initializeComplianceProgram(db);
   initializeStateScope(db);
   initializeStateReadiness(db);
