@@ -31,7 +31,8 @@ export const tridEvent = z.discriminatedUnion("type", [
   disclosureFeeSnapshot.safeExtend({ type: z.literal("feeSnapshot") }),
   z.strictObject({ type: z.literal("estimateRevision"), originalSequence: sequence, revisedSequence: sequence,
     on: date, reason: z.enum(estimateRevisionReasons), reference,
-    chargeKeys: z.array(z.string().trim().min(1).max(80)).min(1).max(150).refine(keys => new Set(keys).size === keys.length, "Use each charge key once."),
+    chargeKeys: z.array(z.string().trim().min(1).max(80)).min(1, "Select at least one affected charge.").max(150)
+      .refine(keys => new Set(keys).size === keys.length, "Use each charge key once."),
     reviewReference: reference.optional() }),
   z.strictObject({ type: z.literal("closing"), on: date, reference }),
   z.strictObject({ type: z.literal("void"), sequence, reference }),

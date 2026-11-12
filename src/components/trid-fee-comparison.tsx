@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { feeReviewBuckets } from "@/lib/trid-fee-comparison";
 import { estimateRevisionBasis, reviewDisclosureFees, type reviewEstimateRevisions } from "@/lib/trid-fee-evidence";
-import type { TridEntry } from "@/lib/trid-model";
+import { estimateRevisionReasons, type TridEntry } from "@/lib/trid-model";
 import { Button } from "./ui/button";
 
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -23,9 +23,12 @@ export function TridEstimateRevisionReviews({ active, reviews }: {
         if (entry?.event.type !== "estimateRevision") return null;
         const event = entry.event;
         const basis = estimateRevisionBasis(active, event);
-        return <article className="record-form" key={review.sequence}>
+        return <article className="document-item" key={review.sequence}>
           <strong>{event.reason}</strong>
-          <p>{review.status}</p>
+          <p>Original snapshot #{event.originalSequence} · Revised snapshot #{event.revisedSequence}</p>
+          {basis && <p>{basis.original.send.version} → {basis.revised.send.version}</p>}
+          {review.issues.length > 1 ? <ul className="list-disc pl-5">{review.issues.map(issue => <li key={issue}>{issue}</li>)}</ul>
+            : <p>{review.status}</p>}
           <p>Information received {event.on} · Send due {review.dueOn ?? "Unresolved"} · Actual receipt {review.receivedOn ?? "Missing"}</p>
           <p>Source {event.reference}{event.reviewReference && ` · Review ${event.reviewReference}`}</p>
           {basis && <ul className="document-list">{event.chargeKeys.map(key => {
@@ -34,10 +37,58 @@ export function TridEstimateRevisionReviews({ active, reviews }: {
             return <li className="document-item" key={key}><div><strong>{revised.label}</strong>
               <p>Original {money(original?.borrowerCents ?? null)} · Proposed {money(revised.borrowerCents)}</p></div></li>;
           })}</ul>}
+          {!basis && <p>Affected charge keys: {event.chargeKeys.join(", ")}</p>}
         </article>;
       })}
     </div>
   </details>;
+}
+
+export function TridEstimateRevisionFields({ active, snapshots }: {
+  active: TridEntry[];
+  snapshots: ReturnType<typeof reviewDisclosureFees>["snapshots"];
+}) {
+  const [original, setOriginal] = useState("");
+  const [revised, setRevised] = useState("");
+  const [affected, setAffected] = useState<string[]>([]);
+  const originalSnapshot = snapshots.find(item => item.document === "Initial LE" && String(item.sequence) === original);
+  const revisedSnapshot = snapshots.find(item => item.document === "Revised LE" && String(item.sequence) === revised);
+  const source = active.find(item => String(item.sequence) === revised)?.event;
+  const charges = revisedSnapshot && source?.type === "feeSnapshot" ? source.lines : [];
+  return <>
+    <div className="form-grid">
+      {([
+        { name: "originalSequence", label: "Original estimate snapshot", document: "Initial LE", value: original, snapshot: originalSnapshot, change: setOriginal },
+        { name: "revisedSequence", label: "Revised estimate snapshot", document: "Revised LE", value: revised, snapshot: revisedSnapshot,
+          change: (value: string) => { setRevised(value); setAffected([]); } },
+      ] as const).map(field => <div className="record-form" key={field.name}>
+        <label className="field">{field.label}<select name={field.name} required value={field.value} onChange={e => field.change(e.target.value)}>
+          <option value="">Choose a snapshot</option>
+          {field.value && !field.snapshot && <option value={field.value}>Selected snapshot unavailable</option>}
+          {snapshots.filter(item => item.document === field.document).map(item =>
+            <option value={item.sequence} key={item.sequence}>#{item.sequence} · {item.sentOn}</option>)}
+        </select></label>
+        {field.snapshot && <p className="muted">Version {field.snapshot.version}</p>}
+      </div>)}
+    </div>
+    <label className="field">Reason for the revision<select name="revisionReason">
+      {estimateRevisionReasons.map(reason => <option key={reason}>{reason}</option>)}
+    </select></label>
+    <fieldset className="record-form">
+      <legend>Affected charges</legend>
+      {charges.map(charge => <label className="compliance-choice" key={charge.key}>
+        <input type="checkbox" name="chargeKeys" value={charge.key} checked={affected.includes(charge.key)}
+          onChange={e => {
+            const checked = e.target.checked;
+            setAffected(keys => checked ? [...keys, charge.key] : keys.filter(key => key !== charge.key));
+          }} />
+        <span className="min-w-0 break-words">{charge.label} · {money(charge.borrowerCents)} · {charge.key}</span>
+      </label>)}
+      {!charges.length && <p className="muted">{revisedSnapshot ? "This snapshot has no itemized charges." : "Select an active revised snapshot to choose its charges."}</p>}
+      {!revisedSnapshot && affected.map(key => <input key={key} type="hidden" name="chargeKeys" value={key} />)}
+    </fieldset>
+    <label className="field">Review evidence reference (if available)<input name="reviewReference" maxLength={180} /></label>
+  </>;
 }
 
 export function TridFeeSnapshotFields({ active }: { active: TridEntry[] }) {

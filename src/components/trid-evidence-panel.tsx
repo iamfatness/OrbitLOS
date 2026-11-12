@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
-import { estimateRevisionReasons, isLoanEstimateReceipt, tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
+import { isLoanEstimateReceipt, tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
 import { Button } from "./ui/button";
-import { readFeeSnapshotLines, TridEstimateRevisionReviews, TridFeeComparison, TridFeeSnapshotFields } from "./trid-fee-comparison";
+import { readFeeSnapshotLines, TridEstimateRevisionFields, TridEstimateRevisionReviews, TridFeeComparison, TridFeeSnapshotFields } from "./trid-fee-comparison";
 
 type Result = Extract<ComplianceCaseResult, { kind: "trid" }>["result"];
 type Evidence = Exclude<Result, { error: string }>;
@@ -98,7 +98,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
         complete: form.has("feeComplete"), lines: readFeeSnapshotLines(form) }; break;
       case "estimateRevision": input = { type: action, reference, on, reason: get("revisionReason"),
         originalSequence: Number(get("originalSequence")), revisedSequence: Number(get("revisedSequence")),
-        chargeKeys: get("chargeKeys").split(/\r?\n/).map(key => key.trim()).filter(Boolean),
+        chargeKeys: form.getAll("chargeKeys").map(String),
         reviewReference: get("reviewReference").trim() || undefined }; break;
       case "void": input = { type: action, reference, sequence: Number(get("sequence")) }; break;
     }
@@ -194,22 +194,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
           <form key={`${action}:${formRevision}`} onSubmit={record} className="record-form">
             <fieldset disabled={busy} className="record-form">
               {action === "feeSnapshot" && <TridFeeSnapshotFields active={active} />}
-              {action === "estimateRevision" && <>
-                <div className="form-grid">
-                  {([["originalSequence", "Initial LE", "Original estimate snapshot"],
-                    ["revisedSequence", "Revised LE", "Revised estimate snapshot"]] as const).map(([name, document, label]) =>
-                    <label className="field" key={name}>{label}<select name={name} required>
-                      <option value="">Choose a snapshot</option>
-                      {data.feeReview.snapshots.filter(item => item.document === document).map(item =>
-                        <option value={item.sequence} key={item.sequence}>{item.version} · {item.sentOn}</option>)}
-                    </select></label>)}
-                  <label className="field">Reason for the revision<select name="revisionReason">
-                    {estimateRevisionReasons.map(reason => <option key={reason}>{reason}</option>)}
-                  </select></label>
-                </div>
-                <label className="field">Affected charge keys (one per line)<textarea name="chargeKeys" required maxLength={12150} /></label>
-                <label className="field">Review evidence reference (if available)<input name="reviewReference" maxLength={180} /></label>
-              </>}
+              {action === "estimateRevision" && <TridEstimateRevisionFields active={active} snapshots={data.feeReview.snapshots} />}
               {action === "scope" && <>
                 <label className="compliance-choice"><input type="checkbox" name="coveredScenario" required /> This file matches the pilot scenario above.</label>
                 <label className="field">Creditor<input name="creditor" required maxLength={180} defaultValue={timing.scope?.creditor} /></label>

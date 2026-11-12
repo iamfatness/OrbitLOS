@@ -32,7 +32,10 @@ export function reviewEstimateRevisions(active: TridEntry[]) {
   return active.flatMap(({ sequence, event }) => {
     if (event.type !== "estimateRevision") return [];
     const basis = estimateRevisionBasis(active, event);
-    if (!basis) return [{ sequence, status: "Needs active original and revised estimate evidence", dueOn: null, receivedOn: null }];
+    if (!basis) {
+      const status = "Needs active original and revised estimate evidence";
+      return [{ sequence, status, issues: [status], dueOn: null, receivedOn: null }];
+    }
     const { original, revised } = basis;
     const dueOn = scope ? tridOfficeDeadline(event.on, scope) : null;
     const receivedOn = receipts.find(receipt => receipt.document === "Revised LE" && receipt.version === revised.send.version)?.on ?? null;
@@ -48,7 +51,7 @@ export function reviewEstimateRevisions(active: TridEntry[]) {
     else if (closing.on < earliest) issues.push("Planned consummation falls within the four-day interval");
     if (!event.reviewReference) issues.push("Needs review evidence for the reason and affected charges");
     return [{ sequence, status: issues.length ? issues.join(". ") : "Recorded dates meet the checks. Review the proposed fee basis.",
-      dueOn, receivedOn }];
+      issues, dueOn, receivedOn }];
   });
 }
 
