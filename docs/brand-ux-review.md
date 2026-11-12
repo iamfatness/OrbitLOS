@@ -597,3 +597,7 @@ The Team panel extends the existing pilot feedback workflow. It reuses Orbit’s
 ### Staff first-day checklist
 
 Impeccable Onboard and the approved Orbit design system informed optional entry from each role’s home, concise work descriptions and direct navigation to a real screen. UI UX Pro Max guidance on onboarding freedom, progress indicators and native control semantics informed a visible review count, explicit return and reversible checkboxes. Reused Orbit’s action rows, native status and form controls as the established 21st.dev pattern. Inspected desktop, portrait and phone layouts with partial progress, a completed LO checklist and a selected processor handoff.
+
+### CRM automation deliveries
+
+Reused the existing Integrations disclosure and Orbit list/detail and feedback patterns as the established 21st.dev references. Impeccable Polish informed placing the simulated event history beside lender activity, matching control baselines and keeping the payload collapsed until needed. UI UX Pro Max guidance on filter empty states and submit feedback informed status, retry and focus return. Inspected desktop, portrait and phone layouts for queued, failed and recovered events.
