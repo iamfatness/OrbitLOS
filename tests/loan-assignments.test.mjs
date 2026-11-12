@@ -108,33 +108,33 @@ test("processor offers preserve accepted amounts until a replacement is accepted
   loan(loanId);
   loan("other-file");
   assert.ok(assignProcessor(db, staff(owner), { loanId, revision: 0, member: processor }).message);
-  const use = (input, actor = owner, id = brokerageId) =>
+  const work = (input, actor = owner, id = brokerageId) =>
     changeProcessingView(db, { loanId, ...input }, staff(actor), id, new Date(at));
-  const read = (actor = owner) => use({ type: "readFeeTerms" }, actor);
+  const read = (actor = owner) => work({ type: "readFeeTerms" }, actor);
   const offer = (version, amountCents) => ({
     type: "offerFeeTerms", requestId: crypto.randomUUID(), assignmentRevision: 1, expectedVersion: version,
     amountCents, reference: "Fictional contract reference",
   });
-  const respond = (version, response = "Accepted", actor = processor) => use({ type: "respondFeeTerms", version, response }, actor);
+  const respond = (version, response = "Accepted", actor = processor) => work({ type: "respondFeeTerms", version, response }, actor);
   assert.ok(read(officer).error);
   assert.ok(read(backup).error);
-  assert.ok(use({ type: "readFeeTerms" }, processor, "different-brokerage").error);
+  assert.ok(work({ type: "readFeeTerms" }, processor, "different-brokerage").error);
   const original = offer(null, 42550);
-  assert.match(use(original).message, /v1 saved/);
-  assert.deepEqual(use(original), use(original));
-  assert.ok(use({ ...original, amountCents: 10 }).error);
-  assert.ok(use(offer(null, 10)).error);
+  assert.match(work(original).message, /v1 saved/);
+  assert.deepEqual(work(original), work(original));
+  assert.ok(work({ ...original, amountCents: 10 }).error);
+  assert.ok(work(offer(null, 10)).error);
   assert.ok(respond(1, "Accepted", owner).error);
   assert.ok(respond(1, "Accepted", backup).error);
   assert.match(respond(1).message, /accepted/);
   assert.match(respond(1).message, /accepted/);
   assert.equal(read(processor).agreed.amountCents, 42550);
-  assert.ok(use(offer(1, 50000)).message);
+  assert.ok(work(offer(1, 50000)).message);
   assert.equal(read().current.amountCents, 50000);
   assert.equal(read().agreed.amountCents, 42550);
   assert.ok(respond(2, "Declined").message);
   assert.equal(read().agreed.amountCents, 42550);
-  assert.ok(use(offer(2, 51025)).message);
+  assert.ok(work(offer(2, 51025)).message);
   assert.ok(respond(2).error);
   assert.ok(respond(3).message);
   assert.equal(read().agreed.amountCents, 51025);
