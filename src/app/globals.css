@@ -357,12 +357,12 @@ button:disabled { cursor: default; }
 .loan-task-copy span { font-size: 12px; }
 .sequence-task { flex-wrap: wrap; }
 .sequence-task > .document-form { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
-.loan-task.lender-return-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-.lender-return-task > button { justify-self: start; }
+.loan-task.lender-return-task, .loan-task.realtor-financing-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.lender-return-task > button, .realtor-financing-task > button { justify-self: start; }
 .lender-return-follow-up { grid-column: 1 / -1; display: grid; gap: 7px; }
 .lender-return-follow-up form { max-width: 32rem; }
 @media (max-width: 600px) {
-  .loan-task.lender-return-task { grid-template-columns: minmax(0, 1fr); }
+  .loan-task.lender-return-task, .loan-task.realtor-financing-task { grid-template-columns: minmax(0, 1fr); }
 }
 .coverage-window { flex-wrap: wrap; align-items: center; }
 .coverage-window .loan-task-copy { flex-basis: 180px; }
@@ -917,7 +917,7 @@ button:disabled { cursor: default; }
 .pilot-support-access-body { padding-block-end: 12px; overflow-wrap: anywhere; }
 .pilot-support-access-fields { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 .realtor-financing-disclosure > summary { padding-block: 10px; font-weight: 650; cursor: pointer; }
-.realtor-financing-content { min-width: 0; overflow-wrap: anywhere; }
+.realtor-financing-content { min-width: 0; padding-block-start: 6px; overflow-wrap: anywhere; }
 .realtor-financing-terms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin-block: 6px; }
 .realtor-financing-terms dt { color: var(--muted); font-size: 0.8125rem; }
 .realtor-financing-terms dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }

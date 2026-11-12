@@ -62,7 +62,8 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
         item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" :
         item.kind === "lead-document" ? "Review lead document" : item.kind === "question" ? "Review borrower answer" :
           item.kind === "underwriting" ? "Open order" : item.kind === "realtor-financing" ? "Open financing summary" : "Open handoff";
-      return <li className={item.returnEventId ? "loan-task lender-return-task" : "loan-task"} key={`${item.kind}:${item.id}:${item.returnEventId ?? ""}`}>
+      return <li className={item.returnEventId ? "loan-task lender-return-task" :
+        item.kind === "realtor-financing" ? "loan-task realtor-financing-task" : "loan-task"} key={`${item.kind}:${item.id}:${item.returnEventId ?? ""}`}>
       <div className="loan-task-copy"><strong>{item.name} · {item.title}</strong>
         <span>{item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " :
           item.kind === "underwriting" ? "Ordered " : item.kind === "realtor-financing" ? "Permissions complete " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
