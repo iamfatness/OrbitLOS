@@ -70,17 +70,19 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   assert.ok(sources.every(item=>item.jurisdiction===jurisdiction));
   assert.ok(f.run(f.save({stateReference:{...reference,jurisdiction:"OH"}})).error);
   assert.ok(f.run(f.save({stateReference:{...reference,sourceKey:"REQ-MI-LICENSING-FIRST"}})).error);
-  const save=f.save({stateReference:reference,draft:{...f.draft,applicability:"Required",reviewerEvidence:"Fictional internal review"}});
+  const save=f.save({stateReference:reference,draft:{...f.draft,cadence:"Quarterly",applicability:"Required",reviewerEvidence:"Fictional internal review"}});
   assert.equal(f.run(save).revision,1);
   const list={operation:"list",entityId:f.entityId};
   const first=f.run(list).items[0];
   assert.equal(first.draft.sourceUrl,source.sourceUrl);
   assert.equal(first.draft.authority,source.authority);
   assert.equal(first.stateBasisChanged,false);
-  const occurrence=f.run(f.generate()).occurrence;
+  const firstQuarter=f.generate({period:"2024-01"});
+  const occurrence=f.run(firstQuarter).occurrence;
   assert.equal(occurrence.status,"Internal preparation planned");
   const snapshot=JSON.parse(occurrence.snapshot);
   assert.equal(snapshot.stateBasis.revision,1);
+  assert.equal(snapshot.reportingBasis.nominalDueOn,"2024-05-15");
   assert.equal(JSON.parse(snapshot.stateBasis.snapshot).key,source.sourceKey);
   assert.equal(saveLicense({ ...license, revision: 1, requestId: crypto.randomUUID(), status: "Expired" }).kind, "programLicenses");
   assert.deepEqual(f.run(stateSources).items, []);
@@ -92,11 +94,11 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   assert.equal(f.run(list).items[0].stateBasisChanged,true);
   assert.equal(f.run(save).revision,1);
   assert.ok(f.run(f.save({expectedRevision:1,stateReference:reference})).error);
-  const gap=f.run(f.generate({period:"2024-03"})).occurrence;
+  const gap=f.run(f.generate({period:"2024-04"})).occurrence;
   assert.equal(gap.status,"Applicability review gap");
   assert.equal(JSON.parse(gap.snapshot).stateBasisChanged,true);
-  assert.equal(f.run(f.generate()).occurrence.snapshot,occurrence.snapshot);
-  const planned=f.run({operation:"planWork",entityId:f.entityId,id:f.id,period:"2024-03",requestId:crypto.randomUUID()});
+  assert.equal(f.run(firstQuarter).occurrence.snapshot,occurrence.snapshot);
+  const planned=f.run({operation:"planWork",entityId:f.entityId,id:f.id,period:"2024-04",requestId:crypto.randomUUID()});
   assert.equal(planned.kind,"obligationWorkPlanned");
   assert.match(f.sql.prepare("SELECT instructions FROM compliance_program_items").get().instructions,/State scope version 1, REQ-MI-REPORTING-RMLA/);
   assert.equal(f.run(f.save({expectedRevision:1,stateReference:{...reference,revision:2}})).revision,2);
@@ -108,7 +110,7 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   assert.equal(f.run(stateSources).items.some(item => item.sourceKey === source.sourceKey), false);
   assert.equal(f.run(list).items[0].stateBasisChanged, true);
   const history = f.run({ operation: "occurrences", entityId: f.entityId, id: f.id });
-  assert.equal(history.items.find(item => item.period === "2024-02").stateBasis.revision, 1);
+  assert.equal(history.items.find(item => item.period === "2024-01").stateBasis.revision, 1);
   assert.equal(history.items.find(item => item.period === "2024-04").stateBasisChanged, true);
 });
 
@@ -124,6 +126,162 @@ test("planning a period creates one owned monthly item and retains its original 
  assert.match(items[0].instructions,/Applicability review gap/);assert.match(items[0].instructions,/version 1/);
  assert.equal(items[0].month,"2024-02");
  assert.ok(f.run({...request,entityId:crypto.randomUUID(),requestId:crypto.randomUUID()}).error);
+});
+
+test("California reporting links DRE, CFL and CRMLA obligations with distinct filing calendars",t=>{
+ const f=fixture(t);
+ const now="2026-11-12T12:00:00Z",jurisdiction="CA";
+ const scope=complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction,
+  expectedRevision:0,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional license",
+   officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
+  f.staff,f.staff.brokerage.id,[f.actor],now);
+ assert.equal(scope.revision,1);
+ const sources=f.run({operation:"stateSources",entityId:f.entityId}).items;
+ const save=(suffix,draft,id=crypto.randomUUID())=>{
+  const sourceKey=`REQ-CA-REPORTING-${suffix}`;
+  assert(sources.some(item=>item.sourceKey===sourceKey));
+  const saved=f.run(f.save({id,stateReference:{jurisdiction,revision:1,sourceKey},draft:{...f.draft,...draft}}));
+  assert.equal(saved.revision,1);
+  return id;
+ };
+ const generate=(id,period)=>f.run(f.generate({id,period}));
+ const call=save("DRE-MCR",{cadence:"Quarterly"});
+ assert.equal(JSON.parse(generate(call,"2025-01").occurrence.snapshot).reportingBasis.nominalDueOn,"2025-05-15");
+ const annual={cadence:"Annual",applicability:"Required",reviewerEvidence:"Fictional review"};
+ const bar=save("BAR",{...annual,annualStartMonth:7});
+ assert.match(generate(bar,"2025-01").error,/first month/);
+ const report=generate(bar,"2025-07").occurrence;
+ assert.equal(report.internalTarget,"2026-06-30");
+ assert.equal(JSON.parse(report.snapshot).reportingBasis.nominalDueOn,"2026-09-28");
+ assert.equal(f.run({operation:"occurrences",entityId:f.entityId,id:bar}).items[0].through,"2026-06-30");
+ assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:bar,period:"2025-07",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
+ assert.match(f.sql.prepare("SELECT instructions FROM compliance_program_items").get().instructions,/Nominal date: 2026-09-28/);
+ const unresolvedBar=save("BAR",annual);
+ assert.equal(generate(unresolvedBar,"2025-01").occurrence.status,"Applicability review gap");
+ const cfl=save("CFLANNUAL",annual);
+ const cflPeriod=JSON.parse(generate(cfl,"2025-01").occurrence.snapshot);
+ assert.equal(cflPeriod.reportingBasis.nominalDueOn,"2026-03-15");
+ assert.equal(cflPeriod.reportingBasis.route,"DFPI self-service portal");
+ const mismatched=save("CFLANNUAL",{...annual,annualStartMonth:7});
+ assert.equal(generate(mismatched,"2025-07").occurrence.status,"Applicability review gap");
+ const crmla=save("CRMLA-ANNUAL",annual);
+ assert.deepEqual(JSON.parse(generate(crmla,"2025-01").occurrence.snapshot).reportingBasis, {
+  route:"DFPI self-service portal",nominalDueOn:"2026-03-01",
+  review:"Confirm CRMLA authority, the current annual schedules, attestation and applicable no-activity instructions.",
+ });
+ const holden=save("HOLDEN",annual);
+ const holdenPeriod=JSON.parse(generate(holden,"2025-01").occurrence.snapshot);
+ assert.equal(holdenPeriod.reportingBasis.route,"DFPI Holden Act submission");
+ assert.equal(holdenPeriod.reportingBasis.nominalDueOn,"2026-03-31");
+ assert.match(holdenPeriod.reportingBasis.review,/signed response for HMDA reporting or inactivity/);
+ const mcr=save("CRMLA-MCR",{...annual,cadence:"Quarterly"});
+ assert.equal(JSON.parse(generate(mcr,"2026-04").occurrence.snapshot).reportingBasis.nominalDueOn,"2026-08-14");
+ const audit=save("CRMLA-AUDIT",{...annual,annualStartMonth:7});
+ const auditPeriod=JSON.parse(generate(audit,"2025-07").occurrence.snapshot);
+ assert.equal(auditPeriod.reportingBasis.route,"NMLS audited financial statement upload");
+ assert.equal(auditPeriod.reportingBasis.nominalDueOn,"2026-10-13");
+ const auditUnresolved=save("CRMLA-AUDIT",annual);
+ assert.equal(generate(auditUnresolved,"2025-01").occurrence.status,"Applicability review gap");
+ assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:audit,period:"2025-07",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
+ const work=f.sql.prepare("SELECT instructions FROM compliance_program_items WHERE instructions LIKE '%CRMLA-AUDIT%'").get();
+ assert.match(work.instructions,/NMLS audited financial statement upload.*2026-10-13/);
+});
+
+test("priority state reporting uses distinct periods and leaves unverified dates open",t=>{
+ const f=fixture(t);
+ for (const jurisdiction of ["FL","TX","NY","CO","IL","MI"]) {
+  const scope=complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction,
+   expectedRevision:0,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional license",
+    officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
+   f.staff,f.staff.brokerage.id,[f.actor],"2026-11-12T12:00:00Z");
+  assert.equal(scope.revision,1,jurisdiction);
+ }
+ const sources=f.run({operation:"stateSources",entityId:f.entityId}).items;
+ const check=(jurisdiction,suffix,cadence,period,route,due,annualStartMonth,area="REPORTING")=>{
+  const sourceKey=`REQ-${jurisdiction}-${area}-${suffix}`, id=crypto.randomUUID();
+  assert(sources.some(item=>item.sourceKey===sourceKey),sourceKey);
+  const draft={...f.draft,cadence,applicability:"Required",reviewerEvidence:"Fictional review",
+   ...(annualStartMonth === undefined ? {} : {annualStartMonth})};
+  assert.equal(f.run(f.save({id,draft,stateReference:{jurisdiction,sourceKey,revision:1}})).revision,1,sourceKey);
+  const occurrence=f.run(f.generate({id,period})).occurrence;
+  const basis=JSON.parse(occurrence.snapshot).reportingBasis;
+  assert.equal(basis.route,route,sourceKey);
+  assert.equal(basis.nominalDueOn,due,sourceKey);
+  assert.equal(occurrence.status,due ? "Internal preparation planned" : "Applicability review gap",sourceKey);
+  return {id,basis};
+ };
+ check("FL","MCR","Quarterly","2025-01","NMLS Residential Mortgage Loan Activity","2025-05-15");
+ check("FL","BROKER-FC","Annual","2025-01","NMLS Financial Condition","2026-03-31");
+ check("FL","BROKER-FC","Annual","2024-01","NMLS Financial Condition",null);
+ check("FL","BROKER-FC","Annual","2025-07","NMLS Financial Condition",null,7);
+ check("FL","LENDER-FC","Quarterly","2025-07","NMLS Financial Condition","2025-11-14");
+ const floridaAudit=check("FL","LENDER-AUDIT","Annual","2025-07","Florida Office of Financial Regulation","2026-10-28",7);
+ assert.match(floridaAudit.basis.review,/unchanged year/);
+ check("FL","LENDER-AUDIT","Annual","2025-01","Florida Office of Financial Regulation",null);
+ const transition=check("FL","AUDIT-CHANGE","Annual","2025-07","Florida Office of Financial Regulation",null,7);
+ assert.match(transition.basis.review,/prior audit submission date/);
+ assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:transition.id,period:"2025-07",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
+ const transitionWork=f.sql.prepare("SELECT instructions FROM compliance_program_items").get().instructions;
+ assert.match(transitionWork,/Applicability review gap.*prior audit submission date/);
+ assert.doesNotMatch(transitionWork,/Nominal date:/);
+ check("TX","MCR","Quarterly","2026-01","NMLS Residential Mortgage Loan Activity","2026-05-15");
+ check("TX","FC","Annual","2025-01","NMLS Financial Condition","2026-03-31");
+ check("TX","FC","Quarterly","2026-04","NMLS Financial Condition","2026-08-14");
+ check("TX","SSSF","Quarterly","2025-10","NMLS State-Specific Supplemental Form",null);
+ check("TX","SSSF","Quarterly","2026-01","NMLS State-Specific Supplemental Form","2026-05-15");
+ const occc=check("TX","OCCC-ANNUAL","Annual","2025-01","Texas OCCC annual reporting portal","2026-05-01");
+ assert.match(occc.basis.review,/partial-year, no-activity and same-entity/);
+ check("TX","OCCC-ANNUAL","Annual","2024-01","Texas OCCC annual reporting portal",null);
+ check("TX","OCCC-ANNUAL","Annual","2025-07","Texas OCCC annual reporting portal",null,7);
+ check("TX","CO-RENEW","Annual","2026-01","NMLS company renewal","2026-12-31",1,"LICENSING");
+ check("TX","BANKER-RENEW","Annual","2026-01","NMLS company renewal","2026-12-31",1,"LICENSING");
+ check("TX","CO-RENEW","Annual","2025-01","NMLS company renewal",null,1,"LICENSING");
+ check("NY","MCR","Quarterly","2026-01","NMLS Mortgage Call Report","2026-05-15");
+ check("NY","QRES","Quarterly","2026-01","Mail to New York DFS Mortgage Banking","2026-04-30");
+ check("NY","QRES","Quarterly","2025-04","Mail to New York DFS Mortgage Banking",null);
+ check("NY","VOOR","Annual","2025-01","New York DFS VOOR portal or mail","2026-06-22");
+ check("NY","VOOR","Annual","2026-01","New York DFS VOOR portal or mail",null);
+ check("CO","MCR","Quarterly","2026-04","NMLS Mortgage Call Report","2026-08-14");
+ check("CO","STD-FC","Annual","2025-07","NMLS Financial Condition",null,7);
+ check("IL","ACTIVITY","Quarterly","2026-01","NMLS Mortgage Call Report","2026-05-15");
+ check("IL","ACTIVITY","Annual","2025-01","NMLS Mortgage Call Report",null);
+ check("MI","FC","Annual","2025-01","NMLS Financial Condition","2026-03-31");
+ check("MI","FC","Quarterly","2026-04","NMLS Financial Condition","2026-08-14");
+ check("MI","FC","Annual","2025-07","NMLS Financial Condition",null,7);
+ check("MI","GAAP","Annual","2025-07","NMLS financial statement upload","2026-09-28",7);
+});
+
+test("Michigan company renewal preserves the filing target, expiration context and late-target review",t=>{
+ const f=fixture(t);
+ const scope=complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction:"MI",
+  expectedRevision:0,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First and secondary liens",companyEvidence:"Fictional authority",
+   officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
+  f.staff,f.staff.brokerage.id,[f.actor],"2026-11-12T12:00:00Z");
+ assert.equal(scope.revision,1);
+ const sources=f.run({operation:"stateSources",entityId:f.entityId}).items;
+ assert.equal(sources.some(item=>item.sourceKey==="REQ-MI-LICENSING-MLO-RENEW"),false);
+ const record=(license,targetDay,period="2026-01",annualStartMonth=1)=>{
+  const id=crypto.randomUUID(),sourceKey=`REQ-MI-LICENSING-${license}-RENEW`;
+  assert(sources.some(item=>item.sourceKey===sourceKey));
+  const draft={...f.draft,cadence:"Annual",annualStartMonth,internalTargetDay:targetDay,
+   applicability:"Required",reviewerEvidence:"Fictional company authority evidence"};
+  assert.equal(f.run(f.save({id,draft,stateReference:{jurisdiction:"MI",revision:1,sourceKey}})).revision,1);
+  const occurrence=f.run(f.generate({id,period})).occurrence;
+  return {id,occurrence,basis:JSON.parse(occurrence.snapshot).reportingBasis};
+ };
+ const first=record("FIRST",14);
+ assert.equal(first.occurrence.internalTarget,"2026-12-14");
+ assert.equal(first.occurrence.status,"Internal preparation planned");
+ assert.equal(first.basis.nominalDueOn,"2026-12-15");
+ assert.match(first.basis.review,/expires December 31 unless renewed/);
+ assert.equal(record("SECOND",15).occurrence.status,"Internal preparation planned");
+ const secondary=record("SECOND",16);
+ assert.equal(secondary.occurrence.status,"Applicability review gap");
+ assert.match(secondary.basis.review,/internal target falls after/);
+ assert.equal(record("FIRST",14,"2024-01").basis.nominalDueOn,null);
+ assert.equal(record("SECOND",14,"2026-07",7).basis.nominalDueOn,null);
+ assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:secondary.id,period:"2026-01",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
+ assert.match(f.sql.prepare("SELECT instructions FROM compliance_program_items").get().instructions,/Nominal date: 2026-12-15.*internal target falls after/);
 });
 
 test("planning rejects unavailable owners and rolls back monthly work on audit failure",t=>{

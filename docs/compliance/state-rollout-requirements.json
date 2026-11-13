@@ -37,6 +37,48 @@
   },
   {
     "jurisdiction": "MI",
+    "area": "LICENSING",
+    "id": "FIRST-RENEW",
+    "title": "First mortgage company renewal",
+    "authority": "Michigan DIFS first mortgage renewal guidance and MCL 445.1657(1)",
+    "sourceUrl": "https://www.michigan.gov/difs/News-and-Outreach/faq/consumer-finance/1st-mortgage",
+    "summary": "DIFS directs first mortgage company licensees and registrants to request renewal and pay through NMLS by December 15. The authority expires December 31 unless renewed.",
+    "evidence": "Exact company license or registration, current renewal instructions, applicable surety bond, NMLS request and fee receipt, and renewed authority status.",
+    "counsel": "Verify the applicable renewal-year instructions, financial responsibility evidence and treatment of pending or late renewal.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "LICENSING",
+    "id": "SECOND-RENEW",
+    "title": "Secondary mortgage company renewal",
+    "authority": "Michigan DIFS secondary mortgage renewal guidance and MCL 493.56a(1)",
+    "sourceUrl": "https://www.michigan.gov/difs/News-and-Outreach/faq/consumer-finance/2nd-mortgage",
+    "summary": "DIFS directs secondary mortgage company licensees and registrants to request renewal and pay through NMLS by December 15. The authority expires December 31 unless renewed.",
+    "evidence": "Exact company license or registration, current renewal instructions, applicable surety bond, NMLS request and fee receipt, and renewed authority status.",
+    "counsel": "Confirm separate or coordinated renewal treatment when both authorities are held, current instructions and pending or late renewal consequences.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "LICENSING",
+    "id": "MLO-RENEW",
+    "title": "Individual MLO renewal and continuing education",
+    "authority": "Michigan DIFS MLO renewal guidance",
+    "sourceUrl": "https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/mortgage-loan-originator",
+    "summary": "DIFS lists separate individual renewal requirements, including education before the request unless an exception applies. Its May 2026 FAQ and an older renewal checklist show different submission dates.",
+    "evidence": "Individual authority and sponsor, current-year NMLS instructions, education or exception evidence, bond and renewed status.",
+    "counsel": "Reconcile the current renewal-year instructions, older checklist, education exception and treatment of pending renewal before assigning individual dates.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DIFS MLO renewal checklist",
+        "url": "https://www.michigan.gov/difs/-/media/Project/Websites/difs/CF/Renewal_Checklist/Money_Loan_Originator.pdf?hash=D23FACB0ADBE138A300BABC6B42DBD4E&rev=23943ed3d0f8471db59b45c7b4059516"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "MI",
     "area": "REPORTING",
     "id": "RMLA",
     "title": "Quarterly mortgage activity report",
@@ -1027,6 +1069,18 @@
     "summary": "The statute directs originating entities to submit NMLS reports of condition in the form and with the information NMLS requires.",
     "evidence": "Originating entity classification, relevant report period, FV7 reconciliation and receipt.",
     "counsel": "Confirm originating entity scope, current reporting schedules and whether any additional New York reporting applies.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "QRES",
+    "title": "Quarterly report of employment status",
+    "authority": "New York DFS Quarterly Report of Employment Status",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2025/05/quarterly-report-employment-status-2025-fill.pdf",
+    "summary": "DFS instructs originating entities to mail the notarized employment status report within 30 days after each calendar quarter.",
+    "evidence": "Originating entity NMLS identifier, reportable MLO employment events, Temporary Authority roster, signed report and mailing evidence.",
+    "counsel": "Reconcile the form and DFS website instructions for separations, confirm no-change and amendment treatment, and verify the current form.",
     "checkedOn": "2026-11-12"
   },
   {
@@ -2163,15 +2217,112 @@
   },
   {
     "jurisdiction": "FL",
+    "area": "LICENSING",
+    "id": "LENDER",
+    "title": "Mortgage lender and servicing endorsement authority",
+    "authority": "Fla. Stat. §§494.00611 and 494.0067(8)",
+    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0067",
+    "summary": "Florida distinguishes lender authority from broker authority. Section 494.0067 limits servicing beyond six months to lenders with a servicing endorsement and sets net worth conditions.",
+    "evidence": "Lender license, branch and remote arrangements, servicing endorsement, servicing dates and net worth evidence.",
+    "counsel": "Confirm the planned lender or servicer role, the servicing duration and any exemption or endorsement.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Florida OFR Mortgage Lender and Branches",
+        "url": "https://flofr.gov/divisions-offices/division-of-consumer-finance/mortgage-lender-and-branches"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "LICENSING",
+    "id": "AMENDMENTS",
+    "title": "License changes and event-driven notices",
+    "authority": "Fla. Stat. §§494.004 and 494.0067 and Fla. Admin. Code R. 69V-40.099",
+    "sourceUrl": "https://flrules.org/gateway/ruleno.asp?Section=0&id=69V-40.099",
+    "summary": "Florida requires reporting of covered changes to application information and separate review of changes involving principal originators, control persons or organization. Broker and lender notice clocks can differ for bankruptcy and legal events.",
+    "evidence": "License and event type, trigger date, regulator-specific calendar and form, amendment and receipt.",
+    "counsel": "Confirm which event and entity provisions apply, any prior authorization, calendar or business days, route and deadline.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "Broker notices", "url": "https://www.flsenate.gov/Laws/Statutes/2026/0494.004" },
+      { "label": "Lender notices", "url": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0067" }
+    ]
+  },
+  {
+    "jurisdiction": "FL",
     "area": "REPORTING",
     "id": "MCR",
-    "title": "Mortgage broker reports of condition",
-    "authority": "Fla. Stat. §494.004(2)",
-    "sourceUrl": "https://www.leg.state.fl.us/Statutes/index.cfm?App_mode=Display_Statute&URL=0400-0499/0494/Sections/0494.004.html",
-    "summary": "Florida requires each mortgage broker to submit reports of condition in the form required by the registry.",
+    "title": "Quarterly mortgage loan activity",
+    "authority": "Fla. Admin. Code R. 69V-40.176(1)",
+    "sourceUrl": "https://flrules.org/gateway/RuleNo.asp?ID=69V-40.176&title=MORTGAGE+BROKERAGE",
+    "summary": "Florida requires brokers and lenders to submit the residential mortgage loan activity component through NMLS within 45 days after each calendar quarter.",
     "evidence": "Exact license, applicable schedule and form, reconciled activity and receipt.",
     "counsel": "Confirm current FV7 sections, state additions and no-activity handling separately from event-driven license notifications.",
     "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "REPORTING",
+    "id": "BROKER-FC",
+    "title": "Broker annual Financial Condition",
+    "authority": "Fla. Admin. Code R. 69V-40.176(2)",
+    "sourceUrl": "https://flrules.org/gateway/RuleNo.asp?ID=69V-40.176&title=MORTGAGE+BROKERAGE",
+    "summary": "Florida mortgage brokers submit the NMLS Financial Condition component within 90 days after each calendar year end.",
+    "evidence": "Broker authority, calendar-year financial workpaper, applicable NMLS form and filing receipt.",
+    "counsel": "Confirm classification for companies with overlapping activities, the current form, transition years and any adjusted dates.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "REPORTING",
+    "id": "LENDER-FC",
+    "title": "Lender quarterly Financial Condition",
+    "authority": "Fla. Admin. Code R. 69V-40.176(3)",
+    "sourceUrl": "https://flrules.org/gateway/RuleNo.asp?ID=69V-40.176&title=MORTGAGE+BROKERAGE",
+    "summary": "Florida mortgage lenders submit the NMLS Financial Condition component within 45 days after each calendar quarter.",
+    "evidence": "Lender authority, quarterly financial workpaper, applicable NMLS form and filing receipt.",
+    "counsel": "Confirm lender applicability, current form and any separate audited financial statement obligations.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "REPORTING",
+    "id": "LENDER-AUDIT",
+    "title": "Florida mortgage lender annual financial audit",
+    "authority": "Fla. Stat. §494.0063",
+    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0063",
+    "summary": "A Florida mortgage lender submits its independent financial audit report to the Office of Financial Regulation within 120 days after its disclosed fiscal year end. A wholly owned subsidiary can use its parent's audit report.",
+    "evidence": "Lender license, disclosed unchanged fiscal year end, signed CPA report, parent ownership evidence if applicable, current OFR filing instructions and receipt.",
+    "counsel": "Confirm the submission channel, subsidiary treatment and deadline for the exact fiscal period. Review a fiscal-year change separately.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "REPORTING",
+    "id": "AUDIT-CHANGE",
+    "title": "Lender financial audit after fiscal-year change",
+    "authority": "Fla. Stat. §494.0063",
+    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0063",
+    "summary": "A lender that changes its fiscal year must file a financial audit report within 18 months after its previously submitted report.",
+    "evidence": "Previous report submission and receipt, approved fiscal-year change, transition financial period and current filing instructions.",
+    "counsel": "Confirm the previous submission date, the 18-month calculation and applicable audit periods and deadline before scheduling the transition report.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "RECORDS",
+    "id": "SERVICING-AUDIT",
+    "title": "Servicing audit or financial guaranty evidence",
+    "authority": "Fla. Stat. §494.0076 and Fla. Admin. Code R. 69V-40.270",
+    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0076",
+    "summary": "Covered servicers segregate records and deposits and retain an annual servicing audit, or use a qualifying guaranty with monthly servicing workpapers when eligible.",
+    "evidence": "Servicing portfolio and excluded agency loans, segregated records and account, annual audit or guaranty and monthly OFR-494-11 support.",
+    "counsel": "Verify guaranty eligibility, portfolio scope and monthly calculation, record custody and the operative form revision.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "Florida financial guaranty rule", "url": "https://flrules.org/gateway/ruleno.asp?Section=0&id=69V-40.270" }
+    ]
   },
   {
     "jurisdiction": "AL",
@@ -2703,6 +2854,45 @@
   },
   {
     "jurisdiction": "TX",
+    "area": "LICENSING",
+    "id": "CO-RENEW",
+    "title": "SML residential mortgage company renewal",
+    "authority": "Texas SML mortgage entity renewal guidance",
+    "sourceUrl": "https://www.sml.texas.gov/compact-with-texans/",
+    "summary": "SML lists December 31 as the annual mortgage entity renewal deadline and directs licensees to NMLS.",
+    "evidence": "Company license, applicable renewal year and requirements, NMLS receipt and continued authority.",
+    "counsel": "Confirm the covered company license, renewal-cycle requirements and handling of expiration and reinstatement.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "LICENSING",
+    "id": "BANKER-RENEW",
+    "title": "SML mortgage banker registration renewal",
+    "authority": "Tex. Fin. Code §§157.0061 and 157.0062",
+    "sourceUrl": "https://statutes.capitol.texas.gov/GetStatute.aspx?Code=FI&Value=157",
+    "summary": "Texas requires annual renewal of the mortgage banker registration and provides a separate process after expiration.",
+    "evidence": "Banker registration, qualifying authorization, NMLS renewal request and fee receipt, and current registration status.",
+    "counsel": "Confirm continuing qualification, current renewal instructions and which activities must cease if the registration expires.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "LICENSING",
+    "id": "OCCC-LENDER",
+    "title": "OCCC Chapter 342 regulated lender authority",
+    "authority": "Tex. Fin. Code ch. 342 and OCCC licensing guidance",
+    "sourceUrl": "https://occc.texas.gov/industry/regulated-lenders/",
+    "summary": "OCCC administers Chapter 342 regulated lender authority. Its mortgage originator guidance addresses covered secondary mortgage and other activities separately from the SML licensing path.",
+    "evidence": "Exact legal entity and license, Chapter 342 activities and loan types, applicable NMLS and OCCC identifiers and individual authority.",
+    "counsel": "Confirm Chapter 342 coverage for the products and roles and any interaction with SML licensure and mortgage originator authority.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "OCCC mortgage originator licensing", "url": "https://occc.texas.gov/industry/RMLOs/" }
+    ]
+  },
+  {
+    "jurisdiction": "TX",
     "area": "REPORTING",
     "id": "MCR",
     "title": "Texas quarterly mortgage call reports",
@@ -2730,6 +2920,34 @@
     "evidence": "Activity and engagement basis, applicable quarter, processing and underwriting reconciliation, SSSF and receipt.",
     "counsel": "Confirm which contractor and transaction arrangements trigger each field and the treatment of no activity.",
     "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "REPORTING",
+    "id": "FC",
+    "title": "Texas Financial Condition",
+    "authority": "Texas SML mortgage compliance guide, Financial Condition",
+    "sourceUrl": "https://www.sml.texas.gov/wp-content/uploads/2026/02/mortgage-compliance-guide-v12.pdf",
+    "summary": "SML distinguishes the annual calendar-year Financial Condition schedule for brokers and the quarterly schedule for lenders and servicers.",
+    "evidence": "Company activity classification, period, approved financial reconciliation and NMLS receipt.",
+    "counsel": "Confirm which schedule governs entities with overlapping activities and which Financial Condition sections apply.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "REPORTING",
+    "id": "OCCC-ANNUAL",
+    "title": "OCCC Chapter 342 regulated lender annual report",
+    "authority": "7 TAC §83.835 and Texas OCCC annual reporting instructions",
+    "sourceUrl": "https://occc.texas.gov/industry/regulated-lenders/annual_reports/",
+    "summary": "OCCC lists May 1 for regulated lender annual reporting. Its filing guide directs these licensees to the new online reporting system beginning March 1, 2026.",
+    "evidence": "Chapter 342 license and entity identifiers, prior-year schedules, no-activity or partial-year basis if relevant, reconciliation and OCCC receipt.",
+    "counsel": "Confirm the separate OCCC reporting scope, report-year route, applicable schedules and consolidation of licenses within the same legal entity.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "OCCC online annual filing guide", "url": "https://occc.texas.gov/wp-content/uploads/2026/04/ANNUAL-REPORT-FILING-GUIDE-APRIL-2026.pdf" },
+      { "label": "OCCC regulated lender reporting instructions", "url": "https://occc.texas.gov/wp-content/uploads/2026/03/RegulatedLender_ReportingInstructions.pdf" }
+    ]
   },
   {
     "jurisdiction": "OK",
@@ -2801,6 +3019,18 @@
     "summary": "The DRE manual describes quarterly NMLS call reports within 45 calendar days and links filing status to renewal.",
     "evidence": "Company registration, current rules and NMLS schedule, reconciled report and receipt.",
     "counsel": "Reconcile older form and fiscal-year terminology with current FV7 and confirm any additional reporting or zero-activity treatment.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CO",
+    "area": "REPORTING",
+    "id": "STD-FC",
+    "title": "Standard-section Financial Condition calendar review",
+    "authority": "4 CCR 725-3 rule 8.4(B)",
+    "sourceUrl": "https://www.sos.state.co.us/CCR/GenerateRulePdf.do?fileName=4+CCR+725-3&ruleVersionId=9222",
+    "summary": "Colorado's rule describes a fiscal-year deadline for the standard section. Reconcile this language with the current NMLS calendar for the company's classification.",
+    "evidence": "Company classification, actual fiscal year end, applicable NMLS filing schedule, and confirmation of the controlling deadline.",
+    "counsel": "Resolve the Colorado rule and current NMLS filing calendar before assigning a due date.",
     "checkedOn": "2026-11-12"
   },
   {
@@ -3259,6 +3489,24 @@
   },
   {
     "jurisdiction": "CA",
+    "area": "LICENSING",
+    "id": "CRMLA",
+    "title": "DFPI residential mortgage lender or servicer authority",
+    "authority": "Cal. Fin. Code §50000 et seq. and DFPI CRMLA guidance",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/about-california-residential-mortgage-lending-act/",
+    "summary": "DFPI distinguishes lender, servicer and combined CRMLA authority and describes brokerage services permitted for licensed CRMLA lenders.",
+    "evidence": "Exact company and branch authority, lending or servicing activity, eligible counterparties and individual licenses.",
+    "counsel": "Confirm the exact authorization and exemption basis, branch and sponsor facts, and when limited brokerage activity is covered.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DFPI company and branch authorization guidance",
+        "url": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/who-is-required-to-obtain-license-or-branch-license-under-the-california-residential-mortgage-lenders-law-crmla/"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "CA",
     "area": "REPORTING",
     "id": "BAR",
     "title": "DRE Business Activity Report",
@@ -3279,6 +3527,54 @@
     "summary": "DFPI identifies a March 15 annual report for CFL licensees even when no business was conducted under the license.",
     "evidence": "CFL license, report-year instructions, reconciled activity or no-activity basis and submission receipt.",
     "counsel": "Confirm exact report-year deadline, delivery and scope when the company holds multiple California authorities.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "REPORTING",
+    "id": "CRMLA-ANNUAL",
+    "title": "DFPI residential mortgage lender or servicer annual report",
+    "authority": "Cal. Fin. Code §50307 and DFPI CRMLA annual report instructions",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/requirements-after-a-california-residential-mortgage-lender-and-or-servicer-license-has-been-issued/crmla-annual-report/",
+    "summary": "DFPI requires CRMLA licensees to submit the prior calendar year's annual report through its self-service portal by March 1.",
+    "evidence": "CRMLA authority, report-year schedules, reconciled loan and servicing data, authorized attestation and portal receipt.",
+    "counsel": "Confirm the report-year instructions, reportable population, no-activity schedules and authorized attestation.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "REPORTING",
+    "id": "HOLDEN",
+    "title": "Holden Act residential mortgage loan report or response",
+    "authority": "DFPI Residential Mortgage Loan Report guidance",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/california-residential-mortgage-lending-act-archives/crmla-residential-mortgage-loan-report-holden-act-report/",
+    "summary": "DFPI identifies March 31 for the prior-year report and describes circumstances in which the licensee provides a signed response explaining why it is not filing loan data.",
+    "evidence": "License and first year of authority, covered loan analysis, applicable HMDA submission or no-activity basis, current DFPI form and transmission evidence.",
+    "counsel": "Confirm the current report-year form and route, HMDA treatment, first-year and no-activity treatment, and whether the signed response is required.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "REPORTING",
+    "id": "CRMLA-MCR",
+    "title": "DFPI residential mortgage quarterly call report",
+    "authority": "DFPI CRMLA ongoing reporting requirements",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/requirements-after-a-california-residential-mortgage-lender-and-or-servicer-license-has-been-issued/",
+    "summary": "DFPI directs CRMLA licensees to file the quarterly Mortgage Call Report through NMLS within 45 days after quarter end.",
+    "evidence": "Company and license scope, current NMLS components, quarterly reconciliation and filing receipt.",
+    "counsel": "Confirm reporting components, which authorities share the same NMLS submission, and treatment of inactivity.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "REPORTING",
+    "id": "CRMLA-AUDIT",
+    "title": "CRMLA audited financial statements and supplements",
+    "authority": "Cal. Fin. Code §50200, 10 CCR §1950.200 and DFPI CRMLA guidance",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/requirements-after-a-california-residential-mortgage-lender-and-or-servicer-license-has-been-issued/",
+    "summary": "DFPI directs CRMLA licensees to post audited financial statements in NMLS within 105 days after fiscal year end and identifies additional CPA or trust reconciliation evidence.",
+    "evidence": "Actual fiscal year end, signed CPA audit, tangible net worth evidence, applicable supplementary reports and NMLS upload receipt.",
+    "counsel": "Confirm the fiscal basis, annual audit coverage and supplementary documents or substitutions applicable to origination and servicing.",
     "checkedOn": "2026-11-12"
   },
   {

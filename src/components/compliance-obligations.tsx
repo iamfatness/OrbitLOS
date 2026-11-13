@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { z } from "zod";
 import { dateLabel } from "@/lib/client-retention";
 import { accessComplianceCases } from "@/app/actions";
-import { obligationDraft, obligationStateSource, type ObligationDraft, type ObligationStateSource } from "@/lib/compliance-obligations-model";
+import { obligationDraft, reportingDateBasis, obligationStateSource, type ObligationDraft, type ObligationStateSource } from "@/lib/compliance-obligations-model";
 import type { ProgramReviewTarget } from "@/lib/compliance-program-model";
 import { Button } from "./ui/button";
 
@@ -14,11 +14,13 @@ const registry = z.object({kind:z.literal("obligationRegistry"),items:z.array(ro
 const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.array(obligationStateSource)});
 const plannedReview = z.object({ entityId: z.uuid(), month: z.string(), itemId: z.uuid() });
 const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
-  period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(), ownerEmail: z.string(), from: z.string(), through: z.string(),
+  reportingBasis: reportingDateBasis.optional(), period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(), ownerEmail: z.string(), from: z.string(), through: z.string(),
   filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
 })) });
 type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
+const months = Array.from({length:12}, (_, index) => new Intl.DateTimeFormat("en-US",{month:"long",timeZone:"UTC"})
+  .format(new Date(Date.UTC(2026,index,1))));
 
 export function ComplianceObligations({brokerageId,paused,openReview,returnToItem}:{
    brokerageId:string;paused:boolean;openReview:(target:ProgramReviewTarget)=>void;returnToItem?:string;
@@ -35,6 +37,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
  const [sourceError,setSourceError]=useState("");
  const [sourceRefresh,refreshSources]=useState(0);
  const [sourceKey,chooseSource]=useState("");
+ const [cadence,setCadence]=useState<ObligationDraft["cadence"]>("Monthly");
  const [manualAuthority,setManualAuthority]=useState({sourceUrl:"",authority:""});
  const [loadingEntities,setLoadingEntities]=useState(true);
  const [loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
@@ -55,7 +58,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
      const parsed=stateSources.safeParse("kind" in r&&r.kind==="obligations"?r.result:null);
      if(!parsed.success)throw new Error("Could not load state sources.");
      setSources(parsed.data.items);
-   }).catch(()=>{if(current)setSourceError("Could not load state reporting sources.");});
+   }).catch(()=>{if(current)setSourceError("Could not load state obligation sources.");});
    return()=>{current=false;};
  },[brokerageId,editing,entityId,paused,sourceRefresh]);
  useEffect(()=>{
@@ -96,6 +99,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
    setSourceError("");
    chooseSource("");
    setPlanned(undefined);
+   setCadence(record?.draft.cadence??"Monthly");
    setManualAuthority({sourceUrl:record?.draft.sourceUrl??"",authority:record?.draft.authority??""});
    setSelected(record);
    setNotice("");
@@ -140,6 +144,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
    const parsed=obligationDraft.safeParse({...draft,
      ...(linkedSource?{sourceUrl:linkedSource.sourceUrl,authority:linkedSource.authority}:{}),
      preparation:text(form,"preparation") || undefined,
+     ...(cadence==="Annual" && text(form,"annualStartMonth") ? {annualStartMonth:Number(text(form,"annualStartMonth"))} : {}),
      internalTargetDay:Number(text(form,"internalTargetDay"))});
    if(!parsed.success){setError(parsed.error.issues.map(i=>`${i.path.join(".")}: ${i.message}`).join("; "));return;}
    const stateReference = chosenSource ? {
@@ -164,7 +169,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
      <div className="loan-application-actions"><Button disabled={!entityId||loading} onClick={()=>{newId.current=crypto.randomUUID();edit(null);}}>Add obligation</Button><Button variant="outline" onClick={()=>{setLoading(Boolean(entityId));setError("");setNotice("");refresh(v=>v+1);}}>Refresh</Button></div>
      {!entityId&&<p>Add a legal entity in Compliance → Licensing to start planning obligations.</p>}
      {loading||loadingEntities?<p role="status">Loading obligations…</p>:entityId&&!error&&<>
-       <ul className="document-list">{items.filter(i=>!filter||i.draft.applicability===filter).map(i=><li className="document-item" key={i.id}><div><strong>{i.draft.title}</strong><p>{i.draft.applicability} · {i.draft.cadence} · Version {i.revision}</p><p>{i.ownerAvailable?i.draft.ownerEmail:"Owner unavailable — reassignment needed"}</p>{i.stateBasisChanged&&<p>State reporting source needs review</p>}</div><Button variant="outline" onClick={()=>edit(i)}>Review obligation</Button></li>)}</ul>
+       <ul className="document-list">{items.filter(i=>!filter||i.draft.applicability===filter).map(i=><li className="document-item" key={i.id}><div><strong>{i.draft.title}</strong><p>{i.draft.applicability} · {i.draft.cadence} · Version {i.revision}</p><p>{i.ownerAvailable?i.draft.ownerEmail:"Owner unavailable — reassignment needed"}</p>{i.stateBasisChanged&&<p>State obligation source needs review</p>}</div><Button variant="outline" onClick={()=>edit(i)}>Review obligation</Button></li>)}</ul>
        {!items.some(i=>!filter||i.draft.applicability===filter)&&<p>No obligations match this page and filter.</p>}
        <div className="loan-application-actions"><Button variant="outline" disabled={!offset} onClick={()=>{setOffset(Math.max(0,offset-50));setLoading(true);}}>Previous page</Button><Button variant="outline" disabled={!more} onClick={()=>{setOffset(offset+50);setLoading(true);}}>Next page</Button></div>
      </>}
@@ -175,7 +180,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
      <details className="document-form" open={selected === null}><summary>{selected ? "Edit obligation version" : "Obligation details"}</summary>
      <form className="record-form" onSubmit={save}><fieldset className="record-form" disabled={busy}>
        <label className="field">Title<input name="title" required minLength={3} maxLength={160} defaultValue={draft.title}/></label>
-       <label className="field">State reporting source
+       <label className="field">State obligation source
          <select value={sourceKey} disabled={!sources?.length} onChange={e=>chooseSource(e.target.value)}>
            <option value="">{selected?.stateBasis?"Keep saved source":"Enter source manually"}</option>
            {sources?.map(source=><option key={source.sourceKey} value={source.sourceKey}>{source.jurisdiction} · {source.title}</option>)}
@@ -201,7 +206,12 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
        <div className="form-grid"><label className="field">Applicability<select name="applicability" defaultValue={draft.applicability??"Needs review"}>{["Needs review","Required","Not applicable"].map(s=><option key={s}>{s}</option>)}</select></label>
        <label className="field">Active admin owner email<input type="email" name="ownerEmail" required defaultValue={draft.ownerEmail}/></label>
        <label className="field">Effective from<input name="effectiveFrom" type="date" required defaultValue={draft.effectiveFrom}/></label><label className="field">Effective through (optional)<input name="effectiveThrough" type="date" defaultValue={draft.effectiveThrough}/></label>
-       <label className="field">Internal cadence<select name="cadence" defaultValue={draft.cadence??"Monthly"}>{["Monthly","Quarterly","Annual"].map(s=><option key={s}>{s}</option>)}</select></label>
+       <label className="field">Internal cadence<select name="cadence" value={cadence}
+         onChange={event=>setCadence(event.target.value as ObligationDraft["cadence"])}>{["Monthly","Quarterly","Annual"].map(s=><option key={s}>{s}</option>)}</select></label>
+       {cadence==="Annual"&&<label className="field">Annual period starts<select name="annualStartMonth" defaultValue={draft.annualStartMonth??""}>
+         <option value="">January assumed · confirm if needed</option>
+         {months.map((month,index)=><option key={month} value={index+1}>{month}</option>)}
+       </select></label>}
        <label className="field">Reporting workbench<select name="preparation" defaultValue={draft.preparation??""}>
          <option value="">Internal review only</option><option>Mortgage Call Report</option>
        </select></label>
@@ -221,6 +231,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
                <a className="underline" href={period.stateBasis.sourceUrl} target="_blank" rel="noreferrer">{period.stateBasis.title}</a>
              </p>}
              {period.filingStatus && <p>External filing · {period.filingStatus}</p>}
+             {period.reportingBasis && <p>{period.reportingBasis.route} · {period.reportingBasis.nominalDueOn ? `Nominal filing date ${dateLabel(period.reportingBasis.nominalDueOn)}` : "Filing date needs review"}<br />{period.reportingBasis.review}</p>}
              {period.stateBasisChanged && <p>Reporting basis needed review when recorded.</p>}</div>
            {period.review ?
              <Button size="sm" variant="outline" id={`obligation-review-${period.review.itemId}`} aria-label={`Open review item for ${period.period}`} disabled={busy}

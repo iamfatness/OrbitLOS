@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { shiftReportDate } from "./report-date-range";
 
 export const obligationPlanningNotice = "Internal planning only; statutory applicability and lawyer approval remain unverified.";
 const note = z.string().trim().min(5).max(1500);
@@ -11,6 +12,7 @@ export const obligationDraft = z.strictObject({
   effectiveFrom: z.iso.date(), effectiveThrough: z.union([z.iso.date(), z.literal("")]),
   preparation: z.literal("Mortgage Call Report").optional(),
   cadence: z.enum(["Monthly", "Quarterly", "Annual"]), internalTargetDay: z.number().int().min(1).max(31),
+  annualStartMonth: z.int().min(1).max(12).optional(),
   ownerEmail: z.email(),
 }).superRefine((value, ctx) => {
   if (value.preparation && value.cadence !== "Quarterly")
@@ -19,13 +21,21 @@ export const obligationDraft = z.strictObject({
     ctx.addIssue({ code: "custom", path: ["effectiveThrough"], message: "End date precedes effective date." });
   if (value.applicability !== "Needs review" && value.reviewerEvidence.length < 5)
     ctx.addIssue({ code: "custom", path: ["reviewerEvidence"], message: "Record internal reviewer evidence; this is not lawyer approval." });
+  if (value.annualStartMonth !== undefined && value.cadence !== "Annual")
+    ctx.addIssue({ code: "custom", path: ["annualStartMonth"], message: "A fiscal start month applies to annual periods." });
 });
 const scope = { entityId: z.uuid() };
 const change = { requestId: z.uuid() };
+const companyRenewals = [
+  "REQ-MI-LICENSING-FIRST-RENEW", "REQ-MI-LICENSING-SECOND-RENEW",
+  "REQ-TX-LICENSING-CO-RENEW", "REQ-TX-LICENSING-BANKER-RENEW",
+];
+export const isObligationStateSource = (key: string) =>
+  /^REQ-[A-Z]{2}-REPORTING-[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(key) || companyRenewals.includes(key);
 export const obligationStateReference = z.strictObject({
   jurisdiction: z.string().regex(/^[A-Z]{2}$/),
   revision: z.number().int().positive(),
-  sourceKey: z.string().regex(/^REQ-[A-Z]{2}-REPORTING-[A-Z0-9]+$/).max(30),
+  sourceKey: z.string().max(30).refine(isObligationStateSource),
 });
 export const obligationStateSource = obligationStateReference.extend({
   title: z.string(), authority: z.string(), sourceUrl: z.url(),
@@ -85,13 +95,14 @@ export const obligationRequest = z.discriminatedUnion("operation", [
 ]);
 export type ObligationRequest = z.infer<typeof obligationRequest>;
 export type ObligationDraft = z.infer<typeof obligationDraft>;
+export const reportingDateBasis = z.object({ route: z.string(), nominalDueOn: z.iso.date().nullable(), review: z.string() });
 
 /** Period is its first month; target is in its final month, UTC, clamped to month end. */
-export function obligationPeriod(period: string, cadence: ObligationDraft["cadence"], targetDay: number) {
+export function obligationPeriod(period: string, cadence: ObligationDraft["cadence"], targetDay: number, annualStartMonth = 1) {
   const [year, month] = period.split("-").map(Number);
   if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(period) || !Number.isInteger(targetDay) || targetDay < 1 || targetDay > 31) return null;
   const months = cadence === "Annual" ? 12 : cadence === "Quarterly" ? 3 : 1;
-  if ((cadence === "Annual" && month !== 1) || (cadence === "Quarterly" && (month - 1) % 3)) return null;
+  if ((cadence === "Annual" && month !== annualStartMonth) || (cadence === "Quarterly" && (month - 1) % 3)) return null;
   const end = new Date(Date.UTC(year, month - 1 + months, 0));
   const date = (value: Date) => value.toISOString().slice(0, 10);
   return { from: `${period}-01`, through: date(end), internalTarget: date(new Date(Date.UTC(year, month - 2 + months, Math.min(targetDay, end.getUTCDate())))) };
@@ -101,3 +112,89 @@ export type ObligationReviewBasis = {
   obligationId: string; period: string; version: number; status: string; sourceUrl: string; authority: string;
   report?: { year: string; quarter: number }; stateBasis?: ObligationStateSource;
 };
+type FilingRule = {
+  route: string; review: string; cadence: "Quarterly" | "Calendar annual" | "Fiscal annual" | "Role-based";
+  due: (through: string, cadence: ObligationDraft["cadence"]) => string | null;
+  from?: string;
+};
+const after = (days: number) => (through: string) => shiftReportDate(through, days);
+const quarter = (route: string, review: string, from?: string): FilingRule => ({ route, review, cadence: "Quarterly", due: after(45), from });
+const financialCondition = (review: string): FilingRule => ({
+  route: "NMLS Financial Condition", cadence: "Role-based",
+  due: (through, cadence) => shiftReportDate(through, cadence === "Quarterly" ? 45 : 90), review,
+});
+const michiganRenewal: FilingRule = {
+  route: "NMLS company renewal", cadence: "Calendar annual", from: "2025-01-01",
+  due: through => `${through.slice(0, 4)}-12-15`,
+  review: "Company authority expires December 31 unless renewed. Confirm the current instructions, fee, bond if applicable and renewed status.",
+};
+const texasRenewal: FilingRule = {
+  route: "NMLS company renewal", cadence: "Calendar annual", from: "2026-01-01", due: through => through,
+  review: "Verify the applicable Texas SML renewal instructions, receipt and current license or registration status.",
+};
+const filings: Partial<Record<string, FilingRule>> = {
+  "REQ-MI-LICENSING-FIRST-RENEW": michiganRenewal,
+  "REQ-MI-LICENSING-SECOND-RENEW": michiganRenewal,
+  "REQ-CA-REPORTING-DRE-MCR": quarter("NMLS Mortgage Call Report", "Confirm DRE company coverage and current NMLS quarterly instructions."),
+  "REQ-CA-REPORTING-BAR": { route: "DRE Business Activity Reporting System", cadence: "Fiscal annual", due: after(90),
+    review: "Confirm the fiscal year end, applicable reporting parts and any calendar adjustment with counsel." },
+  "REQ-CA-REPORTING-CFLANNUAL": { route: "DFPI self-service portal", cadence: "Calendar annual",
+    due: through => `${Number(through.slice(0, 4)) + 1}-03-15`,
+    review: "Verify report-year business-day instructions and the no-business schedules with counsel." },
+  "REQ-CA-REPORTING-CRMLA-ANNUAL": { route: "DFPI self-service portal", cadence: "Calendar annual",
+    due: through => `${Number(through.slice(0, 4)) + 1}-03-01`,
+    review: "Confirm CRMLA authority, the current annual schedules, attestation and applicable no-activity instructions." },
+  "REQ-CA-REPORTING-HOLDEN": { route: "DFPI Holden Act submission", cadence: "Calendar annual",
+    due: through => `${Number(through.slice(0, 4)) + 1}-03-31`,
+    review: "Verify the current form and submission route. Confirm whether to submit loan data or a signed response for HMDA reporting or inactivity." },
+  "REQ-CA-REPORTING-CRMLA-MCR": quarter("NMLS Mortgage Call Report", "Confirm the CRMLA scope and whether other California authorities share this NMLS submission."),
+  "REQ-CA-REPORTING-CRMLA-AUDIT": { route: "NMLS audited financial statement upload", cadence: "Fiscal annual", due: after(105),
+    review: "Confirm the fiscal year end, audited statements and required CPA or trust reconciliation supplements." },
+  "REQ-MI-REPORTING-RMLA": quarter("NMLS Residential Mortgage Loan Activity", "Verify the entity, filing calendar and no-activity evidence."),
+  "REQ-MI-REPORTING-FC": financialCondition("Confirm the calendar-year broker basis or quarterly lender or servicer basis with counsel."),
+  "REQ-MI-REPORTING-GAAP": { route: "NMLS financial statement upload", cadence: "Fiscal annual", due: after(90),
+    review: "Confirm the MU1 fiscal year end, GAAP statement requirements and upload evidence with counsel." },
+  "REQ-FL-REPORTING-MCR": quarter("NMLS Residential Mortgage Loan Activity", "Confirm the Florida license and current NMLS form version and no-activity evidence.", "2024-10-10"),
+  "REQ-FL-REPORTING-BROKER-FC": { route: "NMLS Financial Condition", cadence: "Calendar annual", due: after(90), from: "2024-10-10",
+    review: "Confirm Florida broker status and the applicable NMLS form and calendar with counsel." },
+  "REQ-FL-REPORTING-LENDER-FC": quarter("NMLS Financial Condition", "Confirm Florida lender status and quarterly filing evidence.", "2024-10-10"),
+  "REQ-FL-REPORTING-LENDER-AUDIT": { route: "Florida Office of Financial Regulation", cadence: "Fiscal annual", due: after(120),
+    review: "Use the disclosed fiscal year end for an unchanged year. Confirm the OFR channel and any parent audit or fiscal-year change with counsel." },
+  "REQ-FL-REPORTING-AUDIT-CHANGE": { route: "Florida Office of Financial Regulation", cadence: "Fiscal annual", due: () => null,
+    review: "Confirm the deadline using the prior audit submission date and the 18-month transition provision." },
+  "REQ-TX-REPORTING-MCR": quarter("NMLS Residential Mortgage Loan Activity", "Confirm the company or banker authority and required components."),
+  "REQ-TX-REPORTING-FC": financialCondition("Confirm the calendar-year broker basis or quarterly lender or servicer basis with counsel."),
+  "REQ-TX-REPORTING-SSSF": quarter("NMLS State-Specific Supplemental Form", "Confirm independent processor or underwriter activities, identifiers and current SSSF instructions.", "2026-01-01"),
+  "REQ-TX-REPORTING-OCCC-ANNUAL": { route: "Texas OCCC annual reporting portal", cadence: "Calendar annual", from: "2025-01-01",
+    due: through => `${Number(through.slice(0, 4)) + 1}-05-01`,
+    review: "Confirm Chapter 342 authority and current OCCC schedules. Review partial-year, no-activity and same-entity consolidation requirements." },
+  "REQ-TX-LICENSING-CO-RENEW": texasRenewal,
+  "REQ-TX-LICENSING-BANKER-RENEW": texasRenewal,
+  "REQ-NY-REPORTING-MCR": quarter("NMLS Mortgage Call Report", "Confirm originating entity scope and the limits of any quarterly commitment-data substitution."),
+  "REQ-NY-REPORTING-VOOR": { route: "New York DFS VOOR portal or mail", cadence: "Calendar annual",
+    due: through => through === "2025-12-31" ? "2026-06-22" : null,
+    review: "The verified date covers the 2025 broker report. Confirm the report-year deadline, submission instructions and no-activity treatment." },
+  "REQ-NY-REPORTING-QRES": { route: "Mail to New York DFS Mortgage Banking", cadence: "Quarterly", due: after(30), from: "2025-07-01",
+    review: "Confirm reportable hires, separations, Temporary Authority, notarization and no-change instructions with counsel." },
+  "REQ-CO-REPORTING-MCR": quarter("NMLS Mortgage Call Report", "Confirm registration, current FV7 components and applicable periods."),
+  "REQ-CO-REPORTING-STD-FC": { route: "NMLS Financial Condition", cadence: "Fiscal annual", due: () => null,
+    review: "Reconcile Colorado's standard-section fiscal-year rule with current FV7 and confirm the filing basis with counsel." },
+  "REQ-IL-REPORTING-ACTIVITY": quarter("NMLS Mortgage Call Report",
+    "Verify timely, accurate MCR evidence before relying on the Illinois substitution for listed annual activity reports."),
+};
+
+export function obligationReportingBasis(sourceKey: string | undefined, cadence: ObligationDraft["cadence"],
+  annualStartMonth: number | undefined, period: { from: string; through: string }): z.infer<typeof reportingDateBasis> | undefined {
+  const rule = sourceKey && filings[sourceKey];
+  if (!rule) return undefined;
+  const quarterly = cadence === "Quarterly";
+  const annual = cadence === "Annual";
+  const calendar = annual && (annualStartMonth ?? 1) === 1;
+  const matches = rule.cadence === "Quarterly" ? quarterly : rule.cadence === "Calendar annual" ? calendar :
+    rule.cadence === "Fiscal annual" ? annual && annualStartMonth !== undefined : quarterly || calendar;
+  return {
+    route: rule.route,
+    nominalDueOn: matches && (!rule.from || period.from >= rule.from) ? rule.due(period.through, cadence) : null,
+    review: rule.review,
+  };
+}

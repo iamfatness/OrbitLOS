@@ -4,13 +4,13 @@ import { complianceProgramWork } from "./compliance-program";
 import { stateScopeLicenseSnapshot } from "./compliance-state-basis";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
-import { filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
+import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
   type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
 
 type StateBasis = ObligationStateSource & { snapshot: string };
 type StoredDraft = ObligationDraft & { stateBasis?: StateBasis };
-const reportingRequirements = stateRequirementSources.filter(item => item.areaKey.endsWith("-REPORTING"));
+const obligationSources = stateRequirementSources.filter(item => isObligationStateSource(item.source.key));
 const describeStateBasis = ({ jurisdiction, revision, sourceKey, title, authority, sourceUrl }: StateBasis): ObligationStateSource =>
   ({ jurisdiction, revision, sourceKey, title, authority, sourceUrl });
 
@@ -166,7 +166,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       if (version.entitySnapshot !== entitySnapshot ||
         version.licenseSnapshots !== stateScopeLicenseSnapshot(licensesByState.get(String(version.jurisdiction)) ?? [])) return [];
       const savedSources = new Set(JSON.parse(String(version.sourceSnapshots)) as string[]);
-      return reportingRequirements.flatMap(({ source }) => {
+      return obligationSources.flatMap(({ source }) => {
         if (source.jurisdiction !== version.jurisdiction) return [];
         const snapshot = sourceSnapshot(source);
         if (!savedSources.has(snapshot)) return [];
@@ -189,10 +189,10 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       WHERE o.brokerageId=? AND o.entityId=? AND o.obligationId=? ORDER BY o.period DESC LIMIT 51 OFFSET ?`)
       .all(tenant, data.entityId, data.id, data.offset);
     return { kind: "obligationOccurrences", items: rows.slice(0, 50).map(({ workId, month, ...row }) => {
-      const { stateBasis, stateBasisChanged, draft, period } = JSON.parse(String(row.snapshot)) as {
-        stateBasis?: StateBasis; stateBasisChanged?: boolean; draft: ObligationDraft; period: { from: string; through: string };
+      const { stateBasis, stateBasisChanged, draft, period, reportingBasis } = JSON.parse(String(row.snapshot)) as {
+        stateBasis?: StateBasis; stateBasisChanged?: boolean; draft: ObligationDraft; period: { from: string; through: string }; reportingBasis?: ReturnType<typeof obligationReportingBasis>;
       };
-      return { ...row, ownerEmail: draft.ownerEmail, from: period.from, through: period.through,
+      return { ...row, reportingBasis, ownerEmail: draft.ownerEmail, from: period.from, through: period.through,
         filingStatus: row.filingStatus ?? (draft.preparation ? "No confirmation recorded" : undefined), review: typeof workId === "string" && typeof month === "string" ? { entityId: data.entityId, month, itemId: workId } : undefined,
         ...(stateBasis ? { stateBasis: describeStateBasis(stateBasis), stateBasisChanged } : {}) };
     }), more: rows.length > 50, notice: obligationPlanningNotice };
@@ -220,7 +220,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     if (!occurrence) return unavailable;
     const linked = db.prepare("SELECT workId,month FROM compliance_obligation_work WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?")
       .get(tenant,data.entityId,data.id,data.period);
-    const snapshot = JSON.parse(String(occurrence.snapshot)) as {draft:ObligationDraft;stateBasis?:StateBasis;ownerRevision:number;revision:number};
+    const snapshot = JSON.parse(String(occurrence.snapshot)) as {draft:ObligationDraft;stateBasis?:StateBasis;ownerRevision:number;revision:number;
+      reportingBasis?: ReturnType<typeof obligationReportingBasis> };
     const owner = active(snapshot.draft.ownerEmail);
     if (!linked && (!owner || (owner.accessRevision ?? 0) !== snapshot.ownerRevision))
       return {error:"The period's original owner is unavailable. Review the period and assign manual monthly work to a current admin."};
@@ -229,10 +230,12 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     if (!linked) {
       const requestId = crypto.randomUUID();
       const stateNote = snapshot.stateBasis ? ` State scope version ${snapshot.stateBasis.revision}, ${snapshot.stateBasis.sourceKey}.` : "";
+      const reporting = snapshot.reportingBasis;
+      const routeNote = reporting ? ` Filing route: ${reporting.route}.${reporting.nominalDueOn ? ` Nominal date: ${reporting.nominalDueOn}.` : ""} ${reporting.review}` : "";
       const result = complianceProgramWork(db,{operation:"schedule",requestId,entityId:data.entityId,month,
         title:snapshot.draft.title,category:"Management review",ownerEmail:snapshot.draft.ownerEmail,
         internalTarget:String(occurrence.internalTarget),instructions:
-          `Period ${data.period}; obligation version ${snapshot.revision}. ${String(occurrence.status)}. Review applicability, evidence and next steps.${stateNote} Source: ${snapshot.draft.sourceUrl}`.slice(0,1500)},staff,roster,now);
+          `Period ${data.period}; obligation version ${snapshot.revision}. ${String(occurrence.status)}. Review applicability, evidence and next steps.${stateNote}${routeNote} Source: ${snapshot.draft.sourceUrl}`.slice(0,1500)},staff,roster,now);
       if ("error" in result) return result;
       workId=String(db.prepare("SELECT id FROM compliance_program_events WHERE brokerageId=? AND requestId=?").get(tenant,requestId)!.id);
       db.prepare("INSERT INTO compliance_obligation_work VALUES (?,?,?,?,?,?,?)").run(tenant,data.entityId,data.id,data.period,workId,month,now);
@@ -259,7 +262,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const reference = data.stateReference;
     const stateBasis = reference ? stateSources().find(source => source.jurisdiction === reference.jurisdiction &&
       source.revision === reference.revision && source.sourceKey === reference.sourceKey) : existingBasis;
-    if (reference && !stateBasis) return { error: "The state reporting source changed. Refresh sources or save a current state scope." };
+    if (reference && !stateBasis) return { error: "The state obligation source changed. Refresh sources or save a current state scope." };
     const draft = stateBasis ? { ...data.draft, sourceUrl: stateBasis.sourceUrl, authority: stateBasis.authority, stateBasis } : data.draft;
     const revision = data.expectedRevision + 1;
     db.prepare("INSERT INTO compliance_obligation_versions VALUES (?,?,?,?,?,?,?,?)").run(tenant, data.entityId, data.id, revision,
@@ -270,7 +273,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   const { stateBasis, ...draft } = JSON.parse(String(latest.draft)) as StoredDraft;
   const owner = active(draft.ownerEmail);
   if (!owner || (owner.accessRevision ?? 0) !== latest.ownerRevision) return { error: "Review the unavailable owner and save a new version before generation." };
-  const period = obligationPeriod(data.period, draft.cadence, draft.internalTargetDay);
+  const period = obligationPeriod(data.period, draft.cadence, draft.internalTargetDay, draft.annualStartMonth);
   if (!period) return { error: "Choose the first month of the internal cadence period." };
   if (period.through < draft.effectiveFrom || (draft.effectiveThrough && period.from > draft.effectiveThrough))
     return { error: "This internal period falls outside the version's effective dates." };
@@ -279,11 +282,15 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   if (existing) return record({ kind: "obligationOccurrence", occurrence: existing, reused: true, notice: obligationPlanningNotice });
   const partial = draft.effectiveFrom > period.from || Boolean(draft.effectiveThrough && draft.effectiveThrough < period.through);
   const stateBasisChanged = Boolean(stateBasis && !stateSources().some(source => matchesStateBasis(source, stateBasis)));
-  const status = draft.applicability === "Needs review" || partial || stateBasisChanged ? "Applicability review gap" :
+  const reportingBasis = obligationReportingBasis(stateBasis?.sourceKey, draft.cadence, draft.annualStartMonth, period);
+  const lateTarget = Boolean(reportingBasis?.nominalDueOn && period.internalTarget > reportingBasis.nominalDueOn);
+  if (reportingBasis && lateTarget) reportingBasis.review += " The internal target falls after the nominal filing date. Review the target.";
+  const status = draft.applicability === "Needs review" || partial || stateBasisChanged ||
+    (reportingBasis && (!reportingBasis.nominalDueOn || lateTarget) && draft.applicability !== "Not applicable") ? "Applicability review gap" :
     draft.applicability === "Not applicable" ? "Internal exclusion review recorded" : "Internal preparation planned";
   const snapshot = JSON.stringify({ draft, revision: latest.revision, reviewer: latest.reviewer, reviewedAt: latest.reviewedAt,
     ownerRevision: latest.ownerRevision, period, partialEffectivePeriod: partial,
-    ...(stateBasis ? { stateBasis, stateBasisChanged } : {}), notice: obligationPlanningNotice });
+    ...(stateBasis ? { stateBasis, stateBasisChanged } : {}), ...(reportingBasis ? { reportingBasis } : {}), notice: obligationPlanningNotice });
   db.prepare("INSERT INTO compliance_obligation_occurrences VALUES (?,?,?,?,?,?,?,?,?,?)")
     .run(tenant, data.entityId, data.id, data.period, Number(latest.revision), status, period.internalTarget, snapshot, staff.email, now);
   return record({ kind: "obligationOccurrence", occurrence: { brokerageId: tenant, entityId: data.entityId, obligationId: data.id,
