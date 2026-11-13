@@ -1,6 +1,23 @@
 import { z } from "zod";
+import { reviewStateAdvertising, stateAdvertisingEvidence } from "./advertising-state-review";
 
-export const advertisingStates = ["MI"] as const;
+export const advertisingStates = ["MI", "OH", "IN", "IL", "WI", "TX", "FL", "NY", "CO", "CA"] as const;
+export const advertisingZones = {
+  MI: ["America/Detroit", "America/Menominee"],
+  OH: ["America/New_York"],
+  IN: ["America/Indiana/Indianapolis", "America/Chicago"],
+  IL: ["America/Chicago"],
+  WI: ["America/Chicago"],
+  TX: ["America/Chicago", "America/Denver"],
+  FL: ["America/New_York", "America/Chicago"],
+  NY: ["America/New_York"],
+  CO: ["America/Denver"],
+  CA: ["America/Los_Angeles"],
+} as const;
+export type AdvertisingState = typeof advertisingStates[number];
+export const advertisingStateNames: Record<AdvertisingState, string> = {
+  MI: "Michigan", OH: "Ohio", IN: "Indiana", IL: "Illinois", WI: "Wisconsin", TX: "Texas", FL: "Florida", NY: "New York", CO: "Colorado", CA: "California",
+};
 export const advertisingChannels = ["Website", "Social media", "Email", "Text message", "Print", "Audio or video", "Script", "Other"] as const;
 const reference = z.string().trim().min(4).max(300);
 const date = z.iso.date().refine(value => value >= "1900-01-01" && value <= "9990-12-31");
@@ -18,7 +35,7 @@ export const advertisingFacts = z.strictObject({
   audience: reference,
   creative,
   reviewedOn: date,
-  zone: z.enum(["America/Detroit", "America/Menominee"]),
+  zone: z.enum(["America/Detroit", "America/Menominee", "America/New_York", "America/Indiana/Indianapolis", "America/Chicago", "America/Denver", "America/Los_Angeles"]),
   scopeReference: reference,
   mortgageScope: z.enum(["First mortgage", "Secondary mortgage", "First and secondary", "Unresolved"]),
   creditType: z.enum(["Closed-end", "Open-end", "Unresolved"]),
@@ -30,12 +47,14 @@ export const advertisingFacts = z.strictObject({
     displayed: nmlsId.optional(),
     visibility: z.enum(["Clear", "Unclear", "Unresolved"]),
     reference: reference.optional(),
+    nameReview: assessment.optional(),
   })).max(20),
   sponsoringCompanyDisplayed: nmlsId.optional(),
   stateClaims: assessment.optional(),
   stateTerms: assessment.optional(),
   regulationZ: federalAssessment.optional(),
   regulationN: federalAssessment.optional(),
+  stateEvidence: stateAdvertisingEvidence.optional(),
   archive: z.strictObject({
     applies: choice,
     scopeReference: reference.optional(),
@@ -89,9 +108,10 @@ export type AdvertisingFinding = {
   sources: { label: string; url: string }[];
 };
 
-export function evaluateMichiganAdvertising(facts: AdvertisingFacts, sponsorId: string) {
+export function evaluateAdvertising(jurisdiction: AdvertisingState, facts: AdvertisingFacts, sponsorId: string, today: string) {
   const findings: AdvertisingFinding[] = [];
-  const sources = Object.values(authority);
+  const state = jurisdiction === "MI" ? undefined : reviewStateAdvertising(jurisdiction, facts, sponsorId, today);
+  const sources = state ? [...state.sources, authority.closedEnd, authority.openEnd, authority.mapClaims, authority.mapArchive] : Object.values(authority);
   const add = (code: string, status: AdvertisingFinding["status"], message: string,
     ...rules: AdvertisingFinding["sources"]) => findings.push({ code, status, message, sources: rules });
   function assess(code: string, subject: string, result: { result: string } | undefined,
@@ -100,29 +120,32 @@ export function evaluateMichiganAdvertising(facts: AdvertisingFacts, sponsorId: 
     else if (result.result === "Concern") add(code, "Review concern", `A concern was recorded for ${subject}.`, ...rules);
   }
 
-  const stateRules = facts.mortgageScope === "First mortgage" ? [authority.first] :
-    facts.mortgageScope === "Secondary mortgage" ? [authority.secondary] : [authority.first, authority.secondary];
-  if (facts.mortgageScope === "Unresolved") add("mortgage-scope", "Evidence gap", "Confirm first or secondary mortgage scope.", ...stateRules);
-  assess("state-claims", "the claims and overall impression of the advertisement", facts.stateClaims,
-    facts.originatorAdvertising === "Yes" ? [...stateRules, authority.originatorClaims] : stateRules);
-  if (facts.specificTerms === "Unresolved") add("state-terms-scope", "Evidence gap", "Confirm whether the advertisement includes specific lending terms.", ...stateRules);
-  if (facts.specificTerms === "Yes") assess("state-terms", "the ability and intent to offer the advertised terms to qualifying applicants",
-    facts.stateTerms, stateRules);
+  if (state) findings.push(...state.findings);
+  else {
+    const stateRules = facts.mortgageScope === "First mortgage" ? [authority.first] :
+      facts.mortgageScope === "Secondary mortgage" ? [authority.secondary] : [authority.first, authority.secondary];
+    if (facts.mortgageScope === "Unresolved") add("mortgage-scope", "Evidence gap", "Confirm first or secondary mortgage scope.", ...stateRules);
+    assess("state-claims", "the claims and overall impression of the advertisement", facts.stateClaims,
+      facts.originatorAdvertising === "Yes" ? [...stateRules, authority.originatorClaims] : stateRules);
+    if (facts.specificTerms === "Unresolved") add("state-terms-scope", "Evidence gap", "Confirm whether the advertisement includes specific lending terms.", ...stateRules);
+    if (facts.specificTerms === "Yes") assess("state-terms", "the ability and intent to offer the advertised terms to qualifying applicants",
+      facts.stateTerms, stateRules);
 
-  if (facts.originatorAdvertising === "Unresolved") add("originator-scope", "Evidence gap", "Confirm whether individual originator advertising is in scope.", authority.originatorId);
-  if (facts.originatorAdvertising === "No" && facts.originators.length) {
-    add("originator-conflict", "Evidence gap", "Reconcile the originator scope with the recorded originators.", authority.originatorId);
-  }
-  if (facts.originatorAdvertising === "Yes") {
-    if (!facts.originators.length) add("originator-list", "Evidence gap", "Record the originators and their identifiers.", authority.originatorId);
-    for (const [index, item] of facts.originators.entries()) {
-      if (!item.expected || !item.reference || item.visibility === "Unresolved")
-        add(`originator-proof-${index}`, "Evidence gap", `${item.name} needs identifier or visibility evidence.`, authority.originatorId);
-      if (!item.displayed || (item.expected && item.displayed !== item.expected) || item.visibility === "Unclear")
-        add(`originator-display-${index}`, "Review concern", `${item.name} has a missing, mismatched or unclear displayed identifier.`, authority.originatorId);
+    if (facts.originatorAdvertising === "Unresolved") add("originator-scope", "Evidence gap", "Confirm whether individual originator advertising is in scope.", authority.originatorId);
+    if (facts.originatorAdvertising === "No" && facts.originators.length) {
+      add("originator-conflict", "Evidence gap", "Reconcile the originator scope with the recorded originators.", authority.originatorId);
     }
-    if (!sponsorId || facts.sponsoringCompanyDisplayed !== sponsorId)
-      add("sponsor-id", "Advisory", "Review the sponsoring company identifier against DIFS guidance.", authority.sponsoringCompany);
+    if (facts.originatorAdvertising === "Yes") {
+      if (!facts.originators.length) add("originator-list", "Evidence gap", "Record the originators and their identifiers.", authority.originatorId);
+      for (const [index, item] of facts.originators.entries()) {
+        if (!item.expected || !item.reference || item.visibility === "Unresolved")
+          add(`originator-proof-${index}`, "Evidence gap", `${item.name} needs identifier or visibility evidence.`, authority.originatorId);
+        if (!item.displayed || (item.expected && item.displayed !== item.expected) || item.visibility === "Unclear")
+          add(`originator-display-${index}`, "Review concern", `${item.name} has a missing, mismatched or unclear displayed identifier.`, authority.originatorId);
+      }
+      if (!sponsorId || facts.sponsoringCompanyDisplayed !== sponsorId)
+        add("sponsor-id", "Advisory", "Review the sponsoring company identifier against DIFS guidance.", authority.sponsoringCompany);
+    }
   }
   if (facts.creditType === "Unresolved") add("credit-type", "Evidence gap", "Identify the credit type for the Regulation Z review.", authority.closedEnd, authority.openEnd);
   else assess("regulation-z", "available terms, triggered disclosures and prohibited representations under Regulation Z", facts.regulationZ,
@@ -148,5 +171,7 @@ export function evaluateMichiganAdvertising(facts: AdvertisingFacts, sponsorId: 
     add("same-day-review", "Evidence gap", "Review and first use share a date. Confirm their order from the source records.");
   else if (facts.distribution && (facts.distribution.firstOn < facts.reviewedOn || facts.distribution.sameDayOrder === "Before review"))
     add("review-after-use", "Advisory", "Recorded first use predates this review.");
-  return { ruleRevision: advertisingRuleRevision, sources, findings, federalArchiveReviewDate };
+  return { ruleRevision: advertisingRuleRevision, sources, findings, federalArchiveReviewDate,
+    ...(state?.stateArchiveReviewDate ? { stateArchiveReviewDate: state.stateArchiveReviewDate } : {}),
+    ...(state?.websiteUpdateDue ? { websiteUpdateDue: state.websiteUpdateDue } : {}) };
 }

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { advertisingRuleRevision, evaluateMichiganAdvertising, type AdvertisingFacts, type AdvertisingReviewRequest } from "./advertising-review-model";
+import { advertisingRuleRevision, advertisingZones, evaluateAdvertising, type AdvertisingFacts, type AdvertisingReviewRequest } from "./advertising-review-model";
 import type { ProgramEntity } from "./compliance-program-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -7,7 +7,7 @@ import type { Store } from "./store";
 const unavailable = { error: "Advertising evidence is available to pilot owners for a recorded legal entity." };
 const changed = { error: "This advertising record changed. Reload its latest evidence before saving." };
 const pageSize = 20;
-type Review = ReturnType<typeof evaluateMichiganAdvertising>;
+type Review = ReturnType<typeof evaluateAdvertising>;
 type Stored = { revision: number; facts: string; review: string; entitySnapshot: string; creativeDigest: string;
   savedAt: string; actorName: string; correction: string | null };
 
@@ -87,13 +87,20 @@ export function advertisingReviewWork(db: Store, input: AdvertisingReviewRequest
   if ((head?.revision ?? 0) !== input.expectedRevision) return changed;
   if (head && !input.correction) return { error: "Record the reason for this evidence correction." };
   const facts = input.facts;
+  const zones: readonly AdvertisingFacts["zone"][] = advertisingZones[input.jurisdiction];
+  if (!zones.includes(facts.zone)) return { error: "Choose a review time zone for the selected state." };
+  if (facts.stateEvidence && facts.stateEvidence.jurisdiction !== input.jurisdiction)
+    return { error: "The state evidence must match the selected jurisdiction." };
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: facts.zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
-  if ([facts.reviewedOn, facts.distribution?.firstOn, facts.distribution?.finalOn].some(value => value && value > today))
+  const website = facts.stateEvidence?.jurisdiction === "OH" ? facts.stateEvidence.website : undefined;
+  if (website?.updatedOn && (!website.outdatedOn || website.updatedOn < website.outdatedOn))
+    return { error: "Record the outdated date on or before the website update date." };
+  if ([facts.reviewedOn, facts.distribution?.firstOn, facts.distribution?.finalOn, website?.outdatedOn, website?.updatedOn].some(value => value && value > today))
     return { error: "Record only review and distribution events that have occurred." };
   const digest = digestCreative(facts.creative);
   if (head && (digest !== head.creativeDigest || facts.creative.kind !== (JSON.parse(head.facts) as AdvertisingFacts).creative.kind))
     return { error: "Save changed creative as a new advertising record. Corrections preserve the original creative and its evidence." };
-  const review = evaluateMichiganAdvertising(facts, entity.nmls);
+  const review = evaluateAdvertising(input.jurisdiction, facts, entity.nmls, today);
   db.prepare(`INSERT INTO compliance_advertising_versions
     (brokerageId,entityId,jurisdiction,adId,revision,title,channel,facts,review,entitySnapshot,creativeDigest,
      savedAt,actorName,actorEmail,actorRevision,correction,requestId,request) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
