@@ -1,3 +1,4 @@
+import { readIllinoisRecordkeepingExport } from "./illinois-recordkeeping";
 import { readTexasRecordkeepingExport } from "./texas-recordkeeping";
 import { readFloridaRecordkeepingExport } from "./florida-recordkeeping";
 import { readColoradoRecordkeepingExport } from "./colorado-recordkeeping";
@@ -77,6 +78,9 @@ export function retentionAuditWork(db:Store, command:Command, staff:WorkspaceSta
     const californiaDfpi=version===null?readCaliforniaDfpiExport(db,staff.brokerage.id,null,exportLimit+1):undefined;
     if ((californiaDreRecordkeeping?.length ?? 0)>exportLimit || (californiaDfpi?.length ?? 0)>exportLimit)
       return {error:"This export exceeds 1,000 California evidence versions. Choose a policy version or export the selected loan."};
+    const illinoisRecordkeeping=version===null?readIllinoisRecordkeepingExport(db,staff.brokerage.id,null,exportLimit+1):undefined;
+    if ((illinoisRecordkeeping?.length ?? 0)>exportLimit)
+      return {error:"This export exceeds 1,000 Illinois evidence versions. Choose a policy version or export the selected loan."};
     const texasRecordkeeping=version===null?readTexasRecordkeepingExport(db,staff.brokerage.id,null,exportLimit+1):undefined;
     if ((texasRecordkeeping?.length ?? 0)>exportLimit)
       return {error:"This export exceeds 1,000 Texas evidence versions. Choose a policy version or export the selected loan."};
@@ -91,7 +95,8 @@ export function retentionAuditWork(db:Store, command:Command, staff:WorkspaceSta
       ...(californiaDreRecordkeeping?.length ? {californiaDreRecordkeeping} : {}), ...(californiaDfpi?.length ? {californiaDfpi} : {}),
       ...(coloradoRecordkeeping?.length ? {coloradoRecordkeeping} : {}),
       ...(floridaRecordkeeping?.length ? {floridaRecordkeeping} : {}),
-      ...(texasRecordkeeping?.length ? {texasRecordkeeping} : {})},null,2);
+      ...(texasRecordkeeping?.length ? {texasRecordkeeping} : {}),
+      ...(illinoisRecordkeeping?.length ? {illinoisRecordkeeping} : {})},null,2);
     accessEvent(db,staff,"Prepared retention audit export",version===null?"All policies":`Policy version ${version}`,now);
     return {kind:"retentionAuditExport",json};
   }

@@ -1252,3 +1252,205 @@ test("New York application log preserves referrals, fees and denial evidence acr
  assert.equal(voided.versions[0].voided,true);
  assert.equal(request({operation:"export",from:listing.from,through:listing.through}).entries,0);
 });
+
+test("Illinois application files preserve outcomes, digital checks and exact evidence across owner exports", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {auditRetentionExport,reviewRetentionExport,retentionExportResponse}=await import("../src/lib/loan-retention-export.ts");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {strFromU8,unzipSync}=await import("fflate");
+ const {db,staff,capture}=ownerFixture(t);
+ const tenant=staff.brokerage.id, now="2026-11-12T16:00:00.000Z";
+ initializeStore(db,false);
+ db.exec("INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Borrower','','','Borrower')");
+ const addLoan=db.prepare("INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince) VALUES (?,'borrower','LO','',1,'Purchase',?,'2026-11-11')");
+ const addApp=db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES (?,?, '2027-01-01',?, '2026-11-12')");
+ for(const [id,state,stage] of [["closed"," il ","Funded"],["terminated","IL","Processing"],["pending","IL","Processing"],["outside","MI","Processing"]]){
+  addLoan.run(id,stage);
+  addApp.run(id,id,JSON.stringify({propertyLocation:{state}}));
+ }
+ db.exec(`INSERT INTO closing_progress (loanId,fundingDate) VALUES ('closed','2022-06-06');
+   INSERT INTO past_client_profiles (loanId,closingDate) VALUES ('closed','2022-06-03');
+   UPDATE loans SET disposition='Withdrawn',dispositionDate='2024-03-04' WHERE id='terminated'`);
+ const before=capture();
+ const work=(input,actor=staff)=>loanRetentionWork(db,input,actor,tenant,now);
+ const save=(loanId,facts,expected=0)=>({type:"saveIllinoisRecordkeeping",loanId,facts,expected,requestId:crypto.randomUUID(),
+  ...(expected?{correction:"Fictional revised source"}:{})});
+ const read=(loanId,before)=>({type:"illinoisRecordkeepingHistory",loanId,before});
+ const available=()=>Object.fromEntries(work({type:"list",heldOnly:false,search:"",offset:0}).loans.map(row=>[row.id,row.canReviewIllinois]));
+ const event=(on)=>({on,reference:"Fictional dated source"});
+ const item={status:"On file",reference:"Fictional document reference"};
+ const absent={status:"No document generated",reference:"Fictional file history documenting no appraisal"};
+ const facts={activity:"Brokerage services used",activityReference:"Fictional entity and role",
+  risk:"Standard",riskReference:"Fictional reviewed standard classification",outcome:{status:"Closed",...event("2022-06-03")},
+  documents:{agreement:item,borrowerInformation:absent,appraisal:absent},
+  archive:{format:"Digital",location:"Fictional secured archive",reproduction:event("2026-11-11"),
+   conversion:{status:"Paper converted",batches:[{...event("2022-06-03"),method:"Fictional verified scan",originals:"Fictional original in paper custody"}]}}};
+ assert.match(work(save("outside",facts)).error,/Illinois loan/);
+ assert.deepEqual(available(),{closed:true,outside:false,pending:true,terminated:true});
+ db.prepare("INSERT INTO call_report_facts VALUES ('outside',?,1)").run(JSON.stringify({state:" il "}));
+ assert.equal(available().outside,true);
+ assert.equal(work(read("outside")).targetChanged,false);
+ db.prepare("DELETE FROM call_report_facts WHERE loanId='outside'").run();
+ assert.match(work(save("closed",facts),{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
+ assert.match(work(save("closed",facts),{...staff,brokerage:{...staff.brokerage,id:"another workspace"}}).error,/pilot owners/);
+ const initial=save("closed",facts);
+ const version1=work(initial);
+ assert.equal(version1.currentFinding.stateReviewDate,"2025-06-03");
+ assert.equal(version1.currentFinding.stateMonths,36);
+ assert.match(restoreBlockers(before,capture()).join(" "),/Loan retention evidence changed/);
+ const gaps=version1.currentFinding.findings.map(finding=>finding.key);
+ for(const key of ["brokerageDisclosure","borrowerInformation","changes"]) assert(gaps.includes(key));
+ assert(!gaps.includes("appraisal"));
+ assert.equal(work(initial).versions.length,1);
+ assert.match(work({...initial,facts:{...facts,risk:"Unresolved"}}).error,/changed/);
+ assert.match(work(save("closed",facts)).error,/changed/);
+ const highRisk={...facts,risk:"High-risk home loan",riskReference:"Fictional reviewed high-risk classification",
+   archive:{...facts.archive,changesPreserved:event("2026-11-12"),reproduction:event("2022-06-02")}};
+ const version2=work(save("closed",highRisk,1));
+ assert.equal(version2.currentFinding.stateReviewDate,"2027-06-03");
+ assert.equal(version2.currentFinding.stateMonths,60);
+ assert(version2.currentFinding.findings.some(finding=>finding.key==="reproduction-date"));
+ assert.equal(version2.versions[1].finding.stateMonths,36);
+ assert.equal(work(read("closed",2)).versions[0].version,1);
+ assert.match(work(save("closed",{...highRisk,archive:{...highRisk.archive,reproduction:event("2026-11-13")}},2)).error,/occurred/);
+ const terminated={...facts,activity:"Origination only",outcome:{status:"Terminated",...event("2024-02-29")},
+  archive:{format:"Paper",location:"Fictional originating office"}};
+ const termination=work(save("terminated",terminated)).currentFinding;
+ assert.equal(termination.stateReviewDate,"2027-02-28");
+ assert(!termination.findings.some(finding=>finding.key==="brokerageDisclosure"));
+ const pending=work(save("pending",{...facts,risk:"Unresolved",riskReference:undefined,outcome:{status:"Pending"}})).currentFinding;
+ assert.equal(pending.stateReviewDate,null);
+ assert.equal(pending.stateMonths,null);
+ db.prepare("UPDATE past_client_profiles SET closingDate='2022-06-04' WHERE loanId='closed'").run();
+ assert.equal(work(read("closed")).currentFinding.stateReviewDate,null);
+ assert.equal(work(read("closed")).versions[0].finding.stateReviewDate,"2027-06-03");
+ db.prepare("INSERT INTO call_report_facts VALUES ('closed',?,1)").run(JSON.stringify({state:"MI"}));
+ assert.equal(work(read("closed")).currentFinding.findings[0].key,"state");
+ const audit=JSON.parse(work({type:"exportRetentionAudit",policyVersion:null}).json);
+ assert.equal(audit.illinoisRecordkeeping.length,4);
+ const reviewed=reviewRetentionExport(db,staff,tenant,"closed");
+ const zip=await retentionExportResponse(undefined,tenant,reviewed,async fingerprint=>auditRetentionExport(db,staff,tenant,"closed",fingerprint));
+ const manifest=JSON.parse(strFromU8(unzipSync(new Uint8Array(await zip.arrayBuffer()))["manifest.json"]));
+ assert.deepEqual(manifest.illinoisRecordkeeping.map(v=>[v.version,v.finding.stateMonths]),[[2,60],[1,36]]);
+ assert.deepEqual(manifest.illinoisRecordkeeping[1].facts.archive.conversion.batches,facts.archive.conversion.batches);
+ db.prepare("UPDATE applications SET draft=? WHERE loanId='closed'").run(JSON.stringify({propertyLocation:{state:"WI"}}));
+ assert.equal(available().closed,true);
+ assert.equal(work(read("closed")).targetChanged,true);
+ assert.match(work(save("closed",facts,2)).error,/Illinois loan/);
+});
+
+test("Illinois loan log keeps the product-specific fields, rolling high-risk population and exact owner-scoped history", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {strFromU8,unzipSync}=await import("fflate");
+ const {db,staff,capture}=ownerFixture(t);
+ const tenant=staff.brokerage.id, now="2026-11-12T16:00:00.000Z";
+ initializeStore(db,false);
+ const entityId=crypto.randomUUID(), second=crypto.randomUUID(), foreign=crypto.randomUUID();
+ const entity=db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'004312','Fictional scope',?)");
+ for(const [workspace,id,name] of [[tenant,entityId,"Illinois Fictional Entity"],[tenant,second,"Second Fictional Entity"],["other",foreign,"Outside Brokerage"]])
+  entity.run(workspace,id,name,now);
+ const before=capture();
+ db.exec("INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Linked Borrower','','','Borrower')");
+ const add=db.prepare("INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince) VALUES (?,'borrower','LO','',1,'Purchase','Processing','2026-11-11')");
+ const app=db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES (?,?, '2027-01-01',?, '2026-11-12')");
+ for(const [id,state] of [["il","IL"],["conflict","WI"],["outside","MI"]]){
+  add.run(id);app.run(id,id,JSON.stringify({propertyLocation:{state}}));
+ }
+ db.prepare("INSERT INTO call_report_facts VALUES ('conflict',?,1)").run(JSON.stringify({state:"IL",receivedDate:"2026-07-20"}));
+ const work=(input,target=entityId,actor=staff)=>loanRetentionWork(db,{type:"illinoisLoanLog",entityId:target,input},actor,tenant,now);
+ const make=(facts,settings={})=>({operation:"save",entryId:crypto.randomUUID(),requestId:crypto.randomUUID(),expected:0,
+  loanId:null,status:"Reviewed",facts,evidence:"Fictional documentation from application file",...settings});
+ const persons=[{name:"=1+1 & Fictional Applicant",employer:"First Employer",employerAddress:"First employer address"},
+  {name:"Fictional Joint Applicant",employer:"Second Employer",employerAddress:"Second employer address"}];
+ const base={product:"Brokerage or origination",applicationDate:"2026-07-15",fileNumber:"REF-001",borrowers:persons,
+  propertyAddress:"Fictional Illinois property",purpose:"Refinance",sellers:[],amountCents:21000025,
+  aprPercent:6.125,loanProgram:"Fictional fixed program",originators:[{name:"First Originator",nmls:"000123"},{name:"Second Originator",nmls:"000124"}],
+  processors:["Fictional Processor"],appraisers:[{name:"Fictional Appraiser",license:"IL-001"}],highRisk:"Standard",
+  classificationReference:"Fictional product and high-risk worksheet",outcome:"Closed",closing:{on:"2026-08-05",owner:"Fictional Loan Owner",
+   servicer:"Fictional Servicer",closer:"Fictional Closer",closerEmployer:"Fictional Title",location:"Fictional Chicago closing location"},exceptions:{}};
+ const candidates={operation:"candidates",search:"",offset:0};
+ assert.match(work(candidates,foreign).error,/legal entity/);
+ assert.match(work(candidates,entityId,{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
+ assert.deepEqual(work(candidates).items.map(item=>item.loanId),["conflict","il"]);
+ assert.match(work(make(base,{loanId:"outside"})).error,/lacks a recorded Illinois/);
+ assert.match(work(make(base,{loanId:"conflict"})).error,/property and reporting states/);
+ assert.match(work(make({...base,originators:[{name:"Missing ID"}]})).error,/Originator names and NMLS/);
+ const initial=make(base,{loanId:"il"});
+ assert.equal(work(initial).versions[0].version,1);
+ assert.equal(work(initial).versions.length,1);
+ assert.match(work({...initial,evidence:"Changed retry evidence"}).error,/changed/);
+ assert.match(work(make({...base,fileNumber:"REF-NEW"},{loanId:"il"}),second).error,/already matches/);
+ assert.match(work(make({...base,fileNumber:" ref-001 "})).error,/already matches/);
+ assert.deepEqual(work(candidates).items.map(item=>item.loanId),["conflict"]);
+ const high={...base,borrowers:[{...persons[1],name:"Fictional 60-month Boundary"}],applicationDate:"2021-11-12",fileNumber:"RISK-1",
+  outcome:"Rejected",closing:undefined,highRisk:"High risk"};
+ assert.equal(work(make(high)).versions[0].facts.highRisk,"High risk");
+ assert.equal(work(make({...high,applicationDate:"2021-11-11",fileNumber:"RISK-OLD",borrowers:[{...persons[1],name:"Fictional Older Risk"}]})).kind,"illinoisLogHistory");
+ assert.equal(work(make({...high,applicationDate:"2026-07-18",fileNumber:"RISK-CURRENT",
+  borrowers:[{...persons[1],name:"Fictional Current High Risk"}]})).kind,"illinoisLogHistory");
+ const reverse={...base,product:"Reverse mortgage",applicationDate:"2026-07-02",fileNumber:"REV-001",
+  borrowers:[{name:"Fictional Reverse Borrower",age:74},{name:"Fictional Reverse Co-borrower",age:72}],
+  outcome:"Unresolved",closing:undefined,highRisk:undefined,reverse:{lumpSumCents:4500025,lineOfCreditCents:5200000,
+    appraisedCents:30000000,loanToValue:49.25,counseling:"Yes",counselingAgency:"Fictional Housing Agency",hudApproved:"Yes"},
+  appraisers:[{name:"Fictional Reverse Appraiser"}]};
+ assert.match(work(make({...reverse,reverse:{...reverse.reverse,hudApproved:undefined}})).error,/agency and HUD approval/);
+ assert.equal(work(make(reverse)).versions[0].facts.borrowers[1].age,72);
+ const shared={...base,product:"Shared appreciation agreement",applicationDate:"2026-06-01",fileNumber:"SAA-001",
+  borrowers:[{name:"Fictional Shared Appreciation Borrower"}],purpose:"Other",aprPercent:undefined,loanProgram:undefined,highRisk:undefined,
+  shared:{startingValueCents:39000000,startingValueMethod:"Fictional appraised starting value",sharePercent:22.5,
+    counselingOn:"2026-07-02",counselingProvider:"Fictional HUD-approved provider"},exceptions:{seller:"Fictional title record shows no seller"}};
+ assert.match(work(make({...shared,applicationDate:"2026-05-31"})).error,/rule transition/);
+ assert.equal(work(make(shared)).kind,"illinoisLogHistory");
+ const draft=make({...base,product:"Unresolved",applicationDate:undefined,borrowers:[{name:"Fictional Undated Application"}],
+  fileNumber:"DRAFT-1",outcome:"Pending",closing:undefined,highRisk:undefined},{status:"Draft",loanId:"conflict"});
+ assert.equal(work(draft).versions[0].status,"Draft");
+ assert.equal(work(candidates).items[0].draftEntryId,draft.entryId);
+ assert.equal(work(candidates,second).items[0].draftInAnotherEntity,true);
+ assert.equal(work({operation:"list",from:"2026-06-01",through:"2026-11-12",status:"All",product:"Reverse mortgage",search:"reverse",offset:0})
+  .items[0].facts.fileNumber,"REV-001");
+ assert.equal(work({operation:"history",entryId:initial.entryId},second).versions.length,0);
+ const correct=make({...base,closing:{...base.closing,owner:"Fictional Corrected Owner"}},
+  {entryId:initial.entryId,expected:1,loanId:"il",correction:"Fictional creditor record correction"});
+ assert.equal(work(correct).versions[0].version,2);
+ assert.equal(work({operation:"history",entryId:initial.entryId,before:2}).versions[0].facts.closing.owner,"Fictional Loan Owner");
+ assert.match(work(make({...base,applicationDate:"2026-11-13",closing:undefined,outcome:"Pending",fileNumber:"FUTURE"})).error,/already have occurred/);
+ const request={operation:"export",from:"2026-06-01",through:"2026-11-12"};
+ const result=work(request);
+ assert.equal(result.kind,"illinoisLogExport");
+ assert.deepEqual([result.reviewedApplications,result.highRiskApplications,result.incomplete,result.unmatchedCandidates,result.highRiskFrom],
+  [4,2,1,1,"2021-11-12"]);
+ const book=unzipSync(Buffer.from(result.xlsx,"base64"));
+ const sheet=number=>strFromU8(book[`xl/worksheets/sheet${number}.xml`]);
+ assert.match(sheet(1),/t="inlineStr"><is><t xml:space="preserve">=1\+1 &amp; Fictional Applicant/);
+ assert(!sheet(1).includes("<f>"));
+ assert.match(sheet(1),/000123\n000124/);
+ assert.match(sheet(1),/>NA<.*>210000\.25<.*>6\.125<.*Fictional Corrected Owner/s);
+ assert.match(sheet(1),/Fictional Corrected Owner.*Fictional Current High Risk/s);
+ assert.match(sheet(2),/74\n72.*45000\.25.*52000.*49\.25.*Fictional Housing Agency/s);
+ assert.match(sheet(3),/>390000<.*Fictional appraised starting value.*22\.5.*2026-07-02.*Fictional HUD-approved provider/s);
+ assert.match(sheet(4),/Fictional 60-month Boundary.*Fictional Current High Risk/s);
+ assert(!sheet(4).includes("Fictional Older Risk"));
+ assert.match(sheet(5),/Fictional Undated Application.*Reconcile the linked property and reporting states/s);
+ assert.match(sheet(6),/Illinois Fictional Entity.*004312.*2021-11-12/s);
+ assert.equal(work(request,second).reviewedApplications,0);
+ const borrowerFile=loanRetentionWork(db,{type:"saveIllinoisRecordkeeping",loanId:"il",expected:0,requestId:crypto.randomUUID(),
+  facts:{activity:"Brokerage services used",risk:"High-risk home loan",riskReference:"Fictional high-risk analysis",
+   outcome:{status:"Pending"},documents:{},archive:{format:"Unresolved"}}},staff,tenant,now);
+ assert.equal(borrowerFile.kind,"illinoisRecordkeeping");
+ const reconciled=work(request);
+ assert.equal(reconciled.reviewedApplications,3);
+ assert.equal(reconciled.incomplete,2);
+ assert.match(work({operation:"history",entryId:initial.entryId}).versions[0].reviewIssue,/high-risk classification/);
+ db.prepare("UPDATE applications SET draft=? WHERE loanId='il'").run(JSON.stringify({propertyLocation:{state:"WI"}}));
+ const changed=work(request);
+ assert.equal(changed.reviewedApplications,3);
+ assert.equal(changed.incomplete,2);
+ assert.match(work({operation:"history",entryId:initial.entryId}).versions[0].reviewIssue,/lacks a recorded Illinois/);
+ const withdrawal=make(correct.facts,{entryId:initial.entryId,expected:2,loanId:"il",status:"Withdrawn",correction:"Fictional moved out of scope"});
+ assert.equal(work(withdrawal).versions[0].status,"Withdrawn");
+ assert.equal(work(request).incomplete,1);
+ assert.match(restoreBlockers(before,capture()).join(" "),/Loan retention evidence changed/);
+});

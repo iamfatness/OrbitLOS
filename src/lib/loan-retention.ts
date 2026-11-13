@@ -7,6 +7,10 @@ import { texasRecordkeepingRequest } from "./texas-recordkeeping-model";
 import { texasRecordkeepingWork, initializeTexasRecordkeeping, type TexasRecordkeepingResult } from "./texas-recordkeeping";
 import { newYorkApplicationLogRequest } from "./new-york-application-log-model";
 import { initializeNewYorkApplicationLog, newYorkApplicationLogWork, type NewYorkApplicationLogResult } from "./new-york-application-log";
+import { illinoisRecordkeepingRequest } from "./illinois-recordkeeping-model";
+import { initializeIllinoisRecordkeeping, illinoisRecordkeepingWork, type IllinoisRecordkeepingResult } from "./illinois-recordkeeping";
+import { illinoisLoanLogRequest } from "./illinois-loan-log-model";
+import { initializeIllinoisLoanLog, illinoisLoanLogWork, type IllinoisLoanLogResult } from "./illinois-loan-log";
 import { texasLoanLogRequest } from "./texas-loan-log-model";
 import { initializeTexasLoanLog, texasLoanLogWork, type TexasLoanLogResult } from "./texas-loan-log";
 import { initializeFloridaJournal, floridaJournalWork, type FloridaJournalResult } from "./florida-journal";
@@ -37,6 +41,8 @@ const request = z.discriminatedUnion("type", [
   crmlaRegisterRequest,
   floridaJournalRequest,
   texasLoanLogRequest,
+  illinoisLoanLogRequest,
+  ...illinoisRecordkeepingRequest.options,
   newYorkApplicationLogRequest,
   ...texasRecordkeepingRequest.options,
   ...floridaRecordkeepingRequest.options,
@@ -59,6 +65,8 @@ export function initializeLoanRetention(db: Store) {
   initializeCrmlaRegister(db);
   initializeFloridaJournal(db);
   initializeTexasLoanLog(db);
+  initializeIllinoisLoanLog(db);
+  initializeIllinoisRecordkeeping(db);
   initializeNewYorkApplicationLog(db);
   initializeTexasRecordkeeping(db);
   initializeFloridaRecordkeeping(db);
@@ -103,10 +111,10 @@ export function initializeLoanRetention(db: Store) {
 type Hold = { id: string; reference: string; placedAt: string; placedBy: string; releaseReference: string | null;
   releasedAt: string | null; releasedBy: string | null };
 type LoanRow = { id: string; borrower: string; address: string; purpose: string; stage: string; requests: number; pdfs: number;
-  holdId: string | null; propertyState: string | null; canReviewCaliforniaDre: boolean; canReviewCaliforniaDfpi: boolean; canReviewColorado: boolean; canReviewFlorida: boolean; canReviewTexas: boolean };
+  holdId: string | null; propertyState: string | null; canReviewCaliforniaDre: boolean; canReviewCaliforniaDfpi: boolean; canReviewColorado: boolean; canReviewFlorida: boolean; canReviewTexas: boolean; canReviewIllinois: boolean };
 type Work = { kind: "list"; loans: LoanRow[]; total: number; held: number; next: number | null } |
   { kind: "history"; holds: Hold[] } | { kind: "saved"; message: string } | DispositionQueue | RetentionAuditResult |
-  MichiganRetentionResult | MichiganBusinessRecords | CaliforniaDreRecordkeepingResult | CaliforniaDfpiResult | ColoradoRecordkeepingResult | CrmlaRegisterResult | FloridaJournalResult | FloridaRecordkeepingResult | TexasLoanLogResult | NewYorkApplicationLogResult | TexasRecordkeepingResult | { error: string };
+  MichiganRetentionResult | MichiganBusinessRecords | CaliforniaDreRecordkeepingResult | CaliforniaDfpiResult | ColoradoRecordkeepingResult | CrmlaRegisterResult | FloridaJournalResult | FloridaRecordkeepingResult | TexasLoanLogResult | NewYorkApplicationLogResult | TexasRecordkeepingResult | IllinoisLoanLogResult | IllinoisRecordkeepingResult | { error: string };
 export type LoanRetentionResult = Work;
 
 export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceStaff, workspaceId: string, now = new Date().toISOString()): Work {
@@ -129,6 +137,9 @@ export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceSta
     if (data.type === "texasRecordkeepingHistory" || data.type === "saveTexasRecordkeeping")
       return texasRecordkeepingWork(db,data,staff,now);
     if (data.type === "newYorkApplicationLog") return newYorkApplicationLogWork(db,data,staff,now);
+    if (data.type === "illinoisLoanLog") return illinoisLoanLogWork(db,data,staff,now);
+    if (data.type === "illinoisRecordkeepingHistory" || data.type === "saveIllinoisRecordkeeping")
+      return illinoisRecordkeepingWork(db,data,staff,now);
     if (data.type === "texasLoanLog") return texasLoanLogWork(db,data,staff,now);
     if (data.type === "crmlaRegister") return crmlaRegisterWork(db,data,staff,now);
     if (data.type === "retentionAudit" || data.type === "exportRetentionAudit")
@@ -156,20 +167,24 @@ export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceSta
         (EXISTS (SELECT 1 FROM texas_recordkeeping_reviews review WHERE review.brokerageId=? AND review.loanId=loan.id)
           OR EXISTS (SELECT 1 FROM call_report_facts report WHERE report.loanId=loan.id
             AND upper(trim(json_extract(report.facts,'$.state')))='TX')) AS texasHistoryOrReporting,
+        (EXISTS (SELECT 1 FROM illinois_recordkeeping_reviews review WHERE review.brokerageId=? AND review.loanId=loan.id)
+          OR EXISTS (SELECT 1 FROM call_report_facts report WHERE report.loanId=loan.id
+            AND upper(trim(json_extract(report.facts,'$.state')))='IL')) AS illinoisHistoryOrReporting,
         (SELECT count(*) FROM document_requests request WHERE request.loanId=loan.id) AS requests,
         (SELECT count(*) FROM (
           SELECT objectId FROM loan_retention_pdf_references WHERE loanId=loan.id
           UNION SELECT objectId FROM loan_retention_objects WHERE holdId=hold.id
         )) AS pdfs
-        ${source} ORDER BY contact.name COLLATE NOCASE,loan.id LIMIT 16 OFFSET ?`).all(workspaceId, workspaceId, workspaceId, workspaceId, workspaceId, ...args, data.offset) as
-        (Omit<LoanRow, "canReviewCaliforniaDre" | "canReviewCaliforniaDfpi" | "canReviewColorado" | "canReviewFlorida" | "canReviewTexas"> & {dreHistory:number; dfpiHistory:number; californiaReporting:number; coloradoHistoryOrReporting:number; floridaHistoryOrReporting:number; texasHistoryOrReporting:number})[];
+        ${source} ORDER BY contact.name COLLATE NOCASE,loan.id LIMIT 16 OFFSET ?`).all(workspaceId, workspaceId, workspaceId, workspaceId, workspaceId, workspaceId, ...args, data.offset) as
+        (Omit<LoanRow, "canReviewCaliforniaDre" | "canReviewCaliforniaDfpi" | "canReviewColorado" | "canReviewFlorida" | "canReviewTexas" | "canReviewIllinois"> & {dreHistory:number; dfpiHistory:number; californiaReporting:number; coloradoHistoryOrReporting:number; floridaHistoryOrReporting:number; texasHistoryOrReporting:number; illinoisHistoryOrReporting:number})[];
       const held = Number(db.prepare("SELECT count(*) AS n FROM loan_retention_holds WHERE releasedAt IS NULL").get()?.n ?? 0);
-      return { kind: "list", loans: loans.slice(0, 15).map(({dreHistory, dfpiHistory, californiaReporting, coloradoHistoryOrReporting, floridaHistoryOrReporting, texasHistoryOrReporting, ...loan}) => ({
+      return { kind: "list", loans: loans.slice(0, 15).map(({dreHistory, dfpiHistory, californiaReporting, coloradoHistoryOrReporting, floridaHistoryOrReporting, texasHistoryOrReporting, illinoisHistoryOrReporting, ...loan}) => ({
         ...loan, canReviewCaliforniaDre: loan.propertyState === "CA" || Boolean(dreHistory || californiaReporting),
         canReviewCaliforniaDfpi: loan.propertyState === "CA" || Boolean(dfpiHistory || californiaReporting),
         canReviewColorado: loan.propertyState === "CO" || Boolean(coloradoHistoryOrReporting),
         canReviewFlorida: loan.propertyState === "FL" || Boolean(floridaHistoryOrReporting),
         canReviewTexas: loan.propertyState === "TX" || Boolean(texasHistoryOrReporting),
+        canReviewIllinois: loan.propertyState === "IL" || Boolean(illinoisHistoryOrReporting),
       })), total: Number(count), held, next: loans.length > 15 ? data.offset + 15 : null };
     }
     if (!db.prepare("SELECT 1 FROM loans WHERE id=?").get(data.loanId)) return { error: "This loan is unavailable." };

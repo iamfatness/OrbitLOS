@@ -12,6 +12,8 @@ import { FloridaRecordkeeping } from "./florida-recordkeeping";
 import { FloridaJournal } from "./florida-journal";
 import { TexasRecordkeeping } from "./texas-recordkeeping";
 import { NewYorkApplicationLog } from "./new-york-application-log";
+import { IllinoisLoanLog } from "./illinois-loan-log";
+import { IllinoisRecordkeeping } from "./illinois-recordkeeping";
 import { TexasLoanLog } from "./texas-loan-log";
 import { CrmlaRegister } from "./crmla-register";
 import { MichiganBusinessRetention, MichiganRetention } from "./michigan-retention";
@@ -29,7 +31,7 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
 }) {
   const [disposition, setDisposition] = useState(false);
   const [michigan, setMichigan] = useState<LoanRow | "business">();
-  const [recordkeeping, setRecordkeeping] = useState<{loan: LoanRow; authority: "DRE" | "DFPI" | "Colorado" | "Florida" | "Texas"} | "register" | "floridaJournal" | "texasLog" | "newYorkLog">();
+  const [recordkeeping, setRecordkeeping] = useState<{loan: LoanRow; authority: "DRE" | "DFPI" | "Colorado" | "Florida" | "Texas" | "Illinois"} | "register" | "floridaJournal" | "texasLog" | "newYorkLog" | "illinoisLog">();
   const recordkeepingLinks = useRef(new Map<string, HTMLButtonElement>());
   const returnRecordkeeping = useRef<string>(null);
   const dispositionLink = useRef<HTMLButtonElement>(null);
@@ -169,8 +171,9 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
     if (recordkeeping === "register") return <CrmlaRegister brokerageId={brokerageId} onBack={back} />;
     if (recordkeeping === "floridaJournal") return <FloridaJournal brokerageId={brokerageId} onBack={back} />;
     if (recordkeeping === "newYorkLog") return <NewYorkApplicationLog brokerageId={brokerageId} onBack={back} />;
+    if (recordkeeping === "illinoisLog") return <IllinoisLoanLog brokerageId={brokerageId} onBack={back} />;
     if (recordkeeping === "texasLog") return <TexasLoanLog brokerageId={brokerageId} onBack={back} />;
-    const Review = { DRE: CaliforniaDreRecordkeeping, DFPI: CaliforniaDfpiRecordkeeping, Colorado: ColoradoRecordkeeping, Florida: FloridaRecordkeeping, Texas: TexasRecordkeeping }[recordkeeping.authority];
+    const Review = { DRE: CaliforniaDreRecordkeeping, DFPI: CaliforniaDfpiRecordkeeping, Colorado: ColoradoRecordkeeping, Florida: FloridaRecordkeeping, Texas: TexasRecordkeeping, Illinois: IllinoisRecordkeeping }[recordkeeping.authority];
     return <Review brokerageId={brokerageId} loan={{id: recordkeeping.loan.id, label: recordkeeping.loan.borrower}} onBack={back} />;
   }
   if (michigan && !paused) {
@@ -211,6 +214,10 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
         <Button ref={node => { if (node) recordkeepingLinks.current.set("newYorkLog", node); else recordkeepingLinks.current.delete("newYorkLog"); }}
           type="button" variant="outline" className="min-h-11" disabled={locked || !!review} onClick={() => setRecordkeeping("newYorkLog")}>
           New York application log
+        </Button>
+        <Button ref={node => { if (node) recordkeepingLinks.current.set("illinoisLog", node); else recordkeepingLinks.current.delete("illinoisLog"); }}
+          type="button" variant="outline" className="min-h-11" disabled={locked || !!review} onClick={() => setRecordkeeping("illinoisLog")}>
+          Illinois loan log
         </Button>
         {inventory && <Button variant="outline" aria-pressed={selection.heldOnly} disabled={locked || !!review}
           onClick={() => { setNotice(""); load({ ...selection, heldOnly: !selection.heldOnly, offset: 0 }); }}>
@@ -290,15 +297,15 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
             onClick={event => void inspect(loan, loan.holdId ? "release" : "hold", event.currentTarget)}>
             {loan.holdId ? "Release hold" : "Place hold"}
           </Button>
-          {(["DRE", "DFPI", "Colorado", "Florida", "Texas"] as const).map(authority =>
-            ({ DRE: loan.canReviewCaliforniaDre, DFPI: loan.canReviewCaliforniaDfpi, Colorado: loan.canReviewColorado, Florida: loan.canReviewFlorida, Texas: loan.canReviewTexas }[authority]) &&
+          {(["DRE", "DFPI", "Colorado", "Florida", "Texas", "Illinois"] as const).map(authority =>
+            ({ DRE: loan.canReviewCaliforniaDre, DFPI: loan.canReviewCaliforniaDfpi, Colorado: loan.canReviewColorado, Florida: loan.canReviewFlorida, Texas: loan.canReviewTexas, Illinois: loan.canReviewIllinois }[authority]) &&
             <Button key={authority} type="button" variant="outline" className="min-h-11"
               ref={node => {
                 const key = authority + "/" + loan.id;
                 if (node) recordkeepingLinks.current.set(key, node);
                 else recordkeepingLinks.current.delete(key);
               }} disabled={locked || !!review} onClick={() => setRecordkeeping({loan, authority})}>
-              {{ DRE: "California DRE", DFPI: "California DFPI", Colorado: "Colorado", Florida: "Florida", Texas: "Texas" }[authority]} borrower-file review
+              {{ DRE: "California DRE", DFPI: "California DFPI", Colorado: "Colorado", Florida: "Florida", Texas: "Texas", Illinois: "Illinois" }[authority]} borrower-file review
             </Button>)}
           {(!loan.propertyState || loan.propertyState === "MI") && <Button type="button" variant="outline"
             ref={node => { if (node) michiganLinks.current.set(loan.id, node); else michiganLinks.current.delete(loan.id); }}
