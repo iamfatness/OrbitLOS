@@ -60,6 +60,11 @@ export const michiganStatementFormats = [
 ] as const;
 
 export const michiganFilingEvidence = z.strictObject({
+  texasOcccReport: z.strictObject({
+    licenseIdentifier: z.string().trim().min(1).max(100),
+    reportReference: reference,
+    certificationReference: reference,
+  }).optional(),
   michiganStatement: z.strictObject({ format: z.enum(michiganStatementFormats), reference }).optional(),
   deadline: receipt.optional(),
   reconciliation: z.strictObject({ reference, activity: z.enum(["Activity recorded", "No reportable activity"]).optional() }).optional(),
@@ -79,6 +84,8 @@ export function reviewNmlsFiling(evidence: MichiganFilingEvidence, nominalDueOn:
     component === "Texas OCCC annual report";
   const dueOn = basisChanged ? null : evidence.deadline?.on ?? nominalDueOn;
   const gaps: string[] = [];
+  if (component === "Texas OCCC annual report" && !evidence.texasOcccReport)
+    gaps.push("Record the OCCC license identifier, saved report and certification evidence.");
   if (component === "Fiscal-year financial statement" && !evidence.michiganStatement)
     gaps.push("Record the annual financial statement format and supporting reference.");
   if (!evidence.deadline || basisChanged) gaps.push("Verify the component and deadline against the current filing instructions.");

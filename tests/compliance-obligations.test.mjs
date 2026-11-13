@@ -216,10 +216,19 @@ test("California and Texas annual filing evidence preserves original receipts an
   const read = () => f.program({operation:"month",entityId:f.entityId,month:planned.month}).items.find(item=>item.id===planned.workId);
   assert.equal(read().obligation.statePortalFiling,true);
   assert.equal(f.run({operation:"saveMichiganFiling",...target,expected:0,requestId:crypto.randomUUID(),evidence}).version,1);
-  assert.deepEqual(read().filingProgress.gaps,[]);
+  const missingOcccEvidence = "Record the OCCC license identifier, saved report and certification evidence.";
+  assert.deepEqual(read().filingProgress.gaps,jurisdiction==="TX" ? [missingOcccEvidence] : []);
   const amendments = [{on:deadline.on,reference:"Fictional amendment confirmation",reason:"Fictional correction"}];
+  const texasOcccReport = {licenseIdentifier:"SAMPLE-OCCC-001",reportReference:"Fictional saved report",certificationReference:"Fictional certification"};
+  if (jurisdiction === "CA") assert.ok(f.run({operation:"saveMichiganFiling",...target,expected:1,requestId:crypto.randomUUID(),
+   correction:"Fictional reviewed correction",evidence:{...evidence,texasOcccReport}}).error);
   assert.equal(f.run({operation:"saveMichiganFiling",...target,expected:1,requestId:crypto.randomUUID(),
-   correction:"Fictional reviewed correction",evidence:{...evidence,amendments}}).version,2);
+   correction:"Fictional reviewed correction",evidence:{...evidence,amendments,...(jurisdiction==="TX" && {texasOcccReport})}}).version,2);
+  assert.deepEqual(read().filingProgress.gaps,[]);
+  if (jurisdiction === "TX") {
+   assert.deepEqual(f.run(history).versions[0].evidence.texasOcccReport,texasOcccReport);
+   assert.equal(f.run(history).versions[1].evidence.texasOcccReport,undefined);
+  }
   assert.deepEqual(f.run(history).versions[1].evidence.submission,submission);
   assert.ok(f.run({...history,entityId:crypto.randomUUID()}).error);
  }

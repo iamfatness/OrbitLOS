@@ -68,6 +68,11 @@ function FilingForm({ latest, component, nominal, statePortal, reviewableScopeRe
         <Field name="dueOn" label="Reviewed filing deadline" type="date" value={facts?.deadline?.on ?? nominal ?? undefined} />
         <Field name="deadlineReference" label="Deadline evidence reference" value={facts?.deadline?.reference} />
       </EvidenceGroup>
+      {component === "Texas OCCC annual report" && <EvidenceGroup name="texasOcccReport" label="Record OCCC report and certification" recorded={Boolean(facts?.texasOcccReport)}>
+        <label className="field min-w-0">OCCC license identifier<input name="occcLicenseIdentifier" required maxLength={100} defaultValue={facts?.texasOcccReport?.licenseIdentifier} /></label>
+        <Field name="occcReportReference" label="Saved report reference" value={facts?.texasOcccReport?.reportReference} />
+        <Field name="occcCertificationReference" label="Certification evidence reference" value={facts?.texasOcccReport?.certificationReference} />
+      </EvidenceGroup>}
       <EvidenceGroup name="reconciliation" label="Record filing reconciliation" recorded={Boolean(facts?.reconciliation)}>
         {component === "Residential Mortgage Loan Activity" &&
           <Select name="activity" label="Report activity" value={facts?.reconciliation?.activity}
@@ -120,6 +125,9 @@ function FilingSummary({ entry, review = entry.finding }: { entry: Version; revi
     ["Original filing timing", review.summary],
     ["Deadline evidence", evidence.deadline?.reference],
     ["Report activity", evidence.reconciliation?.activity],
+    ["OCCC license identifier", evidence.texasOcccReport?.licenseIdentifier],
+    ["Saved report", evidence.texasOcccReport?.reportReference],
+    ["Certification evidence", evidence.texasOcccReport?.certificationReference],
     ["Financial statement format", evidence.michiganStatement?.format, evidence.michiganStatement?.reference],
     ["Reconciliation evidence", evidence.reconciliation?.reference],
     ["Original submission", evidence.submission?.on, evidence.submission?.reference],
@@ -195,6 +203,11 @@ export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period
       return { on: get(prefix + "-on"), reference: get(prefix + "-reference"), reason: get(prefix + "-reason") };
     });
     const evidence = michiganFilingEvidence.safeParse({
+      texasOcccReport: form.has("texasOcccReport") ? {
+        licenseIdentifier: get("occcLicenseIdentifier"),
+        reportReference: get("occcReportReference"),
+        certificationReference: get("occcCertificationReference"),
+      } : undefined,
       michiganStatement: form.has("michiganStatement") ? { format: get("miStatementFormat"), reference: get("miStatementReference") } : undefined,
       deadline: form.has("deadline") ? { on: get("dueOn"), reference: get("deadlineReference") } : undefined,
       reconciliation: form.has("reconciliation") ? { activity: get("activity") || undefined, reference: get("reconciliationReference") } : undefined,
