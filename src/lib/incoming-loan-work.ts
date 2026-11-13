@@ -65,7 +65,9 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
   const documentArgs = processing ? (team ? [] : [staff.email]) : ownerArgs;
   const leadDocuments = !processing && staff.brokerage.pilot;
   const mockUnderwriting = !processing && fictionalUwmWorkspace(staff);
-  const importEnvironment = processing ? undefined : configuredUwmImportEnvironment(uwmEnv, staff);
+  const uwmEnvironment = configuredUwmImportEnvironment(uwmEnv, staff);
+  const importEnvironment = processing ? undefined : uwmEnvironment;
+  const deliveryEnvironment = processing ? uwmEnvironment : undefined;
   const realtorFinancing = !processing && staff.brokerage.pilot;
   const checkedAt = now.toISOString();
   const letters = !processing ? preapprovalWorkSource(db, staff, now, requireApproval) : undefined;
@@ -95,6 +97,18 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
       AND rejected.id = (SELECT recent.id FROM uwm_operations recent
         WHERE recent.loanId = loan.id AND recent.environment = rejected.environment AND recent.kind = 'import'
         ORDER BY recent.startedAt DESC, recent.rowid DESC LIMIT 1)` : ""}
+    ${deliveryEnvironment ? `UNION ALL
+    SELECT 'document-delivery', request.id, loan.id, contact.name, request.updatedAt, evidence.applicationRevision,
+      CASE request.action WHEN 'upload-document' THEN 'UWM document upload needs verification'
+        WHEN 'attach-documents' THEN 'UWM condition attachment needs verification'
+        ELSE 'UWM underwriting submission needs verification' END,
+      ${team ? "processing.processorName" : "NULL"}, 0, NULL, NULL, NULL, NULL, NULL
+    FROM uwm_live_requests request JOIN loans loan ON loan.id = request.loanId ${contacts}
+    JOIN loan_processing processing ON processing.loanId = loan.id
+    JOIN uwm_request_evidence evidence ON evidence.requestId = request.id
+    WHERE request.environment = ? AND request.state = 'Unknown'
+      AND request.action IN ('upload-document', 'attach-documents', 'submit-documents')
+      AND ${activeProcessingLoan} AND ${scope}` : ""}
     ${mockUnderwriting ? `UNION ALL
     SELECT 'underwriting', attempt.id, loan.id, contact.name, attempt.requestedAt, coalesce(attempt.applicationRevision, 0),
       CASE WHEN json_extract(attempt.result, '$.conflict.detectedAt') IS NOT NULL AND json_extract(attempt.result, '$.conflict.reviewedAt') IS NULL
@@ -132,6 +146,7 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     ORDER BY receivedAt DESC, kind DESC, id DESC LIMIT ?
   ) SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY receivedAt DESC, kind DESC, id DESC`)
     .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(importEnvironment ? [importEnvironment, ...ownerArgs] : []),
+      ...(deliveryEnvironment ? [deliveryEnvironment, ...documentArgs] : []),
       ...(mockUnderwriting ? [...ownerArgs, unconfirmedMockOrder] : []),
       ...(leadDocuments ? [staff.email] : []), ...(realtorFinancing ? [staff.email, ...realtorFinancingDates(checkedAt)] : []), ...documentArgs,
       ...(letters?.args ?? []),

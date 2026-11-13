@@ -69,7 +69,7 @@ button:disabled { cursor: default; }
 .mobile-workspace-label { display: none; }
 .nav-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; border-radius: 8px; padding: 8px; color: #e2daee; text-align: left; font-size: 14px; font-weight: 500; }
 .nav-item svg { flex-shrink: 0; }
-.nav-item:not(:disabled):hover { background: #352849; }
+.nav-item:not(:disabled, .selected):hover { background: #352849; }
 .nav-item.selected { color: #271749; background: var(--orbit-lilac); font-weight: 600; }
 .nav-item:disabled, .shell .brand:disabled, .connection-chip:disabled, .guide-controls .view-toggle button:disabled { opacity: .6; cursor: wait; }
 .sidebar :focus-visible { outline: 2px solid #d9c7ff; outline-offset: 1px; }
@@ -316,6 +316,7 @@ button:disabled { cursor: default; }
 .section-heading, .submission-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 7px; }
 .section-heading h3 { display: flex; gap: 8px; align-items: center; font-size: 18px; font-weight: 600; }
 .processing-panel > .section-heading { flex-wrap: wrap; }
+.incoming-loan-work > .section-heading { flex-wrap: wrap; }
 #processing-handoff { display: grid; gap: 8px; overflow-wrap: anywhere; }
 #processing-handoff > .section-heading, #processing-handoff .application-message { margin: 0; }
 .submission { background: #faf9fd; border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 7px; }

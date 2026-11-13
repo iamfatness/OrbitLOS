@@ -17,7 +17,7 @@ export function readActionCounts(db: Store, staff: WorkspaceStaff | null, broker
     return { error: actionCountsUnavailable };
   }
   const processing = staff.brokerage.role === "LO" ? undefined :
-    readIncomingLoanWorkPage(db, { view: "processing" }, staff, brokerageId, localName, now, countLimit);
+    readIncomingLoanWorkPage(db, { view: "processing" }, staff, brokerageId, localName, now, countLimit, uwmEnv);
   if (processing && "error" in processing) return { error: actionCountsUnavailable };
   if (staff.brokerage.role === "Processor") return { processing: processing?.items.length ?? 0 };
   const incoming = readIncomingLoanWorkPage(db, { view: "today" }, staff, brokerageId, localName, now, countLimit, uwmEnv);

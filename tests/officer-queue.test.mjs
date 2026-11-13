@@ -21,6 +21,10 @@ const { changeProcessingView, readProcessorQueue } = await import("../src/lib/pr
 const { changeConversation, readConversations } = await import("../src/lib/conversations.ts");
 const { readEditableLoan, readLoanHandoff } = await import("../src/lib/editable-loan.ts");
 const { borrowerCommandResult } = await import("../src/lib/applications.ts");
+const { readActionCounts } = await import("../src/lib/workspace-action-counts.ts");
+const { initializeUwmOperations } = await import("../src/lib/uwm-operations.ts");
+const { initializeUwmWebhooks } = await import("../src/lib/uwm-webhooks.ts");
+const { initializeUwmWorkflows } = await import("../src/lib/uwm-workflows.ts");
 const { readIncomingLoanWorkPage } = await import("../src/lib/incoming-loan-work.ts");
 const { readEditableLead } = await import("../src/lib/editable-lead.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
@@ -1934,4 +1938,56 @@ test("manager evidence pagination keeps tied dates stable and omits closed pipel
   assert.equal(countFileExceptions(db, admin, crypto.randomUUID(), new Date(), 100), undefined);
   assert.equal(new Set([...first.rows, ...second.rows].map(({ id }) => id)).size, 24);
   assert.equal(second.next, null);
+});
+
+test("processing routes unconfirmed lender document deliveries to the assigned processor and team count", (t) => {
+  const { db, loan, officer, other } = fixture(t);
+  initializeUwmOperations(db);
+  initializeUwmWebhooks(db);
+  initializeUwmWorkflows(db);
+  const tenant = officer.brokerage.id;
+  const processor = { ...other, brokerage: { ...officer.brokerage, role: "Processor" } };
+  const admin = { ...officer, brokerage: { ...officer.brokerage, role: "Admin" } };
+  const backup = { ...processor, email: "backup@example.test" };
+  const at = "2026-11-09T15:00:00.000Z";
+  const env = { ORBIT_DEPLOYMENT: "stage", UWM_USER_ENVIRONMENT: "stage", UWM_USER_CLIENT_ID: "fixture",
+    UWM_USER_CLIENT_SECRET: "fixture", UWM_TOKEN_ENCRYPTION_KEY: "a".repeat(64) };
+  const assign = db.prepare(`INSERT INTO loan_processing (loanId,processorEmail,processorName,status,note,updatedAt,revision)
+    VALUES (?, ?, ?, 'In processing', '', ?, 1)`);
+  for (const id of ["assigned", "backup", "held", "unassigned"]) {
+    loan(id);
+    if (id !== "unassigned") assign.run(id, id === "backup" ? backup.email : processor.email, processor.name, at);
+  }
+  db.prepare("UPDATE loans SET disposition = 'On hold' WHERE id = 'held'").run();
+  const save = (id, loanId, action, state = "Unknown", environment = "stage") => {
+    db.prepare("INSERT INTO uwm_live_requests VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)")
+      .run(id, loanId, environment, officer.email, action, "digest", state, at, at);
+    db.prepare("INSERT INTO uwm_request_evidence VALUES (?, 2, '{}')").run(id);
+  };
+  save("upload", "assigned", "upload-document");
+  save("attachment", "assigned", "attach-documents");
+  save("submit", "assigned", "submit-documents");
+  save("backup-upload", "backup", "upload-document");
+  save("held-upload", "held", "upload-document");
+  save("unassigned-upload", "unassigned", "upload-document");
+  save("resolved", "assigned", "submit-documents", "Acknowledged");
+  save("other-environment", "assigned", "upload-document", "Unknown", "production");
+  save("other-action", "assigned", "commit-import");
+  const queue = (actor, after, config = env) => readIncomingLoanWorkPage(db, { view: "processing", after },
+    actor, tenant, undefined, new Date(at), 2, config);
+  const first = queue(processor);
+  assert.deepEqual(first.items.map(({ id }) => id), ["upload", "submit"]);
+  assert.equal(first.items[1].revision, 2);
+  assert.equal(first.items[1].title, "UWM underwriting submission needs verification");
+  assert.equal(queue(processor, first.next).items[0].id, "attachment");
+  assert.deepEqual(queue(backup).items.map(({ id }) => id), ["backup-upload"]);
+  assert.ok(queue(officer).error);
+  assert.ok(queue({ ...processor, brokerage: { ...processor.brokerage, id: crypto.randomUUID() } }).error);
+  assert.deepEqual(queue(processor, undefined, {}).items, []);
+  assert.deepEqual(queue({ ...processor, brokerage: { ...processor.brokerage, pilot: true } }).items, []);
+  assert.equal(readActionCounts(db, processor, tenant, new Date(at), undefined, undefined, env).processing, 3);
+  assert.equal(readActionCounts(db, admin, tenant, new Date(at), undefined, undefined, env).processing, 4);
+  db.prepare("UPDATE uwm_live_requests SET state = 'Acknowledged' WHERE id = 'submit'").run();
+  assert.deepEqual(queue(processor).items.map(({ id }) => id), ["upload", "attachment"]);
+  assert.equal(readActionCounts(db, processor, tenant, new Date(at), undefined, undefined, env).processing, 2);
 });

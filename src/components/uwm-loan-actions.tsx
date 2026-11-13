@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { RefreshCw, ShieldCheck } from "lucide-react";
 import type { StaffApplication } from "@/lib/application-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
-import { importRejectionTarget } from "@/lib/incoming-loan-work-model";
+import { documentDeliveryTarget, importRejectionTarget } from "@/lib/incoming-loan-work-model";
 import { importVerificationTarget } from "@/lib/file-exception-model";
 import { uwmActionLabels, uwmRateBody, uwmRateFields, type RateAction, type UwmField } from "@/lib/uwm-loan-ui";
 import { uwmConditionAttachments, uwmDocumentType } from "@/lib/uwm-public-contracts";
@@ -35,8 +35,8 @@ async function json<T>(url:string, body?:unknown, signal?:AbortSignal) {
   return result as T;
 }
 
-export function UwmLoanActions({loanId,staff,application,view,rejectionId,verificationId}:{loanId:string;staff:WorkspaceStaff;application?:StaffApplication;
-  view:"import"|"documents"|"rates";rejectionId?:string;verificationId?:string}) {
+export function UwmLoanActions({loanId,staff,application,view,rejectionId,verificationId,deliveryId}:{loanId:string;staff:WorkspaceStaff;application?:StaffApplication;
+  view:"import"|"documents"|"rates";rejectionId?:string;verificationId?:string;deliveryId?:string}) {
   const [account,setAccount]=useState<Account|null>(null), [activity,setActivity]=useState<Activity|null>(null);
   const [error,setError]=useState(""), [message,setMessage]=useState(""), [busy,setBusy]=useState(false), [loading,setLoading]=useState(true);
   const [pending,setPending]=useState<Pending|null>(null), [uncertain,setUncertain]=useState<string|null>(null);
@@ -74,6 +74,14 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
   const importPending=activity?.imports.some(item=>["Acknowledged","Dispatching","Unknown"].includes(item.state));
   const unresolved=activity?.requests.some(item=>["Unknown","Dispatching"].includes(item.state));
   const documentRequests=activity?.requests.filter(request=>documentSteps[request.action]) ?? [];
+  const deliveryPanel=useRef<HTMLLIElement>(null);
+  const deliveryState=documentRequests.find(request=>request.id===deliveryId)?.state;
+  useEffect(()=>{
+    if(!deliveryId || !deliveryState || loading) return;
+    deliveryPanel.current?.scrollIntoView({block:"start"});
+    deliveryPanel.current?.focus({preventScroll:true});
+  },[deliveryId,deliveryState,loading]);
+  const selectedRequestId=verificationId ?? deliveryId;
   const connected=!!account?.configured && !!account.connectedAt;
   const canWrite=connected && reviewed && !unresolved && !uncertain && !busy;
   const processor=staff.brokerage.role==="Processor";
@@ -83,17 +91,17 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
     (async()=>{
       try {
         const current=await json<Account>(accountUrl,undefined,controller.signal) as Account;setAccount(current);
-        if(current.configured) setActivity(await json<Activity>(readUrl,{loanId,view:"activity",requestId:verificationId},controller.signal));
+        if(current.configured) setActivity(await json<Activity>(readUrl,{loanId,view:"activity",requestId:selectedRequestId},controller.signal));
       } catch(failure) {if(!controller.signal.aborted)setError(failure instanceof Error?failure.message:"UWM status is unavailable.");}
       finally {if(!controller.signal.aborted)setLoading(false);}
     })();
     return()=>controller.abort();
-  },[accountUrl,readUrl,loanId,verificationId]);
+  },[accountUrl,readUrl,loanId,selectedRequestId]);
   async function refresh() {
     setBusy(true);setError("");
     try {
       setAccount(await json<Account>(accountUrl));
-      const next=await json<Activity>(readUrl,{loanId,view:"activity",requestId:verificationId});setActivity(next);
+      const next=await json<Activity>(readUrl,{loanId,view:"activity",requestId:selectedRequestId});setActivity(next);
       if(uncertain && next.requests.some(item=>item.id===uncertain && !["Dispatching","Unknown"].includes(item.state))) {
         setUncertain(null);
         setPending(current=>current?.id===uncertain?null:current);
@@ -190,8 +198,11 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
           const step=documentSteps[request.action];
           const checkLabel=request.action==="upload-document" ? "Check original upload" :
             request.action==="attach-documents" ? "Check original attachment" : "Check original submission";
-          return <li key={request.id} className="document-item record-form break-words">
+          const selected=request.id===deliveryId;
+          return <li key={request.id} className="document-item record-form break-words"
+            id={documentDeliveryTarget(request.id)} ref={selected ? deliveryPanel : undefined} tabIndex={selected ? -1 : undefined}>
             <strong>{step.label}{request.fileName && ` · ${request.fileName}`}</strong>
+            {selected && <p className="muted">1003 revision {request.applicationRevision}</p>}
             <p>{request.state==="Acknowledged" ? step.acknowledged : request.state==="Unknown" ? "Needs verification" :
               request.state==="Dispatching" ? "Request in progress" : request.state==="Reconciled" ? "Staff verification recorded" : "Request rejected"}
               {request.documentId && ` · Document ${request.documentId}`}</p>
@@ -204,6 +215,9 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
           </li>;
         })}</ul>
       </section>}
+      {deliveryId && activity && !deliveryState && <p role="status" className="uwm-feedback">
+        The original request is unavailable. Return to Processing and refresh the queue.
+      </p>}
       {verificationId && !pending && staff.brokerage.role==="Admin" &&
         <section id={importVerificationTarget(verificationId)} ref={verificationPanel} tabIndex={-1}
           className="uwm-import-review document-item break-words" aria-label="Import verification">
