@@ -294,21 +294,34 @@ function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<s
         JOIN compliance_obligation_occurrences o
           ON o.brokerageId=w.brokerageId AND o.entityId=w.entityId AND o.obligationId=w.obligationId AND o.period=w.period
         WHERE w.brokerageId=? AND w.entityId=? AND w.month=? AND w.workId=?`);
-  const items = db.prepare(`SELECT i.id,i.entityId,e.name AS entityName,i.month,i.title,i.internalTarget,i.status,i.ownerEmail,i.ownerRevision,i.evidence
-    ${reviewFilter} ORDER BY i.internalTarget,i.id LIMIT 8`).all(tenant, renewalThrough).map(row => {
+  const openRows = db.prepare(`SELECT i.id,i.entityId,e.name AS entityName,i.month,i.title,i.internalTarget,i.status,i.ownerEmail,i.ownerRevision,i.evidence
+    ${reviewFilter} ORDER BY i.internalTarget,i.id LIMIT 8`).all(tenant, renewalThrough);
+  const completedRows = db.prepare(`SELECT i.id,i.entityId,e.name AS entityName,i.month,i.title,i.internalTarget,i.status,i.ownerEmail,i.ownerRevision,i.evidence
+    FROM compliance_obligation_work w
+    JOIN compliance_program_items i ON i.brokerageId=w.brokerageId AND i.id=w.workId AND i.entityId=w.entityId AND i.month=w.month
+    JOIN compliance_program_entities e ON e.brokerageId=i.brokerageId AND e.id=i.entityId
+    JOIN compliance_obligation_occurrences o ON o.brokerageId=w.brokerageId AND o.entityId=w.entityId AND o.obligationId=w.obligationId AND o.period=w.period
+    WHERE w.brokerageId=? AND i.status='Completed' AND i.internalTarget>COALESCE((
+      SELECT json_extract(v.evidence,'$.deadline.on') FROM michigan_filing_versions v
+      WHERE v.brokerageId=w.brokerageId AND v.entityId=w.entityId AND v.obligationId=w.obligationId AND v.period=w.period
+      ORDER BY v.version DESC LIMIT 1),json_extract(o.snapshot,'$.reportingBasis.nominalDueOn'))
+    ORDER BY i.internalTarget,i.id`).all(tenant);
+  const reviews = [...openRows, ...completedRows].flatMap(row => {
       const owner = owners.get(String(row.ownerEmail));
       const entityId = String(row.entityId);
       const linked = linkedFiling.get(tenant, entityId, row.month, row.id);
       const filing = linked && recordedFilingBasis(db, tenant, entityId, {
         obligationId: linked.obligationId, period: linked.period, snapshot: linked.snapshot, evidence: row.evidence, internalTarget: row.internalTarget,
       }, now, holders, owners).filingProgress;
-      return {
+      if (row.status === "Completed" && !filing?.targetAfterDeadline) return [];
+      return [{
         id: String(row.id), entityId, entityName: String(row.entityName), month: String(row.month),
         title: String(row.title), internalTarget: String(row.internalTarget), status: row.status as ProgramItem["status"],
         ownerName: owner && owner.accessRevision === row.ownerRevision ? owner.name : null,
         ...(filing && { filing: { summary: filing.summary, gapCount: filing.gaps.length } }),
-      };
-    });
+      }];
+    }).sort((a, b) => a.internalTarget.localeCompare(b.internalTarget) || a.id.localeCompare(b.id));
+  const completedTimingCount = reviews.filter(item => item.status === "Completed").length;
   const entityCount = Number(db.prepare("SELECT count(*) AS total FROM compliance_program_entities WHERE brokerageId=?").get(tenant)?.total);
   const soleEntity = entityCount === 1 ? db.prepare("SELECT id,scopeNote FROM compliance_program_entities WHERE brokerageId=?").get(tenant) : undefined;
   // Licensing writes this exact second line. Leave free-form and older profiles for manual selection.
@@ -323,7 +336,7 @@ function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<s
     stateSetup: soleEntity && jurisdictions.length ? { entityId: String(soleEntity.id), jurisdictions } : undefined,
     stateScopes: ownerStateScopes(db, tenant, now, owners, licenseHolderChoices(branchRecords, roster), stateOffset),
     renewals: { total: renewals.total, items: renewals.items },
-    reviews: { total: Number(db.prepare(`SELECT count(*) AS total ${reviewFilter}`).get(tenant, renewalThrough)?.total), items },
+    reviews: { total: Number(db.prepare(`SELECT count(*) AS total ${reviewFilter}`).get(tenant, renewalThrough)?.total) + completedTimingCount, items: reviews.slice(0, 8) },
   };
 }
 

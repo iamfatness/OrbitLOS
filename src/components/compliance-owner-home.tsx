@@ -151,12 +151,12 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
         <h3>{branch ? "Brokerage-wide review work" : "Internal review work"}</h3>
         <ul className="compliance-home-list">{home.reviews.items.map(item => <WorkRow key={item.id} id={`compliance-review-${item.id}`} title={item.title}
           action="Open review" onOpen={() => openReview({ entityId: item.entityId, month: item.month, itemId: item.id })}>
-          <p>{item.internalTarget < home.asOf ? "Past internal target" : "Internal target"} · {displayDate(item.internalTarget)} · {item.ownerName ?? "Owner needs review"}</p>
+          <p>{item.status === "Completed" ? "Target after filing deadline" : item.internalTarget < home.asOf ? "Past internal target" : "Internal target"} · {displayDate(item.internalTarget)} · {item.ownerName ?? "Owner needs review"}</p>
           <p className="muted">{item.entityName} · {item.status}</p>
           {item.filing && <p>{item.filing.summary}{item.filing.gapCount > 0 &&
             ` · ${item.filing.gapCount} evidence ${item.filing.gapCount === 1 ? "gap" : "gaps"}`}</p>}
         </WorkRow>)}</ul>
-        {reviewTotal > home.reviews.items.length && <Button size="sm" variant="outline" onClick={() => openArea("Monthly review")}>Open monthly review ({reviewTotal} open items)</Button>}
+        {reviewTotal > home.reviews.items.length && <Button size="sm" variant="outline" onClick={() => openArea("Monthly review")}>Open monthly review ({reviewTotal} items to check)</Button>}
       </section>}
       {home.fileFindings && findingTotal > 0 && <section aria-label="Sample file findings">
         <h3>{branch ? "Brokerage-wide sample file findings" : "Sample file findings"}</h3>

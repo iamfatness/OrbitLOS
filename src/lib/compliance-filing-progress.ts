@@ -8,7 +8,8 @@ import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./mic
 import { filingEvidenceComponent, reviewNmlsFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
 import type { ObligationDraft, ObligationStateSource } from "./compliance-obligations-model";
 
-export type FilingProgress = { revision: string | null; summary: string; gaps: string[]; reviewedScopeRevision?: number; reviewedDueOn?: string };
+export type FilingProgress = { revision: string | null; summary: string; gaps: string[]; reviewedScopeRevision?: number; reviewedDueOn?: string;
+  targetAfterDeadline?: boolean };
 type FilingTarget = {
   brokerageId: string; entityId: string; obligationId: string; period: string; sourceKey: string;
   bounds: { from: string; through: string }; nominalDueOn: string | null;
@@ -35,11 +36,12 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   const row = db.prepare(`SELECT version,evidence${component ? ",finding" : ""} FROM ${table}
     WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? ORDER BY version DESC LIMIT 1`)
     .get(target.brokerageId, target.entityId, target.obligationId, target.period);
+  const afterNominal = Boolean(component && !target.basisChanged && nominalDueOn && target.internalTarget > nominalDueOn);
   if (!row) return {
     revision: null, summary: "Filing evidence needed",
+    ...(afterNominal && { targetAfterDeadline: true }),
     gaps: [...(nominalDueOn && nominalDueOn < asOf ? ["The nominal date passed without recorded evidence."] : []),
-      ...(component && !target.basisChanged && nominalDueOn && target.internalTarget > nominalDueOn
-        ? ["The internal target falls after the nominal filing date."] : []),
+      ...(afterNominal ? ["The internal target falls after the nominal filing date."] : []),
       component ? "Record the original filing receipt and supporting evidence." : "Open the linked period in Obligations to record evidence."],
   };
   const revision = String(row.version);
@@ -50,10 +52,11 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
     const rechecked = reviewedScope && review.deadline && target.reviewedScopeIsCurrent(reviewedScope);
     const finding = reviewNmlsFiling(review, nominalDueOn, asOf, component, bounds.through, target.basisChanged && !rechecked);
     const reviewedDueOn = review.deadline && finding.dueOn ? finding.dueOn : undefined;
-    if (finding.dueOn && target.internalTarget > finding.dueOn)
+    const targetAfterDeadline = Boolean(finding.dueOn && target.internalTarget > finding.dueOn);
+    if (targetAfterDeadline)
       finding.gaps.push(reviewedDueOn ? "The internal target falls after the reviewed filing deadline." :
         "The internal target falls after the nominal filing date.");
-    return { revision, summary: finding.summary, gaps: finding.gaps,
+    return { revision, summary: finding.summary, gaps: finding.gaps, ...(targetAfterDeadline && { targetAfterDeadline }),
       ...(reviewedDueOn && { reviewedDueOn }), ...(rechecked && { reviewedScopeRevision: reviewedScope.revision }) };
   }
   if (table === "new_york_voor_versions") {
