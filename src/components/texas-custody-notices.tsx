@@ -22,7 +22,9 @@ const blank: Facts = { kind: "Cessation", authority: "SML mortgage company", aut
 const kindLabel = (kind: Facts["kind"]) => kind === "Cessation" ? "Company stopped operating" : "Company received records";
 const zoneLabel = (zone: Facts["zone"]) => zone === "America/Chicago" ? "Central time" : "Mountain time";
 
-export function TexasCustodyNotices({ brokerageId, onBack }: { brokerageId: string; onBack: () => void }) {
+export function TexasCustodyNotices({ brokerageId, onBack, defaultTrigger, backLabel = "Back to loan retention" }: {
+  brokerageId: string; onBack: () => void; defaultTrigger?: Facts["kind"]; backLabel?: string;
+}) {
   const [entities, setEntities] = useState<ProgramEntity[]>();
   const [entityId, selectEntity] = useState("");
   const [error, setError] = useState("");
@@ -44,7 +46,7 @@ export function TexasCustodyNotices({ brokerageId, onBack }: { brokerageId: stri
   return <section className="integration manager-panel record-form loan-retention">
     <div className="section-heading">
       <h2 ref={heading} tabIndex={-1}>Texas custody notices</h2>
-      <Button className="min-h-11" variant="outline" disabled={locked} onClick={onBack}>Back to loan retention</Button>
+      <Button className="min-h-11" variant="outline" disabled={locked} onClick={onBack}>{backLabel}</Button>
     </div>
     <p>Track the notice for the company that stopped operating or the Texas licensee or registrant that received its records. Record each company’s notice separately.</p>
     <p><a className="underline" href={texasRecordkeepingSources.rules}>Texas rules on custody of records</a></p>
@@ -55,11 +57,13 @@ export function TexasCustodyNotices({ brokerageId, onBack }: { brokerageId: stri
       options={["", ...entities.map(entity => entity.id)]} change={selectEntity} disabled={locked}
       optionLabel={id => entities.find(entity => entity.id === id)?.name ?? "Select legal entity"} />
       {company && <p className="mt-2 break-words sm:hidden">{company.name}</p>}</div>}
-    {entityId && <NoticeRegister key={entityId} brokerageId={brokerageId} entityId={entityId} lock={setLocked} />}
+    {entityId && <NoticeRegister key={entityId} brokerageId={brokerageId} entityId={entityId} lock={setLocked} defaultTrigger={defaultTrigger} />}
   </section>;
 }
 
-function NoticeRegister({ brokerageId, entityId, lock }: { brokerageId: string; entityId: string; lock: (value: boolean) => void }) {
+function NoticeRegister({ brokerageId, entityId, lock, defaultTrigger }: {
+  brokerageId: string; entityId: string; lock: (value: boolean) => void; defaultTrigger?: Facts["kind"];
+}) {
   const [list, setList] = useState<List>();
   const [offset, setOffset] = useState(0);
   const [reload, setReload] = useState(0);
@@ -216,7 +220,7 @@ function NoticeRegister({ brokerageId, entityId, lock }: { brokerageId: string; 
     {message && <p ref={receipt} tabIndex={-1} role="status">{message}</p>}
     {problem && <p role="alert">{problem}</p>}
     {busy && <p role="status">{editing ? "Saving evidence…" : "Loading notice history…"}</p>}
-    {editing && <NoticeEditor entry={current} busy={busy} onSave={save} />}
+    {editing && <NoticeEditor entry={current} defaultTrigger={defaultTrigger} busy={busy} onSave={save} />}
     {!editing && !view && problem && <div><Button variant="outline" onClick={() => void read(selection)}>Retry notice history</Button></div>}
     {!editing && view && <>
       {view.version === current?.version && liveFinding && liveFinding.status !== view.finding.status &&
@@ -260,8 +264,10 @@ function NoticeEvidence({ entry }: { entry: Entry }) {
   </div>;
 }
 
-function NoticeEditor({ entry, busy, onSave }: { entry?: Entry; busy: boolean; onSave: (facts: Facts, correction: string) => Promise<void> }) {
-  const [facts, setFacts] = useState(entry?.facts ?? blank);
+function NoticeEditor({ entry, defaultTrigger, busy, onSave }: {
+  entry?: Entry; defaultTrigger?: Facts["kind"]; busy: boolean; onSave: (facts: Facts, correction: string) => Promise<void>;
+}) {
+  const [facts, setFacts] = useState(entry?.facts ?? { ...blank, kind: defaultTrigger ?? blank.kind });
   const [holidays, setHolidays] = useState(entry?.facts.calendar?.holidays.join(", ") ?? "");
   const [correction, setCorrection] = useState("");
   const calendarHelp = useId();

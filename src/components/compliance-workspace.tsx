@@ -10,6 +10,8 @@ import { CompliancePolicyFollowUp } from "./compliance-policy-follow-up";
 import { ComplianceInventory } from "./compliance-inventory";
 import { ComplianceLeadBackfill } from "./compliance-lead-backfill";
 import { ComplianceQueue } from "./compliance-queue";
+import type { TexasCustodyNoticeFacts } from "@/lib/texas-custody-notice-model";
+import { TexasCustodyNotices } from "./texas-custody-notices";
 import { LoanRetention } from "./loan-retention";
 import { ComplianceProgram } from "./compliance-program";
 import { ComplianceObligations } from "./compliance-obligations";
@@ -47,6 +49,14 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
   const [stateOffset, setStateOffset] = useState(0);
   const [report, setReport] = useState<{ basis: ObligationReviewBasis; entity: string; period: ReportingPeriod }>();
   const reportOpen = !!report;
+  const [custodyNotice, setCustodyNotice] = useState<TexasCustodyNoticeFacts["kind"]>();
+  const returningFromCustody = useRef(false);
+  useEffect(() => {
+    if (!custodyNotice && returningFromCustody.current) {
+      returningFromCustody.current = false;
+      panel.current?.querySelector<HTMLButtonElement>("#compliance-research-custody")?.focus();
+    }
+  }, [custodyNotice]);
   const reportHeading = useRef<HTMLHeadingElement>(null);
   const returningFromReport = useRef(false);
   const [setup, setSetup] = useState<ComplianceSetupAction>();
@@ -72,6 +82,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
   function show(next: View, origin?: string) {
     if (next === view) return;
     if (next === "Home") {
+      setCustodyNotice(undefined);
       setObligationVisit(undefined);
       setScopeVisit(undefined);
       setStateTarget(undefined);
@@ -105,7 +116,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
     {returnToBrokerageLicenses && <div><Button size="sm" variant="outline" className="min-h-10 max-sm:min-h-11"
       disabled={paused} onClick={returnToBrokerageLicenses}>Back to States &amp; licenses</Button></div>}
     {returnToRenewals && <div><Button size="sm" variant="outline" disabled={paused} onClick={returnToRenewals}>Back to license renewals</Button></div>}
-    {view !== "Home" && !report && !(view === "Licensing" && returnToRenewals) && <div><Button size="sm" variant="outline" disabled={paused} onClick={() => show("Home")}>Back to Compliance home</Button></div>}
+    {view !== "Home" && !report && (!custodyNotice || paused) && !(view === "Licensing" && returnToRenewals) && <div><Button size="sm" variant="outline" disabled={paused} onClick={() => show("Home")}>Back to Compliance home</Button></div>}
     {report && <section className="record-form" aria-label="Reporting from Compliance">
       <div><Button size="sm" variant="outline" onClick={() => { returningFromReport.current = true; setReport(undefined); }}>Back to review item</Button></div>
       <div className="integration manager-panel record-form">
@@ -114,7 +125,12 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
       </div>
       {renderReport(report.period, period => setReport({ ...report, period }))}
     </section>}
-    <section ref={panel} tabIndex={-1} hidden={!!report} aria-label={`Compliance ${view.toLowerCase()}`}>
+    {custodyNotice && !paused && <TexasCustodyNotices brokerageId={brokerageId} defaultTrigger={custodyNotice}
+      backLabel="Back to requirement review" onBack={() => {
+        returningFromCustody.current = true;
+        setCustodyNotice(undefined);
+      }} />}
+    <section ref={panel} tabIndex={-1} hidden={reportOpen || (!!custodyNotice && !paused)} aria-label={`Compliance ${view.toLowerCase()}`}>
       {view === "Home" && <ComplianceOwnerHome brokerageId={brokerageId} paused={paused} branchId={branchId} onBranch={onBranch} returningTo={returningTo}
         stateOffset={stateOffset} onStatePage={setStateOffset} openState={(target, origin) => { setStateTarget(target); showArea("Research & gaps", origin); }}
         onSetup={openSetup} openArea={showArea} openFinding={openLoan}
@@ -153,7 +169,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
       {view === "Training & policies" && <ComplianceLearning key={brokerageId} brokerageId={brokerageId} paused={paused} admin />}
       {(view === "Research & gaps" || scopeVisit) && <div hidden={view !== "Research & gaps"}>
         <ComplianceResearch key={brokerageId} brokerageId={brokerageId} paused={paused} startWithState={setup === "states" || !!stateTarget}
-          stateTarget={stateTarget} stateSetup={stateSetup}
+          stateTarget={stateTarget} stateSetup={stateSetup} openCustodyNotice={pilot ? setCustodyNotice : undefined}
           active={view === "Research & gaps"} openReview={(target, origin) => {
             setScopeVisit(origin);
             setReview(target);

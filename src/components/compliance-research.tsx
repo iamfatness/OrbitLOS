@@ -7,6 +7,7 @@ import { researchBaseline, researchKinds, researchSources, type ResearchFilters,
 import type { complianceResearchWork } from "@/lib/compliance-research";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import type { TexasCustodyNoticeFacts } from "@/lib/texas-custody-notice-model";
 import { ComplianceStateScope } from "./compliance-state-scope";
 
 type Result = ReturnType<typeof complianceResearchWork>;
@@ -15,6 +16,10 @@ type List = Extract<Result, { kind: "researchList" }>;
 type RolloutCases = Extract<Result, { kind: "stateRollout" }>["items"][number]["cases"];
 const initialFilters: ResearchFilters = { jurisdiction: "", status: "", ownership: "all" };
 const states = researchSources.filter((entry) => entry.jurisdiction !== "US");
+const custodyNoticeTriggers = new Map<string, TexasCustodyNoticeFacts["kind"]>([
+  ["REQ-TX-RECORDS-CEASE-NOTICE", "Cessation"],
+  ["REQ-TX-RECORDS-TRANSFER-NOTICE", "Transfer received"],
+]);
 
 function Jurisdiction({ value, all, change }: { value: string; all?: boolean; change: (value: string) => void }) {
   return <label className="field">Jurisdiction<select value={value} onChange={(event) => change(event.target.value)}>
@@ -23,11 +28,13 @@ function Jurisdiction({ value, all, change }: { value: string; all?: boolean; ch
   </select></label>;
 }
 
-function ResearchEditor({ detail, pending, save, heading }: {
+function ResearchEditor({ detail, pending, save, heading, openCustodyNotice }: {
   detail: Detail; pending: boolean; heading: RefObject<HTMLHeadingElement | null>;
+  openCustodyNotice?: (kind: TexasCustodyNoticeFacts["kind"]) => void;
   save: (input: Omit<Extract<ResearchRequest, { operation: "save" }>, "requestId">) => void;
 }) {
   const { item } = detail;
+  const noticeTrigger = custodyNoticeTriggers.get(item.sourceKey);
   const savedSource = JSON.parse(item.sourceSnapshot) as ResearchSource & { researchBaseline: string };
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,6 +55,8 @@ function ResearchEditor({ detail, pending, save, heading }: {
       <p><strong>Evidence to investigate</strong> · {savedSource.evidence}</p>
       <ResearchLinks source={savedSource} />
     </details>
+    {noticeTrigger && openCustodyNotice && <div><Button id="compliance-research-custody" size="sm" variant="outline"
+      className="min-h-11" disabled={pending} onClick={() => openCustodyNotice(noticeTrigger)}>Open Texas custody notices</Button></div>}
     <form key={`${item.id}:${item.revision}`} className="record-form" onSubmit={submit}>
       <fieldset disabled={pending} className="record-form">
         <div className="form-grid">
@@ -84,9 +93,10 @@ function ResearchLinks({ source }: { source: ResearchSource }) {
     <li key={link.url}><a className="underline" target="_blank" rel="noreferrer" href={link.url}>{link.label}</a></li>)}</ul>;
 }
 
-export function ComplianceResearch({ brokerageId, paused, startWithState, active, openReview, stateTarget, stateSetup }: {
+export function ComplianceResearch({ brokerageId, paused, startWithState, active, openReview, stateTarget, stateSetup, openCustodyNotice }: {
   brokerageId: string; paused: boolean; startWithState?: boolean; active: boolean;
   openReview: (target: import("@/lib/compliance-program-model").ProgramReviewTarget, origin: string) => void;
+  openCustodyNotice?: (kind: TexasCustodyNoticeFacts["kind"]) => void;
   stateTarget?: import("@/lib/compliance-program-model").StateScopeTarget;
   stateSetup?: import("@/lib/compliance-program-model").ComplianceOwnerHomeData["stateSetup"];
 }) {
@@ -313,7 +323,7 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
       </div>}
       {!data && <p role="status">Loading research work…</p>}
       {data && "error" in data && <p role="alert">{data.error}</p>}
-      {detail && <ResearchEditor detail={detail} heading={heading} pending={pending || paused} save={(input) => void mutate(input)} />}
+      {detail && <ResearchEditor detail={detail} heading={heading} pending={pending || paused} openCustodyNotice={openCustodyNotice} save={(input) => void mutate(input)} />}
       {list && <><p>{list.counts.total} research items · {list.counts.overdue} past internal follow-up date (UTC). Loan compliance has not been evaluated.</p>
         <ul className="loan-task-list">{list.items.map((item) => <li key={item.id} className="loan-task compliance-row">
           <div className="loan-task-copy"><strong>{item.title}</strong><span>{item.status} · {item.ownerName ?? "Owner unavailable"}</span>
