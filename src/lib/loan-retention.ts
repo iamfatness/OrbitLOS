@@ -1,5 +1,7 @@
 import { coloradoRecordkeepingRequest } from "./colorado-recordkeeping-model";
 import { coloradoRecordkeepingWork, initializeColoradoRecordkeeping, type ColoradoRecordkeepingResult } from "./colorado-recordkeeping";
+import { floridaJournalRequest } from "./florida-journal-model";
+import { initializeFloridaJournal, floridaJournalWork, type FloridaJournalResult } from "./florida-journal";
 import { crmlaRegisterRequest } from "./crmla-register-model";
 import { crmlaRegisterWork, initializeCrmlaRegister, type CrmlaRegisterResult } from "./crmla-register";
 import { californiaDfpiRequest } from "./california-dfpi-recordkeeping-model";
@@ -25,6 +27,7 @@ const request = z.discriminatedUnion("type", [
   ...californiaDfpiRequest.options,
   ...coloradoRecordkeepingRequest.options,
   crmlaRegisterRequest,
+  floridaJournalRequest,
   z.object({ type: z.literal("list"), heldOnly: z.boolean(), search: z.string().trim().max(100), offset: z.number().int().min(0).max(10000) }),
   z.object({ type: z.literal("history"), loanId }),
   z.object({ type: z.literal("hold"), id: z.uuid(), loanId, reference: note }),
@@ -42,6 +45,7 @@ export function initializeLoanRetention(db: Store) {
   initializeCaliforniaDfpi(db);
   initializeColoradoRecordkeeping(db);
   initializeCrmlaRegister(db);
+  initializeFloridaJournal(db);
   db.exec(`CREATE TABLE IF NOT EXISTS loan_retention_holds (
     id TEXT PRIMARY KEY, loanId TEXT NOT NULL, reference TEXT NOT NULL, placedAt TEXT NOT NULL, placedBy TEXT NOT NULL, placedByEmail TEXT NOT NULL,
     releaseId TEXT UNIQUE, releaseReference TEXT, releasedAt TEXT, releasedBy TEXT, releasedByEmail TEXT
@@ -86,7 +90,7 @@ type LoanRow = { id: string; borrower: string; address: string; purpose: string;
   holdId: string | null; propertyState: string | null; canReviewCaliforniaDre: boolean; canReviewCaliforniaDfpi: boolean; canReviewColorado: boolean };
 type Work = { kind: "list"; loans: LoanRow[]; total: number; held: number; next: number | null } |
   { kind: "history"; holds: Hold[] } | { kind: "saved"; message: string } | DispositionQueue | RetentionAuditResult |
-  MichiganRetentionResult | MichiganBusinessRecords | CaliforniaDreRecordkeepingResult | CaliforniaDfpiResult | ColoradoRecordkeepingResult | CrmlaRegisterResult | { error: string };
+  MichiganRetentionResult | MichiganBusinessRecords | CaliforniaDreRecordkeepingResult | CaliforniaDfpiResult | ColoradoRecordkeepingResult | CrmlaRegisterResult | FloridaJournalResult | { error: string };
 export type LoanRetentionResult = Work;
 
 export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceStaff, workspaceId: string, now = new Date().toISOString()): Work {
@@ -103,6 +107,7 @@ export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceSta
       return californiaDreRecordkeepingWork(db,data,staff,now);
     if (data.type === "coloradoRecordkeepingHistory" || data.type === "saveColoradoRecordkeeping")
       return coloradoRecordkeepingWork(db,data,staff,now);
+    if (data.type === "floridaJournal") return floridaJournalWork(db,data,staff,now);
     if (data.type === "crmlaRegister") return crmlaRegisterWork(db,data,staff,now);
     if (data.type === "retentionAudit" || data.type === "exportRetentionAudit")
       return retentionAuditWork(db,data,staff,now);

@@ -8,6 +8,7 @@ import { downloadSampleFile } from "./sample-download";
 import { ColoradoRecordkeeping } from "./colorado-recordkeeping";
 import { CaliforniaDreRecordkeeping } from "./california-dre-recordkeeping";
 import { CaliforniaDfpiRecordkeeping } from "./california-dfpi-recordkeeping";
+import { FloridaJournal } from "./florida-journal";
 import { CrmlaRegister } from "./crmla-register";
 import { MichiganBusinessRetention, MichiganRetention } from "./michigan-retention";
 import { RetentionDisposition } from "./retention-disposition";
@@ -24,7 +25,7 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
 }) {
   const [disposition, setDisposition] = useState(false);
   const [michigan, setMichigan] = useState<LoanRow | "business">();
-  const [recordkeeping, setRecordkeeping] = useState<{loan: LoanRow; authority: "DRE" | "DFPI" | "Colorado"} | "register">();
+  const [recordkeeping, setRecordkeeping] = useState<{loan: LoanRow; authority: "DRE" | "DFPI" | "Colorado"} | "register" | "floridaJournal">();
   const recordkeepingLinks = useRef(new Map<string, HTMLButtonElement>());
   const returnRecordkeeping = useRef<string>(null);
   const dispositionLink = useRef<HTMLButtonElement>(null);
@@ -158,10 +159,11 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
 
   if (recordkeeping && !paused) {
     const back = () => {
-      returnRecordkeeping.current = recordkeeping === "register" ? recordkeeping : recordkeeping.authority + "/" + recordkeeping.loan.id;
+      returnRecordkeeping.current = typeof recordkeeping === "string" ? recordkeeping : recordkeeping.authority + "/" + recordkeeping.loan.id;
       setRecordkeeping(undefined);
     };
     if (recordkeeping === "register") return <CrmlaRegister brokerageId={brokerageId} onBack={back} />;
+    if (recordkeeping === "floridaJournal") return <FloridaJournal brokerageId={brokerageId} onBack={back} />;
     const Review = { DRE: CaliforniaDreRecordkeeping, DFPI: CaliforniaDfpiRecordkeeping, Colorado: ColoradoRecordkeeping }[recordkeeping.authority];
     return <Review brokerageId={brokerageId} loan={{id: recordkeeping.loan.id, label: recordkeeping.loan.borrower}} onBack={back} />;
   }
@@ -191,6 +193,10 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
         <Button ref={node => { if (node) recordkeepingLinks.current.set("register", node); else recordkeepingLinks.current.delete("register"); }}
           type="button" variant="outline" className="min-h-11" disabled={locked || !!review} onClick={() => setRecordkeeping("register")}>
           CRMLA application register
+        </Button>
+        <Button ref={node => { if (node) recordkeepingLinks.current.set("floridaJournal", node); else recordkeepingLinks.current.delete("floridaJournal"); }}
+          type="button" variant="outline" className="min-h-11" disabled={locked || !!review} onClick={() => setRecordkeeping("floridaJournal")}>
+          Florida transaction journal
         </Button>
         {inventory && <Button variant="outline" aria-pressed={selection.heldOnly} disabled={locked || !!review}
           onClick={() => { setNotice(""); load({ ...selection, heldOnly: !selection.heldOnly, offset: 0 }); }}>
