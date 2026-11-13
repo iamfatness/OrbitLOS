@@ -1,15 +1,16 @@
 import { createHash } from "node:crypto";
 import { settlementEvidence, type FinanceInput, type FinanceLoan, type FinanceResult, type SettlementFeedRow } from "./brokerage-finance-model";
-import { importSettlementEvidence } from "./settlement-reconciliation";
+import { importSettlementEvidence, readSettlement, saveSettlement } from "./settlement-reconciliation";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 
-type FeedInput = Extract<FinanceInput, { type: "settlementFeed" | "pullSettlementFeed" | "reviewSettlementFeed" | "matchSettlementFeed" }>;
+type FeedInput = Extract<FinanceInput, { type: "settlementFeed" | "pullSettlementFeed" | "reviewSettlementFeed" | "matchSettlementFeed" | "correctSettlementFeedMatch" }>;
 type ProviderEvidence = { fundingReference: string; evidenceId: string; occurredOn: string; reference: string } & (
   { kind: "Purchase advice"; sequence: number; grossCents: number; feesCents: number; adjustmentCents: number } |
   { kind: "Wire receipt"; amountCents: number }
 );
 type Receipt = Pick<SettlementFeedRow, "status" | "detail" | "reviewNote" | "reviewedBy" | "reviewedAt"> & { payload: string };
+type Correction = NonNullable<SettlementFeedRow["corrections"]>[number];
 
 const source = "orbit-settlement-sandbox";
 const fundingReference = (loan: FinanceLoan) => createHash("sha256").update(JSON.stringify([loan.id, loan.cycle, loan.date])).digest("hex").slice(0, 16);
@@ -33,7 +34,7 @@ function simulatedDeliveries(loan: FinanceLoan): ProviderEvidence[] {
 
 export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoan | undefined,
   staff: WorkspaceStaff, at: string, today: string, findCycle: (id: string, cycle: number) => FinanceLoan | undefined): FinanceResult {
-  if (!loan || (input.type !== "settlementFeed" && loan.reversedAt) ||
+  if (!loan || (input.type !== "settlementFeed" && input.type !== "correctSettlementFeedMatch" && loan.reversedAt) ||
       ("fundingDate" in input && input.fundingDate !== loan.date)) {
     return { error: "This funding cycle changed. Reopen it before pulling settlement evidence." };
   }
@@ -42,9 +43,17 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
   const batch = db.prepare(`SELECT json_extract(payload, '$.occurredOn') AS date
     FROM settlement_feed_receipts WHERE loanId = ? AND cycle = ? AND sequence = 1`).get(...args);
   let checkedFundingDate = typeof batch?.date === "string" ? batch.date : null;
-  if (input.type !== "settlementFeed" && checkedFundingDate && checkedFundingDate !== loan.date) {
+  if (input.type !== "settlementFeed" && input.type !== "correctSettlementFeedMatch" && checkedFundingDate && checkedFundingDate !== loan.date) {
     return { error: "These provider deliveries belong to the earlier funding date. Compare the saved deliveries and review the corrected cycle." };
   }
+  const corrections = (evidenceId: string) => db.prepare(`SELECT entryId, sequence, snapshot FROM settlement_feed_corrections
+    WHERE loanId = ? AND cycle = ? AND evidenceId = ? ORDER BY sequence DESC`).all(...args, evidenceId);
+  const importKey = (evidenceId: string, previous?: unknown) => typeof previous === "string" ? `rematch-${previous}` : evidenceId;
+  const matchedReceipt = (key: string) => db.prepare(`SELECT event.id, event.loanId, event.cycle, contact.name AS borrower,
+      json_extract(imported.payload, '$.fundingDate') AS date FROM settlement_imports imported
+      JOIN settlement_events event ON event.id = imported.eventId JOIN loans loan ON loan.id = event.loanId
+      JOIN contacts contact ON contact.id = loan.contactId WHERE imported.source = ? AND imported.evidenceId = ? AND event.kind = 'settlementReceipt'`)
+    .get(source, key) as ({ id: string; loanId: string; cycle: number; borrower: string; date: string }) | undefined;
   if (input.type === "pullSettlementFeed") {
     if (!batch) {
       for (const [index, record] of simulatedDeliveries(loan).entries()) {
@@ -87,11 +96,15 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
       return { error: "This delivery has changed. Reload the provider results." };
     }
     const destination = input.type === "matchSettlementFeed" ? input.destination : undefined;
+    const latest = corrections(input.evidenceId)[0]?.entryId;
+    if (input.afterCorrection !== latest) {
+      return { error: "This match changed. Reload the provider results." };
+    }
+    const key = importKey(input.evidenceId, latest);
     if (matching && row.status === "Matched by owner") {
-      const saved = db.prepare("SELECT payload FROM settlement_imports WHERE source = ? AND evidenceId = ?").get(source, input.evidenceId);
-      const evidence = settlementEvidence.safeParse(saved && JSON.parse(String(saved.payload)));
-      if (!evidence.success || evidence.data.loanId !== (destination?.id ?? loan.id) ||
-          evidence.data.cycle !== (destination?.cycle ?? loan.cycle) || evidence.data.fundingDate !== (destination?.date ?? loan.date)) {
+      const saved = matchedReceipt(key);
+      if (!saved || saved.loanId !== (destination?.id ?? loan.id) ||
+          saved.cycle !== (destination?.cycle ?? loan.cycle) || saved.date !== (destination?.date ?? loan.date)) {
         return { error: "This delivery has changed. Reload the provider results." };
       }
     }
@@ -106,7 +119,7 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
         if (!selected || selected.reversedAt || (destination && (selected.id === loan.id || selected.date !== destination.date))) {
           return { error: "The destination funding cycle changed. Search again and choose the current cycle." };
         }
-        const evidence = settlementEvidence.parse({ ...fields, schemaVersion: 1, source, loanId: selected.id, cycle: selected.cycle, fundingDate: selected.date });
+        const evidence = settlementEvidence.parse({ ...fields, evidenceId: key, schemaVersion: 1, source, loanId: selected.id, cycle: selected.cycle, fundingDate: selected.date });
         const target = { loanId: selected.id, cycle: selected.cycle, evidence };
         const preview = importSettlementEvidence(db, { ...target, type: "settlementEvidencePreview" }, selected, staff, at, today);
         if ("error" in preview) return preview;
@@ -121,19 +134,47 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
         WHERE loanId = ? AND cycle = ? AND sequence = ?`)
         .run(decision, detail, input.note, staff.name, at, ...args, row.sequence);
     }
+  } else if (input.type === "correctSettlementFeedMatch") {
+    const request = JSON.stringify(input);
+    const prior = db.prepare("SELECT request, actorEmail FROM settlement_feed_corrections WHERE entryId = ?").get(input.entryId);
+    if (prior && (prior.request !== request || prior.actorEmail !== staff.email)) return { error: "This correction changed. Reload the provider results." };
+    if (!prior) {
+      const row = db.prepare(`SELECT sequence, reviewNote, reviewedBy, reviewedAt FROM settlement_feed_receipts
+        WHERE loanId = ? AND cycle = ? AND status = 'Matched by owner' AND json_extract(payload, '$.evidenceId') = ?`).get(...args, input.evidenceId);
+      const latest = corrections(input.evidenceId)[0];
+      const match = row && matchedReceipt(importKey(input.evidenceId, latest?.entryId));
+      if (!row || !match || match.id !== input.matchId) return { error: "This match changed. Reload the provider results." };
+      const previous = findCycle(match.loanId, match.cycle);
+      if (!previous || previous.reversedAt) return { error: "The matched funding cycle is archived or unavailable. Open its ledger to review the history." };
+      const reversed = db.prepare("SELECT 1 FROM settlement_events WHERE reversesId = ?").get(match.id);
+      if (!reversed) {
+        const result = saveSettlement(db, { type: "settlementReverse", loanId: previous.id, cycle: previous.cycle,
+          fundingDate: previous.date, revision: readSettlement(db, previous).revision, entryId: input.entryId,
+          originalId: match.id, occurredOn: today, note: input.note }, previous, staff, at, today);
+        if ("error" in result) return result;
+      }
+      const snapshot: Correction = { previous: { id: match.loanId, cycle: match.cycle, date: match.date, borrower: match.borrower },
+        matchNote: String(row.reviewNote ?? ""), matchedBy: String(row.reviewedBy ?? ""), matchedAt: String(row.reviewedAt ?? ""),
+        note: input.note, actor: staff.name, at };
+      db.prepare(`INSERT INTO settlement_feed_corrections (loanId, cycle, evidenceId, priorMatchId, entryId, request, snapshot, actorEmail, sequence)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...args, input.evidenceId, match.id, input.entryId, request, JSON.stringify(snapshot), staff.email, Number(latest?.sequence ?? 0) + 1);
+      db.prepare(`UPDATE settlement_feed_receipts SET status = 'Needs review', detail = ?, reviewNote = NULL, reviewedBy = NULL, reviewedAt = NULL
+        WHERE loanId = ? AND cycle = ? AND sequence = ?`).run("The earlier match was reversed. Review this delivery again.", ...args, row.sequence);
+    }
   }
   const receipts = db.prepare(`SELECT payload, status, detail, reviewNote, reviewedBy, reviewedAt
     FROM settlement_feed_receipts WHERE loanId = ? AND cycle = ? ORDER BY sequence`).all(...args) as unknown as Receipt[];
   return { kind: "settlementFeed", checkedFundingDate, rows: receipts.map(({ payload, ...receipt }) => {
     const record = JSON.parse(payload) as ProviderEvidence;
-    const imported = receipt.status === "Matched by owner" && db.prepare(`SELECT event.loanId, event.cycle, contact.name AS borrower,
-      json_extract(imported.payload, '$.fundingDate') AS date FROM settlement_imports imported
-      JOIN settlement_events event ON event.id = imported.eventId JOIN loans loan ON loan.id = event.loanId
-      JOIN contacts contact ON contact.id = loan.contactId WHERE imported.source = ? AND imported.evidenceId = ? AND event.loanId <> ?`)
-      .get(source, record.evidenceId, loan.id);
+    const history = isUnmatchedWire(record, loan) ? corrections(record.evidenceId) : [];
+    const imported = receipt.status === "Matched by owner" && matchedReceipt(importKey(record.evidenceId, history[0]?.entryId));
+    const current = imported && findCycle(imported.loanId, imported.cycle);
     return { ...receipt, evidenceId: record.evidenceId, fundingReference: record.fundingReference, kind: record.kind,
       amountCents: evidenceAmount(record),
-      ...(imported ? { destination: { id: String(imported.loanId), cycle: Number(imported.cycle), date: String(imported.date), borrower: String(imported.borrower) } } : {}),
+      ...(imported && imported.loanId !== loan.id ? { destination: { id: imported.loanId, cycle: imported.cycle, date: imported.date, borrower: imported.borrower } } : {}),
+      ...(imported && current && !current.reversedAt ? { matchId: imported.id } : {}),
+      ...(history[0] ? { afterCorrection: String(history[0].entryId) } : {}),
+      ...(history.length ? { corrections: history.map(item => JSON.parse(String(item.snapshot)) as Correction) } : {}),
       ...(receipt.status === "Needs review" && checkedFundingDate === loan.date && isUnmatchedWire(record, loan) ? { canMatch: true } : {}) };
   }) };
 }

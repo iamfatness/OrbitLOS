@@ -166,9 +166,9 @@ export function brokerageFinanceWork(db: Store, input: unknown, staff: Workspace
       ORDER BY progress.fundingDate DESC, loan.id LIMIT 11`).all(data.loanId, data.search, data.search) as unknown as SettlementDestination[];
     return { kind: "settlementDestinations", rows: rows.slice(0, 10).map(row => ({ ...row })), more: rows.length > 10 };
   }
-  if (data.type === "settlementFeed" || data.type === "pullSettlementFeed" || data.type === "reviewSettlementFeed" || data.type === "matchSettlementFeed") {
+  if (data.type === "settlementFeed" || data.type === "pullSettlementFeed" || data.type === "reviewSettlementFeed" || data.type === "matchSettlementFeed" || data.type === "correctSettlementFeedMatch") {
     return db.transaction(() => settlementFeedWork(db, data, financeRecord(db, data.loanId, data.cycle) ??
-      (data.type === "settlementFeed" ? financeRecord(db, data.loanId, data.cycle, true) : undefined), staff, at, today,
+      (data.type === "settlementFeed" || data.type === "correctSettlementFeedMatch" ? financeRecord(db, data.loanId, data.cycle, true) : undefined), staff, at, today,
       (id, cycle) => financeRecord(db, id, cycle) ?? financeRecord(db, id, cycle, true)));
   }
   if (data.type === "settlementEvidencePreview" || data.type === "settlementEvidenceImport") {

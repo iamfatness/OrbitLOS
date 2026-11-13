@@ -58,8 +58,9 @@ export const financeInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("settlementEvidenceImport"), ...write, evidence: settlementEvidence }),
   z.object({ type: z.literal("settlementFeed"), ...record }),
   z.object({ type: z.literal("pullSettlementFeed"), ...record, fundingDate: date }),
-  z.object({ type: z.literal("reviewSettlementFeed"), ...record, evidenceId: evidenceIdentity, note: note.min(5) }),
-  z.object({ type: z.literal("matchSettlementFeed"), ...record, fundingDate: date, evidenceId: evidenceIdentity, note: note.min(5), destination: cursor.optional() }),
+  z.object({ type: z.literal("reviewSettlementFeed"), ...record, evidenceId: evidenceIdentity, note: note.min(5), afterCorrection: entryId.optional() }),
+  z.object({ type: z.literal("matchSettlementFeed"), ...record, fundingDate: date, evidenceId: evidenceIdentity, note: note.min(5), destination: cursor.optional(), afterCorrection: entryId.optional() }),
+  z.object({ type: z.literal("correctSettlementFeedMatch"), ...record, fundingDate: date, evidenceId: evidenceIdentity, matchId: entryId, entryId, note: note.min(5) }),
   z.object({ type: z.literal("findSettlementDestination"), ...record, search: z.string().trim().min(2).max(160) }),
   z.object({ type: z.literal("estimate"), ...write, expectedCents: cents.nullable(), commissionCents: cents.nullable(), expenseReviewed: z.boolean() }),
   z.object({ type: z.literal("post"), ...write, kind: z.enum(["Receipt", "Expense"]), amountCents: cents.min(1), occurredOn: date,
@@ -77,6 +78,9 @@ export type SettlementFeedRow = {
   amountCents: number; status: "Imported" | "Already recorded" | "Needs review" | "Reviewed" | "Matched by owner";
   canMatch?: boolean;
   destination?: SettlementDestination;
+  matchId?: string;
+  afterCorrection?: string;
+  corrections?: { previous: SettlementDestination; matchNote: string; matchedBy: string; matchedAt: string; note: string; actor: string; at: string }[];
   detail: string; reviewNote: string | null; reviewedBy: string | null; reviewedAt: string | null;
 };
 export type SettlementFeed = { kind: "settlementFeed"; checkedFundingDate: string | null; rows: SettlementFeedRow[] };

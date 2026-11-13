@@ -444,6 +444,12 @@ export function initializeStore(db: Store, seedDemo = true) {
       payload TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL,
       reviewNote TEXT, reviewedBy TEXT, reviewedAt TEXT, PRIMARY KEY(loanId, cycle, sequence)
     );
+    CREATE TABLE IF NOT EXISTS settlement_feed_corrections (
+      loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE, cycle INTEGER NOT NULL, evidenceId TEXT NOT NULL,
+      priorMatchId TEXT NOT NULL UNIQUE, entryId TEXT NOT NULL PRIMARY KEY,
+      request TEXT NOT NULL, snapshot TEXT NOT NULL, actorEmail TEXT NOT NULL, sequence INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS settlement_feed_corrections_delivery ON settlement_feed_corrections(loanId, cycle, evidenceId, sequence);
     CREATE TABLE IF NOT EXISTS settlement_fee_events (
       loanId TEXT NOT NULL, cycle INTEGER NOT NULL, revision INTEGER NOT NULL, id TEXT NOT NULL UNIQUE,
       kind TEXT NOT NULL CHECK(kind IN ('Statement', 'Review')), fundingDate TEXT NOT NULL,

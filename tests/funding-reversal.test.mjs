@@ -272,6 +272,24 @@ test("routing a simulated wire keeps the original delivery and adds proceeds onl
   const dest = finance({ type: "detail", loanId: id }).settlement;
   assert.equal(dest.receivedCents, wire.amountCents);
   assert.equal(dest.entries[0].importedEvidence.evidenceId, wire.evidenceId);
+  const correction = { type: "correctSettlementFeedMatch", fundingDate: initialFunding, evidenceId: wire.evidenceId,
+    matchId: saved.matchId, entryId: crypto.randomUUID(), note: "The bank receipt names the original loan." };
+  assert.match(finance(correction, officer).error, /workspace owner/);
+  assert.match(finance({ ...correction, matchId: crypto.randomUUID() }).error, /match changed/);
+  const corrected = finance(correction);
+  const reopened = corrected.rows.find(row => row.evidenceId === wire.evidenceId);
+  assert.equal(reopened.status, "Needs review");
+  assert.equal(reopened.corrections[0].matchNote, match.note);
+  assert.equal(reopened.corrections[0].note, correction.note);
+  assert.deepEqual(finance(correction), corrected);
+  assert.match(finance(match).error, /match changed/);
+  const reversed = finance({ type: "detail", loanId: id }).settlement;
+  assert.equal(reversed.receivedCents, 0);
+  assert.equal(reversed.entries[0].input.originalId, saved.matchId);
+  assert.equal(reversed.entries[1].reversed, true);
+  const rematch = finance({ ...match, destination: undefined, afterCorrection: reopened.afterCorrection });
+  assert.equal(rematch.rows.find(row => row.evidenceId === wire.evidenceId).status, "Matched by owner");
+  assert.equal(finance({ type: "detail" }).settlement.receivedCents, 34_900_000);
 });
 
 test("sample settlement import validates the exact cycle and retains source identity across replay and late evidence", async t => {

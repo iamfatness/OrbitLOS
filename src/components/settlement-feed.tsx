@@ -17,6 +17,7 @@ export function SettlementFeed({ brokerageId, loan, onImported, openCycle }: {
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const pending = useRef(false);
+  const correction = useRef<{ key: string; id: string }>(null);
   const feedback = useRef<HTMLDivElement>(null);
   const { id: loanId, cycle, date } = loan;
   const earlierFundingDate = feed?.checkedFundingDate && feed.checkedFundingDate !== date ? feed.checkedFundingDate : null;
@@ -43,9 +44,11 @@ export function SettlementFeed({ brokerageId, loan, onImported, openCycle }: {
       if ("error" in result) setError(result.error);
       else if (result.kind === "settlementFeed") {
         setFeed(result);
-        setMessage(input.type === "pullSettlementFeed" ? "Provider deliveries checked." :
+        setMessage(input.type === "correctSettlementFeedMatch" ? "Match reversed. Review the original delivery again." :
+          input.type === "pullSettlementFeed" ? "Provider deliveries checked." :
           input.type === "matchSettlementFeed" ? input.destination ? "Wire matched to the selected funding cycle." : "Wire matched to this funding cycle." : "Review recorded.");
-        if (input.type === "pullSettlementFeed" || input.type === "matchSettlementFeed") onImported();
+        if (input.type === "correctSettlementFeedMatch") correction.current = null;
+        if (input.type !== "reviewSettlementFeed") onImported();
       }
     } catch {
       setError("Could not confirm the result. Retry to check the saved deliveries.");
@@ -54,6 +57,14 @@ export function SettlementFeed({ brokerageId, loan, onImported, openCycle }: {
       setBusy(false);
       requestAnimationFrame(() => feedback.current?.focus());
     }
+  }
+
+  function reverseMatch(event: FormEvent<HTMLFormElement>, evidenceId: string, matchId: string) {
+    event.preventDefault();
+    const note = String(new FormData(event.currentTarget).get("reason") ?? "").trim();
+    const key = JSON.stringify([evidenceId, matchId, note]);
+    if (correction.current?.key !== key) correction.current = { key, id: crypto.randomUUID() };
+    void save({ type: "correctSettlementFeedMatch", loanId, cycle, fundingDate: date, evidenceId, matchId, entryId: correction.current.id, note });
   }
 
   return <details className="document-form" onToggle={event => setOpen(event.currentTarget.open)}>
@@ -82,6 +93,22 @@ export function SettlementFeed({ brokerageId, loan, onImported, openCycle }: {
             {row.reviewedAt && <p>{row.reviewNote} · {row.reviewedBy} · {dateTime(row.reviewedAt)} ET</p>}
             {row.destination && <div><Button size="sm" variant="outline" className="min-h-11"
               onClick={() => openCycle(row.destination!.id, row.destination!.cycle)}>Open {row.destination.borrower} · cycle {row.destination.cycle}</Button></div>}
+            {row.matchId && <details className="document-form">
+              <summary className="min-h-11 content-center">Correct wire match</summary>
+              <form className="record-form" onSubmit={event => reverseMatch(event, row.evidenceId, row.matchId!)}>
+                <p>Reverse {financeMoney(row.amountCents)} on {row.destination?.borrower ?? loan.borrower} · cycle {row.destination?.cycle ?? cycle}. The original delivery will be available for review again.</p>
+                <label className="field">Correction reason (required)<textarea name="reason" rows={2} required minLength={5} maxLength={280} disabled={busy} /></label>
+                <div><Button size="sm" type="submit" className="min-h-11" disabled={busy}>Reverse wire match</Button></div>
+              </form>
+            </details>}
+            {row.corrections?.length ? <details className="document-form">
+              <summary className="min-h-11 content-center">Wire match history ({row.corrections.length})</summary>
+              <ul className="document-list">{row.corrections.map((entry, index) => <li className="document-item" key={index}>
+                <strong>{entry.previous.borrower} · cycle {entry.previous.cycle} · {dateLabel(entry.previous.date)}</strong>
+                <p>Matched by {entry.matchedBy} · {entry.matchNote}</p>
+                <p>Reversed by {entry.actor} · {entry.note} · {dateTime(entry.at)} ET</p>
+              </li>)}</ul>
+            </details> : null}
             {row.status === "Needs review" && !loan.reversedAt && !earlierFundingDate &&
               <DeliveryReview brokerageId={brokerageId} loan={loan} row={row} busy={busy} save={save} />}
           </li>)}</ul>}
@@ -122,8 +149,8 @@ function DeliveryReview({ brokerageId, loan, row, busy, save }: {
     if (action === "route" && !destination) return;
     save(action === "match" || action === "route"
         ? { type: "matchSettlementFeed", ...target, fundingDate: loan.date, note,
-        ...(action === "route" ? { destination } : {}) }
-      : { type: "reviewSettlementFeed", ...target, note });
+        ...(action === "route" ? { destination } : {}), ...(row.afterCorrection ? { afterCorrection: row.afterCorrection } : {}) }
+      : { type: "reviewSettlementFeed", ...target, note, ...(row.afterCorrection ? { afterCorrection: row.afterCorrection } : {}) });
   }
   return <>
     {row.canMatch && <details className="document-form">

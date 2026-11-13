@@ -74,7 +74,7 @@ export default function DemoPage() {
           <li>Change sample fees or select revised terms to reopen the closing review. Compare before-and-after values, assign a named closing reviewer, and return the exact package for corrections. Retrieve earlier decisions and packets from history.</li>
           <li>Open file preflight, jump to the exact missing sample fee or lender condition, and assign a review of the current evidence. Changes to the file flag an earlier approval as out of date.</li>
           <li>Set a default reviewer for revised sample closing packages. If an assigned reviewer loses access, Exceptions takes the owner to the same review for reassignment.</li>
-          <li>Pull evidence from a simulated settlement provider. Review an unmatched wire, find the funded loan it belongs to, and open that exact cycle from the saved decision. Correct the funding date and compare saved deliveries against the updated cycle.</li>
+          <li>Pull evidence from a simulated settlement provider. Match a wire to the funded loan it belongs to. If the match was wrong, reverse it with a reason and reopen the original delivery for review.</li>
           <li>Open Exceptions as a brokerage owner. Assign a processor, open a closing review that needs attention and see who acts next, or jump to a reopened mock lender condition.</li>
           <li>Compare a sample settlement fee statement with the confirmed disclosure. Open itemized fee differences directly from the settlement exception queue.</li>
           <li>Recover a missing mock UWM receipt from Today. Open the mock UWM delivery timeline to see which 1003 revision arrived and why older or duplicate updates left a cleared condition in place.</li>
