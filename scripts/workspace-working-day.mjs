@@ -2117,6 +2117,37 @@ try {
     assert.equal((await suite(owner, "obligations", renewalHistory)).versions.length, 1);
     assert.equal((await suite(owner, "obligations", { ...renewalHistory, originatorNmls: "67890" })).versions.length, 0);
 
+    const activity = await recordPeriod("MI", "REQ-MI-REPORTING-RMLA", "Quarterly", "2026-01", 2);
+    const activityPlan = await suite(owner, "obligations", { ...activity, operation: "planWork", requestId: randomUUID() });
+    assert.equal(activityPlan.kind, "obligationWorkPlanned", activityPlan.error);
+    const activityMonth = { entityId: entity.id, month: activityPlan.month };
+    const activityWork = result => result.items.find(item => item.id === activityPlan.workId);
+    assert.ok(activityWork(await program(owner, { ...activityMonth, operation: "month" })).filingProgress.gaps.length);
+    const activityEvidence = { ...activity, operation: "saveMichiganFiling", expected: 0, requestId: randomUUID(), evidence: {
+      deadline: { on: "2026-05-14", reference: "Fictional reporting calendar" },
+      reconciliation: { reference: "Fictional activity reconciliation", activity: "No reportable activity" },
+      submission: { on: "2026-05-12", reference: "Fictional Michigan filing confirmation" },
+    } };
+    assert.ok((await suite(processor, "obligations", activityEvidence)).error);
+    assert.equal((await suite(owner, "obligations", activityEvidence)).kind, "michiganFilingSaved");
+    const updateActivity = (expectedRevision, status, internalTarget) => program(owner, {
+      ...activityMonth, operation: "update", id: activityPlan.workId, requestId: randomUUID(), expectedRevision, status, internalTarget,
+      ownerEmail: owner.email, evidence: "Fictional Michigan filing confirmation", note: "Fictional owner review of filing timing",
+    });
+    await updateActivity(1, "Awaiting review", "2026-05-15");
+    const completed = await updateActivity(2, "Completed", "2026-05-15");
+    assert.equal(activityWork(completed).status, "Completed");
+    assert.ok(activityWork(completed).filingProgress.gaps.includes("The internal target falls after the reviewed filing deadline."));
+    const recordedReview = await program(owner, { ...activityMonth, operation: "reviewMonth", requestId: randomUUID(),
+      fingerprint: completed.fingerprint, note: "Fictional monthly review before the date correction" });
+    assert.equal(recordedReview.reviews[0].current, true);
+    const corrected = await updateActivity(3, "Completed", "2026-05-14");
+    assert.equal(activityWork(corrected).status, "Completed");
+    assert.equal(activityWork(corrected).filingProgress.gaps.length, 0);
+    assert.equal(corrected.history[0].targetCorrection.previousTarget, "2026-05-15");
+    assert.equal(corrected.history[0].targetCorrection.correctedTarget, "2026-05-14");
+    assert.equal(activityWork(JSON.parse(corrected.reviews[0].snapshot)).internalTarget, "2026-05-15");
+
     const bankruptcy = { operation: "save", noticeId: randomUUID(), requestId: randomUUID(), expected: 0, facts: {
       authority: "Mortgage broker", licenseReference: "Sample Florida authority", zone: "America/New_York",
       effective: { on: "2026-09-04", reference: "Sample court docket" }, change: { kind: "Bankruptcy" },

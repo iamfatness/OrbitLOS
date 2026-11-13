@@ -27,6 +27,7 @@ export async function readActionResult(response, name) {
   for (const [record, field] of [[data, "mismoXml"], [data, "csv"], [data, "html"],
     ...(data?.kind === "fv7Template" ? [[data, "json"]] : []),
     ...(data?.kind === "fv7Read" ? [[data, "evidence"]] : []),
+    ...(data?.kind === "programMonth" ? data.reviews.map(review => [review, "snapshot"]) : []),
     ...(data?.batches ?? []).map((batch) => [batch, "csv"])]) {
     const reference = /^\$([a-f0-9]+)$/.exec(record?.[field] ?? "");
     if (reference) {
