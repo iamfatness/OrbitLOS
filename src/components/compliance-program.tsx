@@ -91,7 +91,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   const obligationSource = obligation && <>
     <p><strong>Recorded period {obligation.period} · Obligation version {obligation.version}</strong></p>
     {!reporting && <p>{obligation.status}</p>}
-    {obligation.stateBasis && <p>{obligation.stateBasis.jurisdiction} · State scope version {obligation.stateBasis.revision}</p>}
+    {obligation.stateBasis && <p>{obligation.stateBasis.jurisdiction === "US" ? "Federal source" : `${obligation.stateBasis.jurisdiction} · State scope`} version {obligation.stateBasis.revision}</p>}
     <a className="name-link break-words" href={obligation.sourceUrl} target="_blank" rel="noreferrer">{obligation.authority}</a>
   </>;
   const entityOptions = current && !entities.some(entity => entity.id === current.entity.id) ? [current.entity, ...entities] : entities;
