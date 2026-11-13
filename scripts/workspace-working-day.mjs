@@ -2141,6 +2141,23 @@ try {
     const nyHistory = { ...quarter, operation: "newYorkEmploymentHistory" };
     assert.equal((await suite(owner, "obligations", nyHistory)).nominalDueOn, "2026-10-30");
     assert.ok((await suite(processor, "obligations", nyHistory)).error);
+    const mailed = { on: "2026-10-30", reference: "Sample DFS mailing receipt" };
+    const notarizedReport = { on: "2026-10-28", reference: "Sample notarized quarterly report" };
+    const filing = { ...nyRequest, expected: 1, requestId: randomUUID(), correction: "Record sample filing evidence",
+      evidence: { ...nyRequest.evidence, mailed, notarizedReport } };
+    assert.equal((await suite(owner, "obligations", filing)).version, 2);
+    const workpaper = { ...quarter, operation: "newYorkEmploymentWorkpaper", version: 2 };
+    const downloaded = await suite(owner, "obligations", workpaper);
+    assert.equal(downloaded.kind, "newYorkEmploymentWorkpaper", downloaded.error);
+    assert.deepEqual(downloaded.obligation, { id: quarter.id, scopeRevision: 1, sourceKey: "REQ-NY-REPORTING-QRES" });
+    assert.deepEqual(downloaded.filingEvidence.mailed, mailed);
+    assert.deepEqual(downloaded.filingEvidence.notarizedReport, notarizedReport);
+    assert.equal(downloaded.recordedFinding.filingStatus, "Mailing recorded by nominal date");
+    assert.equal((await suite(owner, "obligations", { ...workpaper, version: 1 })).filingEvidence.mailed, undefined);
+    assert.ok((await suite(owner, "obligations", { ...workpaper, version: 3 })).error);
+    assert.ok((await suite(processor, "obligations", workpaper)).error);
+    const wrongWorkspace = await action(owner, "accessComplianceCases", { type: "obligations", input: workpaper }, undefined, randomUUID());
+    assert.ok(wrongWorkspace.error);
 
     const draftPolicy={operation:"createVersion",requestId:randomUUID(),contentId:randomUUID(),previousVersionId:null,kind:"Policy",title:"Fictional evidence handling policy",
       body:"Fictional exercise only. Retain evidence and escalate missing facts.",sourceReferences:"Synthetic rehearsal; no real legal review",questions:[],passPercent:100};
