@@ -198,6 +198,27 @@ function licenseCoverage(db: Store, tenant: string, asOf: string): LicenseCovera
   return { currentCompanyStates: [...states].sort(), entityCount, entitiesWithoutCurrentCompanyRecords: entityCount - entityIds.size };
 }
 
+function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
+  obligationId: SqlValue; period: SqlValue; snapshot: SqlValue;
+}, now: string) {
+  const { draft, stateBasis, reportingBasis: recordedReportingBasis, period: bounds } = JSON.parse(String(row.snapshot)) as {
+    draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"]; reportingBasis?: ObligationReviewBasis["reportingBasis"];
+    period?: { from: string; through: string };
+  };
+  const cadenceConflict = Boolean(recordedReportingBasis && stateBasis && draft.applicability !== "Not applicable" &&
+    !financialConditionScopeMatches(db, tenant, entityId, stateBasis, draft.cadence));
+  const reportingBasis = cadenceConflict && recordedReportingBasis
+    ? { ...recordedReportingBasis, nominalDueOn: null, review: financialConditionCadenceReview } : recordedReportingBasis;
+  const progress = stateBasis && bounds && draft.applicability !== "Not applicable"
+    ? currentFilingProgress(db, { brokerageId: tenant, entityId, obligationId: String(row.obligationId),
+      period: String(row.period), sourceKey: stateBasis.sourceKey, bounds, draft, nominalDueOn: reportingBasis?.nominalDueOn ?? null }, now)
+    : undefined;
+  const filingProgress = cadenceConflict
+    ? { revision: progress?.revision ?? null, summary: "Filing date needs review",
+      gaps: [financialConditionCadenceReview, ...(progress?.gaps ?? [])] } : progress;
+  return { draft, stateBasis, cadenceConflict, reportingBasis, filingProgress };
+}
+
 function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, roster: readonly VersionedBrokerageMember[],
   requestedBranch?: string, stateOffset = 0): ComplianceOwnerHomeData {
   const { today, renewalThrough } = renewalWindow(now);
@@ -214,13 +235,23 @@ function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<s
   const reviewFilter = `FROM compliance_program_items i JOIN compliance_program_entities e
     ON e.brokerageId=i.brokerageId AND e.id=i.entityId
     WHERE i.brokerageId=? AND i.status<>'Completed' AND i.internalTarget<=?`;
+  const linkedFiling = db.prepare(`SELECT o.obligationId,o.period,o.snapshot FROM compliance_obligation_work w
+        JOIN compliance_obligation_occurrences o
+          ON o.brokerageId=w.brokerageId AND o.entityId=w.entityId AND o.obligationId=w.obligationId AND o.period=w.period
+        WHERE w.brokerageId=? AND w.entityId=? AND w.month=? AND w.workId=?`);
   const items = db.prepare(`SELECT i.id,i.entityId,e.name AS entityName,i.month,i.title,i.internalTarget,i.status,i.ownerEmail,i.ownerRevision
     ${reviewFilter} ORDER BY i.internalTarget,i.id LIMIT 8`).all(tenant, renewalThrough).map(row => {
       const owner = owners.get(String(row.ownerEmail));
+      const entityId = String(row.entityId);
+      const linked = linkedFiling.get(tenant, entityId, row.month, row.id);
+      const filing = linked && recordedFilingBasis(db, tenant, entityId, {
+        obligationId: linked.obligationId, period: linked.period, snapshot: linked.snapshot,
+      }, now).filingProgress;
       return {
-        id: String(row.id), entityId: String(row.entityId), entityName: String(row.entityName), month: String(row.month),
+        id: String(row.id), entityId, entityName: String(row.entityName), month: String(row.month),
         title: String(row.title), internalTarget: String(row.internalTarget), status: row.status as ProgramItem["status"],
         ownerName: owner && owner.accessRevision === row.ownerRevision ? owner.name : null,
+        ...(filing && { filing: { summary: filing.summary, gapCount: filing.gaps.length } }),
       };
     });
   const entityCount = Number(db.prepare("SELECT count(*) AS total FROM compliance_program_entities WHERE brokerageId=?").get(tenant)?.total);
@@ -277,23 +308,9 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   for (const row of bases) {
     const item = byItem.get(String(row.workId));
     if (!item) continue;
-    const { draft, stateBasis, reportingBasis: recordedReportingBasis, period: bounds } = JSON.parse(String(row.snapshot)) as {
-      draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"]; reportingBasis?: ObligationReviewBasis["reportingBasis"];
-      period?: { from: string; through: string };
-    };
-    const cadenceConflict = recordedReportingBasis && stateBasis && draft.applicability !== "Not applicable" &&
-      !financialConditionScopeMatches(db, staff.brokerage.id, entity.id, stateBasis, draft.cadence);
-    const reportingBasis = cadenceConflict
-      ? { ...recordedReportingBasis, nominalDueOn: null, review: financialConditionCadenceReview } : recordedReportingBasis;
-    if (stateBasis && bounds && draft.applicability !== "Not applicable") {
-      item.filingProgress = currentFilingProgress(db, { brokerageId: staff.brokerage.id, entityId: entity.id,
-        obligationId: String(row.obligationId), period: String(row.period), sourceKey: stateBasis.sourceKey,
-        bounds, draft, nominalDueOn: reportingBasis?.nominalDueOn ?? null }, now);
-      if (cadenceConflict) {
-        const progress = item.filingProgress ?? { revision: null, summary: "Filing date needs review", gaps: [] };
-        item.filingProgress = { ...progress, gaps: [financialConditionCadenceReview, ...progress.gaps] };
-      }
-    }
+    const { draft, stateBasis, reportingBasis, cadenceConflict, filingProgress } = recordedFilingBasis(db,
+      staff.brokerage.id, entity.id, { obligationId: row.obligationId, period: row.period, snapshot: row.snapshot }, now);
+    if (filingProgress) item.filingProgress = filingProgress;
     const [year, month] = String(row.period).split("-");
     item.obligation = {
       obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version),

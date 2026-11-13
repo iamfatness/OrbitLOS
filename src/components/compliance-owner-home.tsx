@@ -153,6 +153,8 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
           action="Open review" onOpen={() => openReview({ entityId: item.entityId, month: item.month, itemId: item.id })}>
           <p>{item.internalTarget < home.asOf ? "Past internal target" : "Internal target"} · {displayDate(item.internalTarget)} · {item.ownerName ?? "Owner needs review"}</p>
           <p className="muted">{item.entityName} · {item.status}</p>
+          {item.filing && <p>{item.filing.summary}{item.filing.gapCount > 0 &&
+            ` · ${item.filing.gapCount} evidence ${item.filing.gapCount === 1 ? "gap" : "gaps"}`}</p>}
         </WorkRow>)}</ul>
         {reviewTotal > home.reviews.items.length && <Button size="sm" variant="outline" onClick={() => openArea("Monthly review")}>Open monthly review ({reviewTotal} open items)</Button>}
       </section>}

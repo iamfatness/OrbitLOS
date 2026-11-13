@@ -132,6 +132,7 @@ export type ComplianceOwnerHomeData = {
   reviews: { total: number; items: {
     id: string; entityId: string; entityName: string; month: string; title: string; internalTarget: string;
     status: ProgramItem["status"]; ownerName: string | null;
+    filing?: { summary: string; gapCount: number };
   }[] };
 };
 

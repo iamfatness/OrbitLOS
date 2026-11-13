@@ -932,7 +932,9 @@ test("New York annual VOOR tracks deadlines and versioned filing evidence", t =>
  const history = {operation:"newYorkVoorHistory",...target};
  const work = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
  const month = () => f.program({operation:"month",entityId:f.entityId,month:work.month});
+ const ownerRow = () => f.program({operation:"ownerHome"}).reviews.items.find(item => item.id === work.workId);
  assert.equal(month().items[0].filingProgress.summary,"Filing evidence needed");
+ assert.deepEqual(ownerRow().filing, { summary: "Filing evidence needed", gapCount: month().items[0].filingProgress.gaps.length });
  const prior = month();
  const monthlyReview = f.program({operation:"reviewMonth",entityId:f.entityId,month:work.month,
    fingerprint:prior.fingerprint,requestId:crypto.randomUUID(),note:"Fictional initial filing review"});
@@ -965,6 +967,7 @@ test("New York annual VOOR tracks deadlines and versioned filing evidence", t =>
  assert.equal(second.version,2);
  assert.deepEqual(second.finding.gaps,[]);
  assert.deepEqual(month().items[0].filingProgress.gaps,[]);
+ assert.deepEqual(ownerRow().filing, { summary: month().items[0].filingProgress.summary, gapCount: 0 });
  assert.equal(f.run({...history,before:2}).versions[0].evidence.original.on,"2026-06-22");
  assert.equal(f.run(history).versions[0].evidence.amendment.on,"2026-06-23");
  assert.ok(f.run({...history,entityId:crypto.randomUUID()}).error);
