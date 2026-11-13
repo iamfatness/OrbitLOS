@@ -13,7 +13,13 @@ import { Button } from "./ui/button";
 type Account = { configured: boolean; connectedAt: string | null; environment: string; message: string };
 type Import = { id: string; actor: string; state: string; applicationRevision: number; transactionId: string | null; lenderLoanNumber: string | null; scan: string | null; ready: number; committed: number; failureReason: string | null };
 type Activity = { uploads: {xml:boolean;documents:boolean}; imports: Import[]; requests: RequestActivity[] };
-type RequestActivity = {id:string;action:string;state:string;createdAt:string;updatedAt:string;applicationRevision:number|null;transactionId:string|null};
+type RequestActivity = {id:string;action:string;state:string;createdAt:string;updatedAt:string;applicationRevision:number|null;transactionId:string|null;
+  fileName:string|null;documentId:number|null};
+const documentSteps: Record<string,{label:string; acknowledged:string}> = {
+  "upload-document": {label:"Document upload", acknowledged:"Confirmed in UWM holding"},
+  "attach-documents": {label:"Attach to conditions", acknowledged:"Attachment confirmed"},
+  "submit-documents": {label:"Submit to underwriting", acknowledged:"Submission acknowledged"},
+};
 type Branch = {entityId:number;name:string|null;contacts:{contactId:number;firstName:string|null;lastName:string|null}[]};
 type Attachment = {attachmentId:number;revisionId:string;documentType:string;comments:string;SubmittedDateTime:string|null;files:{documentId:number}[];conditions:string[]};
 type Documents = {documents:{documentId:number;fileName:string}[];attachments:Attachment[]};
@@ -67,6 +73,7 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
   },[loading,rejectionId,selectedRejectionId]);
   const importPending=activity?.imports.some(item=>["Acknowledged","Dispatching","Unknown"].includes(item.state));
   const unresolved=activity?.requests.some(item=>["Unknown","Dispatching"].includes(item.state));
+  const documentRequests=activity?.requests.filter(request=>documentSteps[request.action]) ?? [];
   const connected=!!account?.configured && !!account.connectedAt;
   const canWrite=connected && reviewed && !unresolved && !uncertain && !busy;
   const processor=staff.brokerage.role==="Processor";
@@ -149,6 +156,18 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
     } catch(failure){setError(failure instanceof Error?failure.message:"Could not read this document.");}
   }
   async function loadDocuments() {setBusy(true);setError("");try{setDocuments(await json<Documents>(readUrl,{loanId,view:"documents"}));}catch(failure){setError(failure instanceof Error?failure.message:"Documents unavailable.");}finally{setBusy(false);}}
+  async function checkUpload(request:RequestActivity) {
+    if(busy || !request.applicationRevision)return;
+    setBusy(true);setError("");setMessage("");
+    try {
+      const outcome=await json<{result?:{message?:string}}>(endpoint,{action:"check-document-request",id:crypto.randomUUID(),
+        requestId:request.id,loanId,applicationRevision:request.applicationRevision,confirmed:true});
+      await refresh();
+      setMessage(outcome.result?.message ?? "The original request status was refreshed.");
+    } catch(failure) {
+      setError(failure instanceof Error?failure.message:"Could not check the original upload.");
+    } finally {setBusy(false);}
+  }
   async function price(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();const values=formValues(event.currentTarget);
     try {
@@ -165,6 +184,24 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
       <Button variant="outline" size="sm" disabled={busy||loading} onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh</Button></div>
     {loading?<p role="status">Checking your UWM connection…</p>:<>
       <p className="uwm-loan-status"><ShieldCheck size={16}/>{account?.environment==="production"?"Production":"Test environment"} · {linked?`UWM loan ${linked.lenderLoanNumber}`:connected?"Account connected · no completed import":"Account connection needed"}</p>
+      {view==="documents" && !pending && !!documentRequests.length && <section className="record-form" aria-label="Condition document requests">
+        <h4 className="font-semibold">Condition document requests</h4>
+        <ul className="document-list">{documentRequests.slice(0,8).map(request=>{
+          const step=documentSteps[request.action];
+          return <li key={request.id} className="document-item record-form break-words">
+            <strong>{step.label}{request.fileName && ` · ${request.fileName}`}</strong>
+            <p>{request.state==="Acknowledged" ? step.acknowledged : request.state==="Unknown" ? "Needs verification" :
+              request.state==="Dispatching" ? "Request in progress" : request.state==="Reconciled" ? "Staff verification recorded" : "Request rejected"}
+              {request.documentId && ` · Document ${request.documentId}`}</p>
+            {request.state==="Unknown" && (request.action==="upload-document" && request.documentId ?
+              <div><Button size="sm" variant="outline" className="min-h-11" disabled={busy||!connected}
+                aria-label={`Check original upload for ${request.fileName ?? "document "+request.documentId}`}
+                onClick={()=>void checkUpload(request)}>Check original upload</Button>
+                {!connected && <p className="muted">Connect your UWM account to check the saved document reference.</p>}</div> :
+              <p>Ask a brokerage admin to verify this request in UWM before another attempt.</p>)}
+          </li>;
+        })}</ul>
+      </section>}
       {verificationId && !pending && staff.brokerage.role==="Admin" &&
         <section id={importVerificationTarget(verificationId)} ref={verificationPanel} tabIndex={-1}
           className="uwm-import-review document-item break-words" aria-label="Import verification">

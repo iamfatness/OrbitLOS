@@ -201,6 +201,31 @@ test("submitted or stale attachment revisions cannot be resubmitted",async t=>{
  assert.equal((await runUwmWorkflow(db,env,staff,{...base(),action:"submit-documents",attachments:[{attachmentId:7,revisionId:"old"}]},api)).state,"Rejected");assert.equal(sent,0);
  assert.equal((await runUwmWorkflow(db,env,staff,{...base(),action:"submit-documents",attachments:[{attachmentId:7,revisionId:"new"}]},api)).state,"Acknowledged");assert.equal(sent,1);
 });
+test("an assigned processor verifies an uncertain upload using the original held document", async t=>{
+  const {db,api}=setup(t);
+  await runUwmWorkflow(db,env,staff,prepare(),api);
+  db.prepare("UPDATE uwm_operations SET state='Completed',lenderLoanNumber='1234567890'").run();
+  db.prepare("INSERT INTO loan_processing VALUES (?,?)").run(loanId,"processor@example.test");
+  const processor={...staff,email:"processor@example.test",brokerage:{...staff.brokerage,role:"Processor"}};
+  let uploads=0, reads=0;
+  api.createConditionUpload=async()=>({documentId:9,fileName:"sample.pdf",sasUri:"https://fixture.example/private?sig=private"});
+  api.uploadConditionBytes=async()=>{uploads++;throw new Error("connection lost");};
+  const original={...base(),action:"upload-document",fileName:"sample.pdf",content:"YQ=="};
+  assert.equal((await runUwmWorkflow(db,env,processor,original,api)).state,"Unknown");
+  db.prepare("UPDATE applications SET revision=2").run();
+  const lookup={...base(),action:"check-document-request",requestId:original.id};
+  api.listConditionDocuments=async()=>({body:{documents:[{documentId:++reads===1?10:9,fileName:"sample.pdf"}]}});
+  assert.equal((await runUwmWorkflow(db,env,processor,lookup,api)).state,"Unknown");
+  await assert.rejects(runUwmWorkflow(db,env,{...processor,email:"unassigned@example.test"},lookup,api),/unavailable/);
+  assert.equal((await runUwmWorkflow(db,env,processor,lookup,api)).state,"Acknowledged");
+  assert.equal((await runUwmWorkflow(db,env,processor,lookup,api)).state,"Acknowledged");
+  assert.equal(reads,2);
+  assert.equal(uploads,1);
+  const view=await readUwmFile(db,env,processor,{loanId,view:"activity"});
+  const saved=view.requests.find(row=>row.id===original.id);
+  assert.deepEqual([saved.applicationRevision,saved.documentId,saved.fileName],[1,9,"sample.pdf"]);
+  assert.equal(JSON.stringify(view).includes("sig=private"),false);
+});
 test("only an administrator can reconcile an uncertain request, preserving evidence and stopping automatic retries",async t=>{
  const {db,api}=setup(t),input=prepare();api.uploadXml=async()=>{throw new Error("timeout");};
  await runUwmWorkflow(db,env,staff,input,api);

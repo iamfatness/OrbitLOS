@@ -26,6 +26,7 @@ export const uwmWorkflowRequest = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("cancel-lock"), ...base }),
   z.strictObject({ action: z.literal("reconcile-request"), ...base, requestId: z.uuid(),
     outcome: z.enum(["Not applied", "Verified in UWM"]), evidence: z.string().trim().min(20).max(2000) }),
+  z.strictObject({ action: z.literal("check-document-request"), ...base, requestId: z.uuid() }),
 ]);
 type Input = z.infer<typeof uwmWorkflowRequest>;
 type Client = ReturnType<typeof uwmPublicClient>;
@@ -138,6 +139,29 @@ function requestResult(row: { id?: unknown; state?: unknown; result?: unknown })
 export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: WorkspaceStaff, raw: unknown, client?: Client, registerTransaction?: (operationId: string, transactionId: string) => Promise<void>) {
   const input = uwmWorkflowRequest.parse(raw);
   const environment = context(db, env, staff, input.loanId, true);
+  if (input.action === "check-document-request") {
+    const original = db.prepare(`SELECT request.state,request.result,evidence.applicationRevision
+      FROM uwm_live_requests request JOIN uwm_request_evidence evidence ON evidence.requestId=request.id
+      WHERE request.id=? AND request.loanId=? AND request.environment=? AND request.action='upload-document'`)
+      .get(input.requestId, input.loanId, environment);
+    if (!original || original.applicationRevision !== input.applicationRevision) throw new UwmError("Open the original document upload before checking its status.");
+    if (original.state !== "Unknown") return { id: input.requestId, state: original.state, result: null };
+    const target = z.object({documentId:z.number().int().positive(),fileName:uwmDocumentName})
+      .safeParse(original.result ? JSON.parse(String(original.result)) : null);
+    if (!target.success) return { id: input.requestId, state: "Unknown",
+      result: { message: "This upload has no saved document reference. Ask an admin to verify the original request." } };
+    const api = client ?? uwmPublicClient(db, env, staff);
+    const held = await api.listConditionDocuments(linkedLoan(db, input.loanId, environment));
+    if (!held.body.documents.some(document => document.documentId === target.data.documentId && document.fileName === target.data.fileName)) {
+      return { id: input.requestId, state: "Unknown",
+        result: { message: "UWM did not return the original document. The upload still needs verification." } };
+    }
+    context(db, env, staff, input.loanId, true);
+    const result = { ...target.data, message: "Original document found in UWM holding. Attachment and underwriting submission are separate." };
+    db.prepare("UPDATE uwm_live_requests SET state='Acknowledged',result=?,updatedAt=? WHERE id=? AND state='Unknown'")
+      .run(JSON.stringify(result), new Date().toISOString(), input.requestId);
+    return requestResult(db.prepare("SELECT id,state,result FROM uwm_live_requests WHERE id=?").get(input.requestId)!);
+  }
   if (staff.brokerage.role === "Processor" && !["upload-document", "attach-documents", "submit-documents"].includes(input.action)) {
     throw new UwmError("Only an authorized loan officer or administrator can submit or price a loan.");
   }
@@ -332,7 +356,10 @@ export async function readUwmFile(db: Store, env: UwmEnvironment, staff: Workspa
       WHERE op.loanId=? AND op.environment=? AND op.kind='import' ORDER BY op.startedAt DESC,op.rowid DESC LIMIT 20`)
       .all(staff.brokerage.role !== "Processor" ? 1 : 0, input.loanId, environment),
     requests: db.prepare(`SELECT request.id,request.action,request.state,request.createdAt,request.updatedAt,evidence.applicationRevision,
-      operation.transactionId FROM uwm_live_requests request
+      operation.transactionId,
+      CASE WHEN request.action='upload-document' THEN json_extract(evidence.details,'$.fileName') END AS fileName,
+      CASE WHEN request.action='upload-document' THEN json_extract(request.result,'$.documentId') END AS documentId
+      FROM uwm_live_requests request
       LEFT JOIN uwm_request_evidence evidence ON evidence.requestId=request.id
       LEFT JOIN uwm_operations operation ON operation.id=CASE WHEN request.action='prepare-import' THEN request.id
         WHEN request.action='commit-import' THEN json_extract(evidence.details,'$.importId') END
