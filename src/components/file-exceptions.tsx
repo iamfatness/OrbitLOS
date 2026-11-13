@@ -81,7 +81,7 @@ export function FileExceptions({ brokerageId, version, busy, open, assign, stand
       {page.items.length ? <ul className="playbook-exceptions">{page.items.map((item) => <li className="document-item" key={`${item.kind}:${item.parentId}:${item.id}`}>
         <div className="document-item-head"><strong>{item.title} · {item.borrower}</strong><span className="pill">{item.status}</span></div>
         {item.kind !== "Manual lender returns" && <p>{item.action}</p>}
-        <p className="muted">{item.kind === closingPackageException ? "Next to act" : "Staff owner"} · {item.owner ?? "Unassigned"}
+        <p className="muted">{item.kind === closingPackageException ? "Next to act" : "Staff owner"} · {item.owner ?? (item.kind === closingPackageException ? item.nextParty : null) ?? "Unassigned"}
           {item.owner && !item.ownerAvailable && " · Owner unavailable"}
           {item.dueOn ? ` · Due ${dateLabel(item.dueOn)}` : item.kind === "Required 1003 approvals" ? " · Due date pending" : null}
           {item.dueAt && ` · Due ${dateTime(item.dueAt)} ET`}
@@ -92,7 +92,7 @@ export function FileExceptions({ brokerageId, version, busy, open, assign, stand
         {item.returnFollowUp ? <div><p className="muted">{lenderReturnFollowUpLabel(item.returnFollowUp)}</p><p>{item.returnFollowUp.note}</p></div> :
           item.returnEventId && <p className="muted">No follow-up logged yet.</p>}
         {(item.evidence || item.nextParty || item.overdue || item.escalated) && <p className="muted">
-          {[item.evidence, item.nextParty && `${item.returnEventId ? "Lender" : "Manual condition next party"} · ${item.nextParty}`,
+          {[item.evidence, item.nextParty && item.kind !== closingPackageException && `${item.returnEventId ? "Lender" : "Manual condition next party"} · ${item.nextParty}`,
             item.overdue && !item.returnDueAt && item.status !== "Review overdue" && "Overdue", item.escalated && item.status !== "Escalated" && "Escalated"].filter(Boolean).join(" · ")}
         </p>}
         <div className="loan-application-actions"><Button size="sm" variant="outline" disabled={busy}
