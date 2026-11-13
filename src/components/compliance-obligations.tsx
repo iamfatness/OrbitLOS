@@ -36,8 +36,8 @@ function periodInstructions(draft: ObligationDraft) {
   return "Choose the month to review.";
 }
 
-export function ComplianceObligations({brokerageId,paused,openReview,returnToItem}:{
-   brokerageId:string;paused:boolean;openReview:(target:ProgramReviewTarget)=>void;returnToItem?:string;
+export function ComplianceObligations({brokerageId,pilot,paused,openReview,returnToItem}:{
+   brokerageId:string;pilot:boolean;paused:boolean;openReview:(target:ProgramReviewTarget)=>void;returnToItem?:string;
  }) {
  const [entities,setEntities]=useState<{id:string;name:string}[]>([]);
  const [entityId,setEntity]=useState("");
@@ -221,7 +221,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
        {selectedEntity&&<span className="muted break-words xl:hidden" aria-hidden="true">{selectedEntity.name}</span>}</label>
      <label className="field">Applicability on this page<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All decisions</option>{["Needs review","Required","Not applicable"].map(s=><option key={s}>{s}</option>)}</select></label></div>
      <div className="loan-application-actions"><Button disabled={!entityId||loading} onClick={()=>{newId.current=crypto.randomUUID();edit(null);}}>Add obligation</Button>
-       {selectedEntity && <Button className="min-h-11" variant="outline" ref={floridaReturn}
+       {pilot && selectedEntity && <Button className="min-h-11" variant="outline" ref={floridaReturn}
          onClick={() => setFloridaAmendments(true)}>Florida license amendments</Button>}
        <Button variant="outline" onClick={()=>{setLoading(Boolean(entityId));setError("");setNotice("");refresh(v=>v+1);}}>Refresh</Button></div>
      {!entityId&&<p>Add a legal entity in Compliance → Licensing to start planning obligations.</p>}

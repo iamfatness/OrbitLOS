@@ -158,7 +158,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
           openReport={(basis, entity) => { if (basis.report) setReport({ basis, entity, period: basis.report }); }} />
       </>}
       {(view === "Obligations" || obligationVisit) && <div hidden={view !== "Obligations"}>
-        <ComplianceObligations key={brokerageId} brokerageId={brokerageId} paused={paused} returnToItem={obligationVisit?.returning ? obligationVisit.itemId : undefined}
+        <ComplianceObligations key={brokerageId} brokerageId={brokerageId} pilot={pilot} paused={paused} returnToItem={obligationVisit?.returning ? obligationVisit.itemId : undefined}
           openReview={target => {
             setReview(target);
             setObligationVisit({ itemId: target.itemId, returning: false });
