@@ -2,6 +2,7 @@ import { z } from "zod";
 import { shiftReportDate } from "./report-date-range";
 import { newYorkEmploymentEvidence } from "./new-york-employment-model";
 import { newYorkVoorEvidence } from "./new-york-voor-model";
+import { michiganFilingEvidence } from "./michigan-filing-evidence-model";
 import { coloradoCompanyRenewalEvidence } from "./colorado-company-renewal-model";
 import { illinoisAuditEvidence } from "./illinois-audit-evidence-model";
 import { michiganMloRenewalEvidence, michiganOriginatorId } from "./michigan-mlo-renewal-model";
@@ -96,6 +97,9 @@ export const obligationRequest = z.discriminatedUnion("operation", [
     expectedVersion: z.int().nonnegative(), ...filingReceiptFields.shape }),
   z.strictObject({ operation: z.literal("addFilingReceiptReference"), ...filingScope, ...change,
     version: z.int().positive(), location: filingReceiptLocation }),
+  z.strictObject({ operation: z.literal("michiganFilingHistory"), ...occurrence, before: z.int().positive().optional() }),
+  z.strictObject({ operation: z.literal("saveMichiganFiling"), ...occurrence, ...change, expected: z.int().nonnegative(),
+    evidence: michiganFilingEvidence, correction: note.optional() }),
   z.strictObject({ operation: z.literal("newYorkVoorHistory"), ...occurrence, before: z.int().positive().optional() }),
   z.strictObject({ operation: z.literal("saveNewYorkVoor"), ...occurrence, ...change, expected: z.int().nonnegative(),
     evidence: newYorkVoorEvidence, correction: note.optional() }),

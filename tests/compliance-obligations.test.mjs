@@ -921,3 +921,55 @@ test("New York annual VOOR tracks deadlines and versioned filing evidence", t =>
  assert.equal(f.run({...history,period:laterPeriod}).nominalDueOn,null);
  assert.equal(f.run({operation:"occurrences",entityId:f.entityId,id:f.id}).items[0].newYorkVoor,true);
 });
+
+test("Michigan reporting receipts remain scoped to the filing component and period", t => {
+ const f = fixture(t);
+ const scope = complianceCaseWork(f.db, {type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction:"MI",
+   expectedRevision:0,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",
+     companyEvidence:"Fictional Michigan license",officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",
+     reportingBasis:"",counselPacketReference:""}}},f.staff,f.staff.brokerage.id,[f.actor],"2026-11-11T12:00:00Z");
+ assert.equal(scope.revision,1);
+ const record = (suffix,cadence,period,annualStartMonth) => {
+   const id = crypto.randomUUID();
+   const stateReference = {jurisdiction:"MI",revision:1,sourceKey:"REQ-MI-REPORTING-"+suffix};
+   const draft = {...f.draft,cadence,annualStartMonth};
+   assert.equal(f.run(f.save({id,draft,stateReference})).revision,1);
+   assert.equal(f.run(f.generate({id,period})).kind,"obligationOccurrence");
+   return {entityId:f.entityId,id,period};
+ };
+ const activity = record("RMLA","Quarterly","2026-07");
+ const financialCondition = record("FC","Annual","2025-01",1);
+ const fiscalStatement = record("GAAP","Annual","2025-07",7);
+ const history = target => f.run({operation:"michiganFilingHistory",...target});
+ const save = (target,evidence,expected=0) => ({operation:"saveMichiganFiling",...target,
+   requestId:crypto.randomUUID(),expected,evidence,...(expected ? {correction:"Fictional update to the filing record"} : {})});
+ assert.equal(history(activity).nominalDueOn,"2026-11-14");
+ assert.equal(history(financialCondition).nominalDueOn,"2026-03-31");
+ assert.equal(history(fiscalStatement).nominalDueOn,"2026-09-28");
+ assert.ok(history(record("RMLA","Annual","2025-01",1)).error);
+ const work = f.run({operation:"planWork",...activity,requestId:crypto.randomUUID()});
+ assert.equal(f.progress(work.month).summary,"Filing evidence needed");
+ const reconciliation = {reference:"Fictional reconciliation",activity:"No reportable activity"};
+ const deadline = {on:"2026-11-14",reference:"Fictional reviewed NMLS deadline"};
+ const submission = {on:"2026-11-10",reference:"Fictional original NMLS receipt"};
+ const evidence = {deadline,reconciliation,submission};
+ assert.ok(f.run(save(financialCondition,evidence)).error);
+ assert.ok(f.run(save(activity,{submission:{...submission,on:"2026-09-30"}})).error);
+ assert.ok(f.run(save(activity,{submission:{...submission,on:"2026-11-12"}})).error);
+ assert.ok(f.run(save(activity,{amendment:{...submission,reason:"Fictional amendment"}})).error);
+ const request = save(activity,evidence);
+ const saved = f.run(request);
+ assert.deepEqual(saved.finding.gaps,[]);
+ assert.deepEqual(f.run(request),saved);
+ assert.ok(f.run(save(activity,evidence)).error);
+ assert.equal(f.progress(work.month).summary,"Receipt by recorded date");
+ assert.deepEqual(history(financialCondition).versions,[]);
+ assert.deepEqual(history(fiscalStatement).versions,[]);
+ const amendment = {on:"2026-11-11",reference:"Fictional amendment receipt",reason:"Fictional workpaper correction"};
+ assert.equal(f.run(save(activity,{...evidence,amendment},1)).version,2);
+ assert.equal(history(activity).versions[1].evidence.submission.on,"2026-11-10");
+ assert.ok(history({...activity,entityId:crypto.randomUUID()}).error);
+ assert.ok(f.run({operation:"michiganFilingHistory",...activity},f.staff,[]).error);
+ assert.equal(f.run(save(fiscalStatement,{submission:{on:"2026-10-01",reference:"Fictional statement receipt"}})).finding.summary,
+   "Receipt after recorded date");
+});

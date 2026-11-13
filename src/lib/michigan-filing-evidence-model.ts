@@ -1,0 +1,38 @@
+import { z } from "zod";
+import type { ObligationDraft } from "./compliance-obligations-model";
+
+const reference = z.string().trim().min(5).max(1500);
+const receipt = z.strictObject({ on: z.iso.date(), reference });
+
+export function michiganFilingComponent(source: string, draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">) {
+  if (source === "REQ-MI-REPORTING-RMLA" && draft.cadence === "Quarterly") return "Residential Mortgage Loan Activity";
+  if (source === "REQ-MI-REPORTING-FC" && (draft.cadence === "Quarterly" ||
+    (draft.cadence === "Annual" && (draft.annualStartMonth ?? 1) === 1))) return "Financial Condition";
+  if (source === "REQ-MI-REPORTING-GAAP" && draft.cadence === "Annual" && draft.annualStartMonth !== undefined)
+    return "Fiscal-year financial statement";
+  return null;
+}
+
+export const michiganFilingEvidence = z.strictObject({
+  deadline: receipt.optional(),
+  reconciliation: z.strictObject({ reference, activity: z.enum(["Activity recorded", "No reportable activity"]).optional() }).optional(),
+  submission: receipt.optional(),
+  amendment: receipt.extend({ reason: reference }).optional(),
+}).refine(value => Object.values(value).some(Boolean), "Record at least one piece of filing evidence.");
+export type MichiganFilingEvidence = z.infer<typeof michiganFilingEvidence>;
+
+export function reviewMichiganFiling(evidence: MichiganFilingEvidence, nominalDueOn: string | null, asOf: string,
+  component: ReturnType<typeof michiganFilingComponent>) {
+  const dueOn = evidence.deadline?.on ?? nominalDueOn;
+  const gaps: string[] = [];
+  if (!evidence.deadline) gaps.push("Verify the component and deadline against the current filing instructions.");
+  if (!evidence.reconciliation) gaps.push("Record the reconciliation to the filed report or financial statement.");
+  if (component === "Residential Mortgage Loan Activity" && !evidence.reconciliation?.activity)
+    gaps.push("Record the period activity or documented no-activity determination.");
+  if (!evidence.submission) gaps.push("Record the original NMLS submission receipt.");
+  if (evidence.submission && dueOn && evidence.submission.on > dueOn) gaps.push("Review the late submission.");
+  const summary = !dueOn ? "Filing date needs review" :
+    evidence.submission ? (evidence.submission.on <= dueOn ? "Receipt by recorded date" : "Receipt after recorded date") :
+      asOf > dueOn ? "Recorded date passed without receipt" : "Awaiting filing receipt";
+  return { asOf, dueOn, summary, gaps };
+}

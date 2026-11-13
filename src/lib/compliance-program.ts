@@ -283,7 +283,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
     if (stateBasis && bounds && draft.applicability !== "Not applicable") {
       item.filingProgress = currentFilingProgress(db, { brokerageId: staff.brokerage.id, entityId: entity.id,
         obligationId: String(row.obligationId), period: String(row.period), sourceKey: stateBasis.sourceKey,
-        bounds, nominalDueOn: reportingBasis?.nominalDueOn ?? null }, now);
+        bounds, draft, nominalDueOn: reportingBasis?.nominalDueOn ?? null }, now);
     }
     const [year, month] = String(row.period).split("-");
     item.obligation = {

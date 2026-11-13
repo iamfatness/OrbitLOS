@@ -5,18 +5,23 @@ import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illin
 import { prepareNewYorkEmploymentWorkpaper, reviewNewYorkEmployment, type NewYorkEmploymentEvidence } from "./new-york-employment-model";
 import { isNewYorkVoorSource, reviewNewYorkVoor, type NewYorkVoorEvidence } from "./new-york-voor-model";
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
+import { michiganFilingComponent, reviewMichiganFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
+import type { ObligationDraft } from "./compliance-obligations-model";
 
 export type FilingProgress = { revision: string | null; summary: string; gaps: string[] };
 type FilingTarget = {
   brokerageId: string; entityId: string; obligationId: string; period: string; sourceKey: string;
   bounds: { from: string; through: string }; nominalDueOn: string | null;
+  draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">;
 };
 
 export function currentFilingProgress(db: Store, target: FilingTarget, now: string): FilingProgress | undefined {
   const { sourceKey, bounds, nominalDueOn } = target;
   if (sourceKey === "REQ-MI-LICENSING-MLO-RENEW" && nominalDueOn)
     return michiganRenewalProgress(db, target, nominalDueOn, now);
-  const table = isNewYorkVoorSource(sourceKey) && bounds.from.endsWith("-01-01") && bounds.through.endsWith("-12-31")
+  const michiganComponent = michiganFilingComponent(sourceKey, target.draft);
+  const table = michiganComponent ? "michigan_filing_versions" :
+    isNewYorkVoorSource(sourceKey) && bounds.from.endsWith("-01-01") && bounds.through.endsWith("-12-31")
     ? "new_york_voor_versions" : sourceKey === "REQ-NY-REPORTING-QRES" && nominalDueOn ? "new_york_employment_versions"
     : sourceKey === "REQ-CO-LICENSING-CO-RENEW" && nominalDueOn && bounds.from >= "2026-01-01" ? "colorado_company_renewal_versions"
     : sourceKey === "REQ-IL-REPORTING-ANNUAL-AUDIT" && nominalDueOn ? "illinois_audit_evidence_versions" : null;
@@ -34,6 +39,10 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   };
   const revision = String(row.version);
   const evidence: unknown = JSON.parse(String(row.evidence));
+  if (table === "michigan_filing_versions") {
+    const finding = reviewMichiganFiling(evidence as MichiganFilingEvidence, nominalDueOn, asOf, michiganComponent);
+    return { revision, summary: finding.summary, gaps: finding.gaps };
+  }
   if (table === "new_york_voor_versions") {
     const finding = reviewNewYorkVoor(evidence as NewYorkVoorEvidence, nominalDueOn, asOf);
     if (finding.initialTiming === "After recorded deadline") finding.gaps.push("Review the late initial submission.");

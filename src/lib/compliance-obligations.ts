@@ -13,6 +13,7 @@ import { coloradoRenewalReportingPeriods, reviewColoradoCompanyRenewal, type Col
 import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
+import { michiganFilingComponent, reviewMichiganFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
 
 type StateBasis = ObligationStateSource & { snapshot: string };
 type StoredDraft = ObligationDraft & { stateBasis?: StateBasis };
@@ -33,6 +34,10 @@ function hasNewYorkVoorEvidence(snapshot: Pick<OccurrenceSnapshot, "stateBasis" 
 const illinoisDate = (now: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
 
 export function initializeComplianceObligations(db: Store) {
+  db.exec(`CREATE TABLE IF NOT EXISTS michigan_filing_versions (
+    brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL, version INTEGER NOT NULL,
+    evidence TEXT NOT NULL, finding TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, correction TEXT,
+    PRIMARY KEY(brokerageId,entityId,obligationId,period,version));`);
   db.exec(`CREATE TABLE IF NOT EXISTS new_york_voor_versions (
     brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL, version INTEGER NOT NULL,
     evidence TEXT NOT NULL, finding TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, correction TEXT,
@@ -236,6 +241,53 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       (index === 0 || row.sourceSnapshots !== chain[index - 1].sourceSnapshots) &&
       (JSON.parse(String(row.sourceSnapshots)) as string[]).includes(saved.snapshot));
   };
+  if (data.operation === "michiganFilingHistory" || data.operation === "saveMichiganFiling") {
+    const target = [tenant, data.entityId, data.id, data.period] as const;
+    const occurrence = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...target);
+    const snapshot = occurrence ? JSON.parse(String(occurrence.snapshot)) as OccurrenceSnapshot : null;
+    const basis = snapshot?.stateBasis;
+    if (!snapshot || !basis || snapshot.draft.applicability === "Not applicable") return unavailable;
+    const component = michiganFilingComponent(basis.sourceKey, snapshot.draft);
+    if (!component) return unavailable;
+    const nominalDueOn = snapshot.reportingBasis?.nominalDueOn ?? null;
+    const scopeChanged = !currentStateBasis(basis);
+    const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+    if (data.operation === "michiganFilingHistory") {
+      const before = data.before ?? null;
+      const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM michigan_filing_versions
+        WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND (? IS NULL OR version<?) ORDER BY version DESC LIMIT 21`)
+        .all(...target, before, before);
+      const versions = rows.slice(0, 20).map(row => ({ ...row, evidence: JSON.parse(String(row.evidence)) as MichiganFilingEvidence,
+        finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewMichiganFiling> }));
+      return { kind: "michiganFilingHistory", component, nominalDueOn, scopeChanged, bounds: snapshot.period, versions,
+        currentFinding: before === null && versions[0] ? reviewMichiganFiling(versions[0].evidence, nominalDueOn, asOf, component) : null,
+        next: rows.length > 20 ? rows[19].version : null };
+    }
+    const request = JSON.stringify(data);
+    const replay = db.prepare("SELECT actor,request,result FROM compliance_obligation_events WHERE brokerageId=? AND requestId=?").get(tenant, data.requestId);
+    if (replay) return replay.actor === staff.email && replay.request === request ? JSON.parse(String(replay.result)) : changed;
+    const current = db.prepare(`SELECT MAX(version) version FROM michigan_filing_versions
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...target);
+    if (Number(current?.version ?? 0) !== data.expected) return changed;
+    if (data.expected && !data.correction) return { error: "Record a reason for updating the filing evidence." };
+    const { evidence } = data;
+    const { deadline, reconciliation, submission, amendment } = evidence;
+    if (reconciliation?.activity && component !== "Residential Mortgage Loan Activity")
+      return { error: "Record the activity determination on the Residential Mortgage Loan Activity period." };
+    if ((deadline && deadline.on <= snapshot.period.through) ||
+      [submission?.on, amendment?.on].some(on => on && (on <= snapshot.period.through || on > asOf)) ||
+      (amendment && (!submission || amendment.on < submission.on)))
+      return { error: "Check the deadline and the dates and order of the filing receipts." };
+    const version = data.expected + 1;
+    const finding = reviewMichiganFiling(evidence, nominalDueOn, asOf, component);
+    db.prepare("INSERT INTO michigan_filing_versions VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run(...target, version, JSON.stringify(evidence), JSON.stringify(finding), staff.email, now, data.correction ?? null);
+    const result = { kind: "michiganFilingSaved", version, finding, scopeChanged };
+    db.prepare("INSERT INTO compliance_obligation_events VALUES (?,?,?,?,?,?,?)")
+      .run(tenant, data.requestId, data.entityId, staff.email, now, request, JSON.stringify(result));
+    return result;
+  }
   if (data.operation === "newYorkVoorHistory" || data.operation === "saveNewYorkVoor") {
     const target = [tenant, data.entityId, data.id, data.period] as const;
     const occurrence = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences
@@ -527,6 +579,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const audit = illinoisAudit && typeof auditEvidence === "string"
         ? reviewIllinoisAuditEvidence(JSON.parse(auditEvidence) as IllinoisAuditEvidence, asOf) : undefined;
       return { ...row, reportingBasis, illinoisAudit, newYorkVoor: hasNewYorkVoorEvidence({ draft, stateBasis }),
+        michiganFiling: draft.applicability !== "Not applicable" && Boolean(michiganFilingComponent(stateBasis?.sourceKey ?? "", draft)),
         coloradoCompanyRenewal: stateBasis?.sourceKey === "REQ-CO-LICENSING-CO-RENEW" &&
           Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable",
         newYorkEmployment: stateBasis?.sourceKey === "REQ-NY-REPORTING-QRES" &&
