@@ -186,3 +186,5 @@ The separate owner rehearsal at `54a5e01` then verified account entry, loan fee 
 ### California reporting periods
 
 Local checkpoint `8f12d23` on `feature/fv7-forward-breakdown` distinguishes the DRE annual business activity report route from the DFPI annual report route in obligation history and Monthly review. The separate rehearsal reported 605 passing tests and browser checks at desktop, tablet and phone widths. Confirm the applicable license and report, fiscal-year basis, calendar adjustments and no-business schedules with counsel before regulatory use.
+
+The priority reporting calendar checkpoint `e669a9c` on the same branch adds distinct filing routes and cadences for the seven priority states. Colorado Financial Condition and New York VOOR dates beyond the verified year remain review gaps. The separate rehearsal reported 606 passing tests, typecheck, lint, build and fictional browser verification. This checkpoint awaits integration into the coordinated compliance candidate and separate counsel and release acceptance.
