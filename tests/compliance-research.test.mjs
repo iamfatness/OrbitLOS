@@ -453,12 +453,16 @@ test("an owner can track a state question without a source and record an externa
   const [pending] = work("program", { operation: "month", entityId, month }).items;
   assert.equal(pending.stateReview.source, null);
   assert.deepEqual(pending.stateReview.facts, facts);
+  assert.equal(pending.stateReview.latestNote, undefined);
   const update = { operation: "update", entityId, month, id: itemId, ownerEmail: owner.email, internalTarget: submit.internalTarget,
     evidence: "Fictional compliance advice, office reference 7", note: "External reviewer answered the question. Confirm the scope next quarter." };
   assert.equal(work("program", { ...update, status: "Awaiting review", expectedRevision: 1,
     requestId: crypto.randomUUID() }).items[0].status, "Awaiting review");
   assert.equal(work("program", { ...update, status: "Completed", expectedRevision: 2,
     requestId: crypto.randomUUID() }).items[0].status, "Completed");
+  const reopened = work("program", { operation: "month", entityId, month }).items.find(item => item.id === itemId);
+  assert.equal(reopened.stateReview.latestNote, update.note);
+  assert.equal(reopened.evidence, update.evidence);
   const saved = work("scopeReview", read).items;
   assert.equal(saved.length, 1);
   assert.equal(saved[0].source, null);
