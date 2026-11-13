@@ -1211,13 +1211,19 @@ test("New York application log preserves referrals, fees and denial evidence acr
  const delivery={at:"2026-11-12T12:00:00-05:00",reference:"Fictional receipt"};
  const reviewAt="2026-11-18T17:00:00Z";
  assert.match(request(make({...facts,fileNumber:"FUTURE",branchReporting:report({...day,delivery})})).error,/already occurred/);
- const corrected=make({...facts,branchReporting:report({...day,delivery:{...delivery,at:reviewAt}},
+ const rejectedFile={inventory:"Fictional reconciled inventory",location:"Fictional denied-file archive",
+  retrieval:{on:"2026-11-17",reference:"Fictional inspection retrieval"},
+  retentionBasis:{on:"2026-11-12",reference:"Fictional approved retention basis"}};
+ assert.match(request(make({...facts,rejectedFile})).error,/required retention fields/);
+ const corrected=make({...facts,rejectedFile,branchReporting:report({...day,delivery:{...delivery,at:reviewAt}},
   {...secondDay,delivery:{...delivery,at:"2026-11-18T11:59:59-05:00"}}),earlierLog:{on:"2026-11-10",reference:"Fictional branch log"},
   disposition:{status:"Final",outcome:"Denied",on:"2026-11-11",reference:"Fictional denied file"},
   placement:{status:"Not placed",reference:"Fictional placement review"},
   brokerageFees:{status:"Accounting record",reference:"Fictional ledger 42"}},
   {entryId:initial.entryId,expected:1,correction:"Fictional disposition and branch evidence"});
+ assert.match(request({...corrected,facts:{...corrected.facts,branchReporting:undefined}}).error,/rejected-file events that have already occurred/);
  const history=request(corrected,entityId,staff,reviewAt);
+ assert.equal(history.versions[0].review.rejectedFileReviewOn,"2029-11-12");
  assert.deepEqual(history.versions.map(item=>item.review.loggedAfterReceipt),[false,true]);
  assert.deepEqual(history.versions[0].review.gaps,[]);
  assert.deepEqual(history.versions[0].review.branchReports.map(report=>report.status),["On time","On time"]);
@@ -1234,6 +1240,9 @@ test("New York application log preserves referrals, fees and denial evidence acr
  assert.match(sheet(1),/Fictional Referral/);
  assert.match(sheet(2),/<v>10.5<\/v>/);
  assert.match(sheet(4),/Fictional denied file/);
+ assert.match(sheet(4),/Fictional inspection retrieval/);
+ assert.match(sheet(4),/2029-11-12/);
+ assert.match(sheet(8),/Fictional approved retention basis/);
  assert.match(sheet(5),/Fictional ledger 42/);
  assert.match(sheet(5),/Fictional disposition and branch evidence/);
  assert.match(sheet(6),/Fifth business day \(noon ET\)/);
@@ -1250,7 +1259,12 @@ test("New York application log preserves referrals, fees and denial evidence acr
  assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
  const voided=request({operation:"void",entryId:initial.entryId,expected:3,requestId:crypto.randomUUID(),correction:"Fictional duplicate"},entityId,staff,"2026-11-18T17:00:02Z");
  assert.equal(voided.versions[0].voided,true);
- assert.equal(request({operation:"export",from:listing.from,through:listing.through}).entries,0);
+ assert.equal(voided.versions[0].review.rejectedFileReviewOn,"2029-11-12");
+ const afterVoid=request({operation:"export",from:listing.from,through:listing.through},entityId,staff,reviewAt);
+ assert.equal(afterVoid.entries,0);
+ const voidBook=unzipSync(Buffer.from(afterVoid.xlsx,"base64"));
+ assert.doesNotMatch(strFromU8(voidBook["xl/worksheets/sheet4.xml"]),/Fictional denied-file archive/);
+ assert.match(strFromU8(voidBook["xl/worksheets/sheet8.xml"]),/Voided/);
 });
 
 test("Illinois application files preserve outcomes, digital checks and exact evidence across owner exports", async t => {

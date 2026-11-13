@@ -87,6 +87,18 @@ export function NewYorkApplicationLogForm({ initial, busy, save, cancel }: {
           deadline: on || calendar ? { on, reference: calendar } : undefined,
           delivery: at || receipt ? { at, reference: receipt } : undefined };
       }) } : undefined;
+    const inventory = read("rejectedInventory");
+    const location = read("rejectedLocation");
+    const retrievedOn = read("rejectedRetrievedOn");
+    const retrievalReference = read("rejectedRetrievalReference");
+    const retentionOn = read("rejectedRetentionOn");
+    const retentionReference = read("rejectedRetentionReference");
+    const rejectedFile = outcome === "Denied" &&
+      (inventory || location || retrievedOn || retrievalReference || retentionOn || retentionReference) ? {
+      inventory: inventory || undefined, location: location || undefined,
+      retrieval: retrievedOn || retrievalReference ? { on: retrievedOn, reference: retrievalReference } : undefined,
+      retentionBasis: retentionOn || retentionReference ? { on: retentionOn, reference: retentionReference } : undefined,
+    } : undefined;
     const facts = newYorkApplicationFacts.safeParse({
       fileNumber: read("fileNumber"), office: read("office"), applicationOn: read("applicationOn"), propertyAddress: read("propertyAddress"),
       applicants: Array.from({ length: applicants }, (_, index) => ({
@@ -109,13 +121,14 @@ export function NewYorkApplicationLogForm({ initial, busy, save, cancel }: {
         const key = "brokerage-" + index;
         return { amountCents: cents(key + "-amount"), source: read(key + "-source"), sourceType: read(key + "-type") };
       }) } : brokerage === "Unreviewed" ? { status: brokerage } : { status: brokerage, reference: read("brokerage-reference") },
-      branchReporting,
+      branchReporting, rejectedFile,
       earlierLog: earlierOn || earlierReference ? { on: earlierOn, reference: earlierReference } : undefined,
     });
     if (!facts.success) {
       const issue = facts.error.issues[0];
       const messages: Record<string, string> = {
         branchReporting: "Check the branch dates, references and receipt timestamp with its time zone offset.",
+        rejectedFile: "Check the rejected-file references, retrieval date and reviewed retention start.",
         earlierLog: "Enter the earlier log date and its evidence reference.",
         source: "Complete the application source or its accounting reference.",
         disposition: "Complete the outcome date and evidence reference.",
@@ -188,6 +201,17 @@ export function NewYorkApplicationLogForm({ initial, busy, save, cancel }: {
         <Field name="dispositionOn" label="Outcome date" value={initial?.disposition.status === "Final" ? initial.disposition.on : undefined} date required />
         <Field name="dispositionReference" label="Outcome evidence reference" value={initial?.disposition.status === "Final" ? initial.disposition.reference : undefined} required limit={240} />
       </div>}
+      {outcome === "Denied" && <details className="details-section" open={!!initial?.rejectedFile}>
+        <summary className="min-h-11 content-center">Rejected application file</summary>
+        <div className={twoColumns}>
+          <Field name="rejectedInventory" label="Complete file inventory reference" value={initial?.rejectedFile?.inventory} limit={240} />
+          <Field name="rejectedLocation" label="Rejected file location" value={initial?.rejectedFile?.location} limit={240} />
+          <Field name="rejectedRetrievedOn" label="Retrieval check date" value={initial?.rejectedFile?.retrieval?.on} date />
+          <Field name="rejectedRetrievalReference" label="Retrieval check evidence" value={initial?.rejectedFile?.retrieval?.reference} limit={240} />
+          <Field name="rejectedRetentionOn" label="Reviewed retention start date" value={initial?.rejectedFile?.retentionBasis?.on} date />
+          <Field name="rejectedRetentionReference" label="Retention basis reference" value={initial?.rejectedFile?.retentionBasis?.reference} limit={240} />
+        </div>
+      </details>}
       {placement === "Placed" && <Field name="placementEntity" label="Placement entity" value={initial?.placement.status === "Placed" ? initial.placement.entity : undefined} required />}
       {(placement === "Not placed" || placement === "Accounting record") && <Field name="placementReference" label="Placement evidence reference"
         value={initial && "reference" in initial.placement ? initial.placement.reference : undefined} required limit={240} />}
@@ -278,6 +302,19 @@ export function NewYorkApplicationEvidence({ entry }: { entry: Entry }) {
       {rows.map(([label, value]) => value && <div key={label} className="contents"><dt className="font-medium">{label}</dt>
         <dd className="min-w-0 [overflow-wrap:anywhere]">{value}</dd></div>)}
     </dl>
+    {facts.disposition.status === "Final" && facts.disposition.outcome === "Denied" && <details className="details-section">
+      <summary className="min-h-11 content-center">Rejected application file</summary>
+      <dl className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)]">
+        {([
+          ["File inventory", facts.rejectedFile?.inventory],
+          ["Archive location", facts.rejectedFile?.location],
+          ["Retrieval check", facts.rejectedFile?.retrieval && `${facts.rejectedFile.retrieval.on} · ${facts.rejectedFile.retrieval.reference}`],
+          ["Reviewed start", facts.rejectedFile?.retentionBasis && `${facts.rejectedFile.retentionBasis.on} · ${facts.rejectedFile.retentionBasis.reference}`],
+          ["Three-year planning date", review.rejectedFileReviewOn ?? "Unresolved"],
+        ] as const).map(([label, value]) => <div key={label} className="contents"><dt className="font-medium">{label}</dt>
+          <dd className="min-w-0 [overflow-wrap:anywhere]">{value ?? "Unreviewed"}</dd></div>)}
+      </dl>
+    </details>}
     {review.branchReports.length > 0 && <details className="details-section">
       <summary className="min-h-11 content-center">Branch reports</summary>
       <ul className="record-form [overflow-wrap:anywhere]">

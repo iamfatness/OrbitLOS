@@ -29,6 +29,12 @@ const brokerageFees = z.discriminatedUnion("status", [
   })).min(1).max(100) }),
 ]);
 
+const rejectedFile = z.strictObject({
+  inventory: reference.optional(),
+  location: reference.optional(),
+  retrieval: z.strictObject({ on: date, reference }).optional(),
+  retentionBasis: z.strictObject({ on: date, reference }).optional(),
+});
 const branchReport = z.strictObject({
   activityOn: date, activityReference: reference,
   deadline: z.strictObject({ on: date, reference }).optional(),
@@ -74,6 +80,7 @@ export const newYorkApplicationFacts = z.strictObject({
   ]),
   preclosingFees, brokerageFees,
   branchReporting: branchReporting.optional(),
+  rejectedFile: rejectedFile.optional(),
   earlierLog: z.strictObject({ on: date, reference }).optional(),
 }).superRefine((facts, ctx) => {
   if (facts.branchReporting?.office === "Branch office") {
@@ -90,6 +97,13 @@ export const newYorkApplicationFacts = z.strictObject({
       if (report.delivery && Number.isFinite(Date.parse(report.delivery.at)) && easternParts(report.delivery.at).on < report.activityOn)
         ctx.addIssue({ code: "custom", path, message: "Principal-office receipt cannot precede branch activity." });
     });
+  }
+  if (facts.rejectedFile) {
+    const { disposition } = facts;
+    if (disposition.status !== "Final" || disposition.outcome !== "Denied")
+      ctx.addIssue({ code: "custom", path: ["rejectedFile"], message: "Rejected-file evidence belongs with a denied application." });
+    else if ([facts.rejectedFile.retrieval?.on, facts.rejectedFile.retentionBasis?.on].some(on => on && on < disposition.on))
+      ctx.addIssue({ code: "custom", path: ["rejectedFile"], message: "The rejected-file retrieval and reviewed retention start cannot precede the denial." });
   }
   if (facts.earlierLog && facts.earlierLog.on < facts.applicationOn)
     ctx.addIssue({ code: "custom", path: ["earlierLog"], message: "The earlier log entry cannot precede application receipt." });
@@ -123,7 +137,21 @@ export function reviewNewYorkApplication(facts: NewYorkApplicationFacts, firstSa
     if (status !== "On time") gaps.push(`Branch activity ${report.activityOn} · ${status}`);
     return { ...report, status, dueOn };
   }) : [];
-  return { gaps, firstLoggedOn, loggedAfterReceipt, branchReports };
+  const denied = facts.disposition.status === "Final" && facts.disposition.outcome === "Denied";
+  const rejected = facts.rejectedFile;
+  let rejectedFileReviewOn: string | null = null;
+  if (denied) {
+    if (!rejected?.inventory) gaps.push("Document the rejected application file inventory.");
+    if (!rejected?.location || !rejected.retrieval) gaps.push("Document the rejected file location and retrieval check.");
+    if (!rejected?.retentionBasis) gaps.push("Document the reviewed retention start for the rejected file.");
+    else {
+      const on = rejected.retentionBasis.on;
+      const anniversary = date.safeParse(String(Number(on.slice(0, 4)) + 3) + on.slice(4));
+      if (anniversary.success) rejectedFileReviewOn = anniversary.data;
+      else gaps.push("Confirm the three-year anniversary for the rejected file.");
+    }
+  }
+  return { gaps, firstLoggedOn, loggedAfterReceipt, branchReports, rejectedFileReviewOn };
 }
 
 export const newYorkApplicationLogRequest = z.strictObject({

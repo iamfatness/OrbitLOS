@@ -73,8 +73,17 @@ function exportLog(rows: Entry[], history: Entry[], entity: Entity, from: string
     "reference" in facts.brokerageFees ? facts.brokerageFees.reference : "", review.firstLoggedOn,
     facts.earlierLog?.reference ?? "", review.gaps.join("; "), voided ? "Voided" : "Recorded", at, actor, correction ?? "",
   ]);
-  const denied = rows.flatMap(({ facts }) => facts.disposition.status === "Final" && facts.disposition.outcome === "Denied" ?
-    [[facts.fileNumber, facts.office, facts.applicationOn, facts.disposition.on, facts.disposition.reference]] : []);
+  const rejectedRows = (entries: Entry[]) => entries.flatMap(({ facts, review, version, voided }) =>
+    facts.disposition.status === "Final" && facts.disposition.outcome === "Denied" ? [[
+      facts.fileNumber, facts.office, facts.applicationOn, facts.disposition.on, facts.disposition.reference,
+      version, voided ? "Voided" : "Recorded", facts.rejectedFile?.inventory ?? "", facts.rejectedFile?.location ?? "",
+      facts.rejectedFile?.retrieval?.on ?? "", facts.rejectedFile?.retrieval?.reference ?? "",
+      facts.rejectedFile?.retentionBasis?.on ?? "", facts.rejectedFile?.retentionBasis?.reference ?? "",
+      review.rejectedFileReviewOn ?? "",
+    ]] : []);
+  const rejectedHeaders = ["File number", "Office", "Received", "Denied on", "File reference", "Version", "Entry status",
+    "Inventory evidence", "Archive location", "Retrieval date", "Retrieval evidence",
+    "Reviewed retention start", "Retention basis", "Three-year planning date"];
   const branchRows = (entries: Entry[]) => entries.flatMap(({ facts, review, version, voided }) => review.branchReports.map(report => [
     facts.fileNumber, facts.office, version, voided ? "Voided" : "Recorded", report.activityOn, report.activityReference,
     report.dueOn ?? "", report.deadline?.reference ?? "", report.delivery?.at ?? "", report.delivery?.reference ?? "", report.status,
@@ -93,12 +102,13 @@ function exportLog(rows: Entry[], history: Entry[], entity: Entity, from: string
       "Placement entity", "First documented entry"], applications),
     workbookSheet("Preclosing fees", ["File number", "Amount USD", "Date paid", "Purpose", "Direction", "Counterparty", "Address", "Description"], preclosing),
     workbookSheet("Brokerage compensation", ["File number", "Amount USD", "Source type", "Source"], compensation),
-    workbookSheet("Rejected files", ["File number", "Office", "Received", "Denied on", "File reference"], denied),
+    workbookSheet("Rejected files", rejectedHeaders, rejectedRows(rows)),
     workbookSheet("Evidence history", ["Entry ID", "File number", "Version", "Office", "Received", "Source status", "Source record",
       "Placement status", "Placement evidence", "Preclosing fees", "Preclosing fee evidence", "Brokerage fees", "Brokerage fee evidence",
       "First documented entry", "Earlier log evidence", "Evidence gaps", "Entry status", "Saved at", "Actor", "Correction"], evidence),
     workbookSheet("Branch reports", [...branchHeaders, "Current status"], branchRows(rows)),
     workbookSheet("Branch report history", [...branchHeaders, "Status when saved"], branchRows(history)),
+    workbookSheet("Rejected file history", rejectedHeaders, rejectedRows(history)),
     { name: "Export scope", rows: scope, widths: [28, 100], filter: false },
   ]);
   return { kind: "newYorkApplicationLogExport", xlsx: Buffer.from(file).toString("base64"), entries: rows.length,
@@ -177,6 +187,8 @@ export function newYorkApplicationLogWork(db: Store, { entityId, input }: NewYor
   if (facts.branchReporting?.office === "Branch office" && facts.branchReporting.reports.some(report =>
     report.activityOn > today || (report.delivery && Date.parse(report.delivery.at) > Date.parse(now))))
     return { error: "Record branch activity and principal-office receipts that have already occurred." };
+  if ([facts.rejectedFile?.retrieval?.on, facts.rejectedFile?.retentionBasis?.on].some(on => on && on > today))
+    return { error: "Record rejected-file events that have already occurred." };
   const voided = input.operation === "void";
   const fileKey = normalize(facts.fileNumber);
   if (!voided && db.prepare(`SELECT 1 FROM new_york_application_log_versions v WHERE v.brokerageId=? AND v.entityId=?
