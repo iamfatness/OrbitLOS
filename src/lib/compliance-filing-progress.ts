@@ -35,7 +35,7 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   if (!row) return {
     revision: null, summary: "Filing evidence needed",
     gaps: [...(nominalDueOn && nominalDueOn < asOf ? ["The nominal date passed without recorded evidence."] : []),
-      "Open the linked period in Obligations to record evidence."],
+      michiganComponent ? "Record the original filing receipt and supporting evidence." : "Open the linked period in Obligations to record evidence."],
   };
   const revision = String(row.version);
   const evidence: unknown = JSON.parse(String(row.evidence));
