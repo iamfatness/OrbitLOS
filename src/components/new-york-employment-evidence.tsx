@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { accessComplianceCases } from "@/app/actions";
-import { newYorkEmploymentEvidence } from "@/lib/new-york-employment-model";
+import { newYorkEmploymentEvidence, newYorkEmploymentWorkpaperGaps } from "@/lib/new-york-employment-model";
 import type { ObligationRequest } from "@/lib/compliance-obligations-model";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
@@ -293,7 +293,10 @@ export function NewYorkEmploymentEvidence({ brokerageId, entityId, obligationId,
       }} />
       {conflict && <div><Button className="min-h-11" variant="outline" onClick={reload}>Reload evidence and discard draft</Button></div>}
     </> : <>
-      {latest ? <EmploymentSummary entry={latest} review={data.currentFinding ?? latest.finding} /> :
+      {latest ? <>
+        <EmploymentSummary entry={latest} review={data.currentFinding ?? latest.finding} />
+        <WorkpaperReview evidence={latest.evidence} />
+      </> :
         <p>No employment evidence recorded.</p>}
       <div className="loan-application-actions"><Button ref={editButton} disabled={busy} className="min-h-11" onClick={() => { setFeedback(undefined); setEdit(true); }}>
         {latest ? "Update employment evidence" : "Record employment evidence"}</Button>
@@ -301,10 +304,19 @@ export function NewYorkEmploymentEvidence({ brokerageId, entityId, obligationId,
       </div>
       {data.versions.slice(1).map(entry => <details key={entry.version}><summary className="min-h-11 cursor-pointer">
         Version {entry.version} · {entry.finding.filingStatus}</summary><EmploymentSummary entry={entry} />
+        <WorkpaperReview evidence={entry.evidence} />
         <Button className="min-h-11" variant="outline" disabled={busy} onClick={() => void download(entry.version)}>
           Download workpaper version {entry.version}</Button>
       </details>)}
       {data.next && <div><Button className="min-h-11" variant="outline" disabled={busy} onClick={() => void loadEarlier()}>Load earlier versions</Button></div>}
     </>}
   </section>;
+}
+
+function WorkpaperReview({ evidence }: { evidence: Version["evidence"] }) {
+  const gaps = newYorkEmploymentWorkpaperGaps(evidence);
+  return gaps.length > 0 && <div className="record-form mb-3">
+    <h4 className="font-semibold">Items to review before using the draft</h4>
+    <ul className="list-disc pl-5">{gaps.map(gap => <li key={gap}>{gap}</li>)}</ul>
+  </div>;
 }

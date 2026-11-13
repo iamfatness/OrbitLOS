@@ -55,7 +55,7 @@ export function reviewNewYorkEmployment(evidence: NewYorkEmploymentEvidence, due
 }
 
 
-export function prepareNewYorkEmploymentWorkpaper(evidence: NewYorkEmploymentEvidence, period: { from: string; through: string }) {
+export function newYorkEmploymentWorkpaperGaps(evidence: NewYorkEmploymentEvidence) {
   const rows = evidence.workpaperRows ?? [];
   const gaps: string[] = [];
   if (!evidence.workpaperRows) gaps.push("Record or reconcile the quarter's filing rows.");
@@ -97,5 +97,10 @@ export function prepareNewYorkEmploymentWorkpaper(evidence: NewYorkEmploymentEvi
     if (entries.some(item => !item.entityNotice)) gaps.push("Review missing brokerage notice evidence for NMLS " + originatorNmls + ".");
     if (entries.some(item => !item.individualNotice)) gaps.push("Review missing individual notice evidence for NMLS " + originatorNmls + ".");
   }
-  return { period: { from: period.from, through: period.through }, rows, gaps: [...new Set(gaps)] };
+  return [...new Set(gaps)];
+}
+
+export function prepareNewYorkEmploymentWorkpaper(evidence: NewYorkEmploymentEvidence, period: { from: string; through: string }) {
+  return { period: { from: period.from, through: period.through }, rows: evidence.workpaperRows ?? [],
+    gaps: newYorkEmploymentWorkpaperGaps(evidence) };
 }
