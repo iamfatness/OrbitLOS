@@ -38,7 +38,10 @@ export function nmlsFilingDate(now: string, timeZone = "America/New_York") {
 }
 
 export function statePortalAnnualFilingComponent(source: string, draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">, periodStart: string) {
-  if (draft.cadence !== "Annual" || (draft.annualStartMonth ?? 1) !== 1 || periodStart < "2025-01-01") return null;
+  if (draft.cadence !== "Annual" || periodStart < "2025-01-01") return null;
+  if (source === "REQ-CA-REPORTING-CRMLA-AUDIT")
+    return draft.annualStartMonth === undefined ? null : "California CRMLA audited financial statements";
+  if ((draft.annualStartMonth ?? 1) !== 1) return null;
   if (source === "REQ-CA-REPORTING-CFLANNUAL") return "California Financing Law annual report";
   if (source === "REQ-CA-REPORTING-CRMLA-ANNUAL") return "California CRMLA annual report";
   if (source === "REQ-TX-REPORTING-OCCC-ANNUAL") return "Texas OCCC annual report";
@@ -58,8 +61,16 @@ export function filingEvidenceComponent(source: string, draft: Pick<ObligationDr
 export const michiganStatementFormats = [
   "DIFS-prescribed form", "Substantially similar report", "Independent CPA-certified statement",
 ] as const;
+export const crmlaOriginationTypes = ["HUD audit report", "Origination trust reconciliation"] as const;
+export const crmlaServicingTypes = ["CPA USAP report", "Servicing trust reconciliation", "Subservicer USAP report"] as const;
 
 export const michiganFilingEvidence = z.strictObject({
+  crmlaAudit: z.strictObject({
+    statementsReference: reference,
+    internalControlReference: reference,
+    origination: z.strictObject({ type: z.enum(crmlaOriginationTypes), reference }),
+    servicing: z.strictObject({ type: z.enum(crmlaServicingTypes), reference }),
+  }).optional(),
   texasOcccReport: z.strictObject({
     licenseIdentifier: z.string().trim().min(1).max(100),
     reportReference: reference,
@@ -81,9 +92,11 @@ export function reviewNmlsFiling(evidence: MichiganFilingEvidence, nominalDueOn:
   component: ReturnType<typeof filingEvidenceComponent>, periodEnd: string, basisChanged = false) {
   const hmda = component === "HMDA annual filing" || component === "HMDA quarterly filing";
   const stateFiling = component === "California Financing Law annual report" || component === "California CRMLA annual report" ||
-    component === "Texas OCCC annual report";
+    component === "Texas OCCC annual report" || component === "California CRMLA audited financial statements";
   const dueOn = basisChanged ? null : evidence.deadline?.on ?? nominalDueOn;
   const gaps: string[] = [];
+  if (component === "California CRMLA audited financial statements" && !evidence.crmlaAudit)
+    gaps.push("Record the certified financial statements and CRMLA audit supplements.");
   if (component === "Texas OCCC annual report" && !evidence.texasOcccReport)
     gaps.push("Record the OCCC license identifier, saved report and certification evidence.");
   if (component === "Fiscal-year financial statement" && !evidence.michiganStatement)

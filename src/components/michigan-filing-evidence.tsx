@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { accessComplianceCases } from "@/app/actions";
 import type { ObligationRequest } from "@/lib/compliance-obligations-model";
-import { michiganFilingAmendments, michiganFilingEvidence, michiganStatementFormats } from "@/lib/michigan-filing-evidence-model";
+import { crmlaOriginationTypes, crmlaServicingTypes, michiganFilingAmendments, michiganFilingEvidence, michiganStatementFormats } from "@/lib/michigan-filing-evidence-model";
 import { Button } from "./ui/button";
 
 const finding = z.object({ asOf: z.iso.date(), dueOn: z.iso.date().nullable(), summary: z.string(), gaps: z.array(z.string()),
@@ -64,6 +64,15 @@ function FilingForm({ latest, component, nominal, statePortal, reviewableScopeRe
         <Select name="miStatementFormat" label="Financial statement format" options={michiganStatementFormats} value={facts?.michiganStatement?.format} />
         <Field name="miStatementReference" label="Filed financial statement reference" value={facts?.michiganStatement?.reference} />
       </EvidenceGroup>}
+      {component === "California CRMLA audited financial statements" &&
+        <EvidenceGroup name="crmlaAudit" label="Record CRMLA audit package" recorded={Boolean(facts?.crmlaAudit)}>
+          <Field name="crmlaStatements" label="CPA-certified financial statements reference" value={facts?.crmlaAudit?.statementsReference} />
+          <Field name="crmlaInternalControl" label="CPA internal control report reference" value={facts?.crmlaAudit?.internalControlReference} />
+          <Select name="crmlaOriginationType" label="Origination supplement type" options={crmlaOriginationTypes} value={facts?.crmlaAudit?.origination.type} />
+          <Field name="crmlaOriginationReference" label="Origination supplement reference" value={facts?.crmlaAudit?.origination.reference} />
+          <Select name="crmlaServicingType" label="Servicing supplement type" options={crmlaServicingTypes} value={facts?.crmlaAudit?.servicing.type} />
+          <Field name="crmlaServicingReference" label="Servicing supplement reference" value={facts?.crmlaAudit?.servicing.reference} />
+        </EvidenceGroup>}
       <EvidenceGroup name="deadline" label="Record reviewed deadline" recorded={Boolean(facts?.deadline)}>
         <Field name="dueOn" label="Reviewed filing deadline" type="date" value={facts?.deadline?.on ?? nominal ?? undefined} />
         <Field name="deadlineReference" label="Deadline evidence reference" value={facts?.deadline?.reference} />
@@ -81,7 +90,8 @@ function FilingForm({ latest, component, nominal, statePortal, reviewableScopeRe
       </EvidenceGroup>
       <EvidenceGroup name="submission" label="Record original submission" recorded={Boolean(facts?.submission)}>
         <Field name="submissionOn" label="Original submission date" type="date" value={facts?.submission?.on} />
-        <Field name="submissionReference" label={statePortal ? "Original state filing confirmation reference" : component.startsWith("HMDA") ? "Original HMDA confirmation reference" : "Original NMLS receipt reference"} value={facts?.submission?.reference} />
+        <Field name="submissionReference" label={component === "California CRMLA audited financial statements" ? "Original NMLS upload confirmation reference" :
+          statePortal ? "Original state filing confirmation reference" : component.startsWith("HMDA") ? "Original HMDA confirmation reference" : "Original NMLS receipt reference"} value={facts?.submission?.reference} />
       </EvidenceGroup>
       {amendmentKeys.map((key, index) => {
         const prefix = "mi-filing-amendment-" + key;
@@ -125,6 +135,10 @@ function FilingSummary({ entry, review = entry.finding }: { entry: Version; revi
     ["Original filing timing", review.summary],
     ["Deadline evidence", evidence.deadline?.reference],
     ["Report activity", evidence.reconciliation?.activity],
+    ["CPA-certified financial statements", evidence.crmlaAudit?.statementsReference],
+    ["CPA internal control report", evidence.crmlaAudit?.internalControlReference],
+    ["Origination supplement", evidence.crmlaAudit?.origination.type, evidence.crmlaAudit?.origination.reference],
+    ["Servicing supplement", evidence.crmlaAudit?.servicing.type, evidence.crmlaAudit?.servicing.reference],
     ["OCCC license identifier", evidence.texasOcccReport?.licenseIdentifier],
     ["Saved report", evidence.texasOcccReport?.reportReference],
     ["Certification evidence", evidence.texasOcccReport?.certificationReference],
@@ -203,6 +217,11 @@ export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period
       return { on: get(prefix + "-on"), reference: get(prefix + "-reference"), reason: get(prefix + "-reason") };
     });
     const evidence = michiganFilingEvidence.safeParse({
+      crmlaAudit: form.has("crmlaAudit") ? {
+        statementsReference: get("crmlaStatements"), internalControlReference: get("crmlaInternalControl"),
+        origination: { type: get("crmlaOriginationType"), reference: get("crmlaOriginationReference") },
+        servicing: { type: get("crmlaServicingType"), reference: get("crmlaServicingReference") },
+      } : undefined,
       texasOcccReport: form.has("texasOcccReport") ? {
         licenseIdentifier: get("occcLicenseIdentifier"),
         reportReference: get("occcReportReference"),
