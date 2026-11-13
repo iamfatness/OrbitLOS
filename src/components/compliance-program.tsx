@@ -165,7 +165,9 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
     </section>}
     {screen === "item" && selected?.obligation && current && <div className="record-form">
       {reporting && <section className="record-form" aria-label="Filing plan">
-        <p><strong>Review before filing</strong> · {selected?.filingProgress?.reviewedScopeRevision ? `Deadline checked against state scope version ${selected.filingProgress.reviewedScopeRevision}.` : reporting.review}</p>
+        {selected.obligation.applicabilityReview?.decision === "Not applicable"
+          ? <p><strong>Internal exclusion recorded</strong> · Open the recorded period to see the reason and evidence.</p>
+          : <p><strong>Review before filing</strong> · {selected?.filingProgress?.reviewedScopeRevision ? `Deadline checked against state scope version ${selected.filingProgress.reviewedScopeRevision}.` : reporting.review}</p>}
         <dl className="form-grid state-scope-facts">
           <div><dt>Internal target</dt><dd>{dateLabel(selected.internalTarget)}</dd></div>
           <div><dt>{selected?.filingProgress?.reviewedDueOn ? "Reviewed filing date" : "Nominal filing date"}</dt><dd>
@@ -173,12 +175,19 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
               reporting.nominalDueOn ? dateLabel(reporting.nominalDueOn) : "Needs confirmation"}
           </dd></div>
           <div><dt>Filing route</dt><dd>{reporting.route}</dd></div>
-          <div><dt>Scope review</dt><dd>{selected.obligation.status === "Applicability review gap" ? "Confirm whether this applies" : selected.obligation.status}</dd></div>
+          <div><dt>Scope review</dt><dd>{selected.obligation.applicabilityReview?.decision ??
+            (selected.obligation.status === "Applicability review gap" ? "Confirm whether this applies" : selected.obligation.status)}</dd></div>
         </dl>
       </section>}
       {reporting ? <details className="details-section">
         <summary className="min-h-11 content-center">Recorded period and source</summary>
         {obligationSource}
+        {selected.obligation.applicabilityReview && <dl className="state-scope-facts mt-3 [overflow-wrap:anywhere]">
+          <div><dt>Latest internal decision</dt><dd>{selected.obligation.applicabilityReview.decision} · Version {selected.obligation.applicabilityReview.revision}</dd></div>
+          <div><dt>Reason</dt><dd>{selected.obligation.applicabilityReview.reason}</dd></div>
+          {selected.obligation.applicabilityReview.evidence && <div><dt>Review evidence</dt><dd>{selected.obligation.applicabilityReview.evidence}</dd></div>}
+          <div><dt>Recorded by</dt><dd>{selected.obligation.applicabilityReview.reviewer} · {dateLabel(selected.obligation.applicabilityReview.reviewedAt.slice(0, 10))}</dd></div>
+        </dl>}
       </details> : <div>{obligationSource}</div>}
       {selected.obligation.report && <div><Button size="sm" variant="outline" id="compliance-open-report-prep"
         onClick={() => { if (selected.obligation) openReport(selected.obligation, current.entity.name); }}>

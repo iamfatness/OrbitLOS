@@ -144,6 +144,7 @@ export function obligationPeriod(period: string, cadence: ObligationDraft["caden
 }
 
 export type ObligationReviewBasis = {
+  applicabilityReview?: { revision: number; decision: ObligationDraft["applicability"]; reason: string; evidence: string; reviewer: string; reviewedAt: string };
   nmlsFiling?: boolean;
   periodBounds?: { from: string; through: string };
   obligationId: string; period: string; version: number; status: string; sourceUrl: string; authority: string;

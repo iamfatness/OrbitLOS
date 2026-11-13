@@ -201,8 +201,9 @@ function licenseCoverage(db: Store, tenant: string, asOf: string): LicenseCovera
 function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
   obligationId: SqlValue; period: SqlValue; snapshot: SqlValue; evidence: SqlValue; internalTarget: SqlValue;
 }, now: string, holders: ReadonlyMap<string, string>, owners: ReadonlyMap<string, OwnerChoice>) {
-  const { draft, stateBasis, reportingBasis: recordedReportingBasis, period: bounds } = JSON.parse(String(row.snapshot)) as {
-    draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"] & { snapshot?: string }; reportingBasis?: ObligationReviewBasis["reportingBasis"];
+  type FilingSource = NonNullable<ObligationReviewBasis["stateBasis"]> & { snapshot?: string };
+  const { draft, revision, stateBasis, reportingBasis: recordedReportingBasis, period: bounds } = JSON.parse(String(row.snapshot)) as {
+    draft: ObligationDraft; revision: number; stateBasis?: FilingSource; reportingBasis?: ObligationReviewBasis["reportingBasis"];
     period?: { from: string; through: string };
   };
   const cadenceConflict = Boolean(recordedReportingBasis && stateBasis && draft.applicability !== "Not applicable" &&
@@ -217,13 +218,30 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
       .all(tenant, entityId, stateBasis?.jurisdiction ?? "").map(row => licenseRecord(row, holders, owners, today, renewalThrough));
     return { entitySnapshot: JSON.stringify(entity), licenseSnapshots: stateScopeLicenseSnapshot(licenses) };
   };
-  const stateReport = draft.applicability !== "Not applicable" && Boolean(recordedReportingBasis && stateBasis?.sourceKey.includes("-REPORTING-"));
+  const stateReport = Boolean(recordedReportingBasis && stateBasis?.sourceKey.includes("-REPORTING-"));
   const basisChanged = Boolean((nmlsFiling || stateReport) && stateBasis && !savedFilingScopeMatches(db, tenant, entityId, stateBasis, currentScope));
+  const latest = stateReport && bounds && stateBasis && !cadenceConflict
+    ? db.prepare(`SELECT revision,draft,reviewer,reviewedAt FROM compliance_obligation_versions
+      WHERE brokerageId=? AND entityId=? AND id=? AND revision>? ORDER BY revision DESC LIMIT 1`)
+      .get(tenant, entityId, String(row.obligationId), revision) : undefined;
+  const updated = latest ? JSON.parse(String(latest.draft)) as ObligationDraft & { stateBasis?: FilingSource } : undefined;
+  const updatedBasis = updated?.stateBasis;
+  const applicabilityReview = latest && updated && updatedBasis?.snapshot && bounds &&
+    updatedBasis.sourceKey === stateBasis?.sourceKey && updatedBasis.jurisdiction === stateBasis.jurisdiction &&
+    savedFilingScopeMatches(db, tenant, entityId, updatedBasis, currentScope) &&
+    financialConditionScopeMatches(db, tenant, entityId, updatedBasis, updated.cadence) &&
+    updated.cadence === draft.cadence && (updated.annualStartMonth ?? 1) === (draft.annualStartMonth ?? 1) &&
+    updated.effectiveFrom <= bounds.from && (!updated.effectiveThrough || updated.effectiveThrough >= bounds.through)
+    ? { revision: Number(latest.revision), decision: updated.applicability, reason: updated.applicabilityReason,
+      evidence: updated.reviewerEvidence, reviewer: String(latest.reviewer), reviewedAt: String(latest.reviewedAt) }
+    : undefined;
+  const decision = applicabilityReview?.decision ??
+    (stateReport && basisChanged && draft.applicability === "Not applicable" ? "Needs review" : draft.applicability);
   const basisReview = "Verify the filing evidence against the current scope and source.";
   const reportingBasis = (cadenceConflict || basisChanged) && recordedReportingBasis
     ? { ...recordedReportingBasis, nominalDueOn: null, review: cadenceConflict ? financialConditionCadenceReview : basisReview }
     : recordedReportingBasis;
-  let progress = stateBasis && bounds && draft.applicability !== "Not applicable"
+  let progress = stateBasis && bounds && decision !== "Not applicable"
     ? currentFilingProgress(db, { brokerageId: tenant, entityId, obligationId: String(row.obligationId),
       period: String(row.period), sourceKey: stateBasis.sourceKey, bounds, draft, nominalDueOn: reportingBasis?.nominalDueOn ?? null,
       basisChanged: cadenceConflict || basisChanged, reviewedScopeIsCurrent: reviewed =>
@@ -231,20 +249,25 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
           savedFilingScopeMatches(db, tenant, entityId, reviewed, currentScope) &&
           financialConditionScopeMatches(db, tenant, entityId, reviewed, draft.cadence)) }, now)
     : undefined;
-  if (!progress && stateReport) {
+  const hasTrackedProgress = Boolean(progress);
+  if (!progress && stateReport && decision !== "Not applicable") {
     const dueOn = reportingBasis?.nominalDueOn;
     const hasReference = Boolean(String(row.evidence ?? "").trim());
     const gaps = [];
-    if (draft.applicability === "Needs review") gaps.push("Confirm whether this report applies to the brokerage.");
     if (!dueOn && !basisChanged && !cadenceConflict) gaps.push("Verify the applicable filing date.");
     if (dueOn && String(row.internalTarget) > dueOn) gaps.push("The internal target falls after the nominal filing date.");
     if (!hasReference) gaps.push("Record the filing evidence reference or document the applicable filing treatment.");
     progress = { revision: null, summary: hasReference ? "Filing reference recorded" : "Filing evidence needed", gaps };
   }
-  const filingProgress = (cadenceConflict || basisChanged) && !progress?.reviewedScopeRevision
+  if (stateReport && decision === "Needs review" && progress && (!hasTrackedProgress || draft.applicability !== "Needs review" || applicabilityReview)) {
+    progress.gaps.unshift("Confirm whether this report applies to the brokerage.");
+  }
+  const filingProgress = applicabilityReview?.decision === "Not applicable"
+    ? { revision: null, summary: "Internal exclusion recorded", gaps: [] }
+    : (cadenceConflict || basisChanged) && !progress?.reviewedScopeRevision
     ? { revision: progress?.revision ?? null, summary: basisChanged ? "Filing timing needs review" : "Filing date needs review",
       gaps: [cadenceConflict ? financialConditionCadenceReview : basisReview, ...(progress?.gaps ?? [])] } : progress;
-  return { draft, stateBasis, cadenceConflict, basisChanged, reportingBasis, filingProgress, nmlsFiling, bounds };
+  return { draft, stateBasis, cadenceConflict, basisChanged, reportingBasis, filingProgress, nmlsFiling, bounds, applicabilityReview };
 }
 
 function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, roster: readonly VersionedBrokerageMember[],
@@ -339,7 +362,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   for (const row of bases) {
     const item = byItem.get(String(row.workId));
     if (!item) continue;
-    const { draft, stateBasis, reportingBasis, cadenceConflict, basisChanged, filingProgress, nmlsFiling, bounds } = recordedFilingBasis(db,
+    const { draft, stateBasis, reportingBasis, cadenceConflict, basisChanged, filingProgress, nmlsFiling, bounds, applicabilityReview } = recordedFilingBasis(db,
       staff.brokerage.id, entity.id, { obligationId: row.obligationId, period: row.period, snapshot: row.snapshot, evidence: item.evidence, internalTarget: item.internalTarget }, now, holders, ownerChoices);
     if (filingProgress) item.filingProgress = filingProgress;
     const [year, month] = String(row.period).split("-");
@@ -347,7 +370,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
       obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version),
       periodBounds: bounds && { from: bounds.from, through: bounds.through },
       status: (cadenceConflict || basisChanged) && !filingProgress?.reviewedScopeRevision ? "Applicability review gap" : String(row.status),
-      sourceUrl: draft.sourceUrl, authority: draft.authority, reportingBasis,
+      sourceUrl: draft.sourceUrl, authority: draft.authority, reportingBasis, applicabilityReview,
       filingReceipts: supportsFilingReceipts({ draft, stateBasis, reportingBasis }),
       nmlsFiling,
       stateBasis: stateBasis && { jurisdiction: stateBasis.jurisdiction, revision: stateBasis.revision, sourceKey: stateBasis.sourceKey,
@@ -359,8 +382,10 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
     overdue: items.filter(i => i.overdue).length, unavailableOwners: items.filter(i => !i.ownerAvailable).length };
   const filingProgress = items.flatMap(item => item.filingProgress ? [[item.id, item.filingProgress]] : []);
   const basisVersions = items.flatMap(item => item.stateReview ? [[item.id, item.stateReview.revision]] : []);
+  const applicabilityVersions = items.flatMap(item => item.obligation?.applicabilityReview ? [[item.id, item.obligation.applicabilityReview.revision]] : []);
   const fingerprint = hash([entity, period, rows, owners.map(m => [m.email, m.accessRevision ?? 0]).sort(), now.slice(0, 10),
-    ...(basisVersions.length ? [basisVersions] : []), ...(filingProgress.length ? [filingProgress] : [])]);
+    ...(basisVersions.length ? [basisVersions] : []), ...(filingProgress.length ? [filingProgress] : []),
+    ...(applicabilityVersions.length ? [applicabilityVersions] : [])]);
   const reviews = db.prepare("SELECT id,actor,at,note,snapshot,fingerprint FROM compliance_program_reviews WHERE brokerageId=? AND entityId=? AND month=? ORDER BY at DESC,rowid DESC LIMIT 20")
     .all(staff.brokerage.id, entity.id, period).map(row => ({ id: String(row.id), actor: String(row.actor), at: String(row.at), note: String(row.note),
       snapshot: String(row.snapshot), current: row.fingerprint === fingerprint }));

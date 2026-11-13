@@ -97,6 +97,54 @@ test("monthly filing gaps include state reports with manual evidence", t => {
  assert.deepEqual(resolved.items[0].filingProgress.gaps,[]);
 });
 
+test("monthly filing work follows current decisions for the exact state report period", t => {
+ const f = fixture(t);
+ const facts = {activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional authority",officeEvidence:"",
+  originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""};
+ const saveScope = (expectedRevision, scopeFacts) => complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",
+  entityId:f.entityId,jurisdiction:"CA",expectedRevision,requestId:crypto.randomUUID(),facts:scopeFacts}},
+  f.staff,f.staff.brokerage.id,[f.actor],"2026-11-11T12:00:00Z");
+ assert.equal(saveScope(0,facts).revision,1);
+ const draft = {...f.draft,cadence:"Annual"};
+ const stateReference = {jurisdiction:"CA",sourceKey:"REQ-CA-REPORTING-CFLANNUAL",revision:1};
+ assert.equal(f.run(f.save({draft,stateReference})).revision,1);
+ const target = {entityId:f.entityId,id:f.id,period:"2025-01"};
+ const generated = f.run(f.generate({period:target.period})).occurrence.snapshot;
+ const planned = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
+ const month = {entityId:f.entityId,month:planned.month};
+ const monthly = () => f.program({operation:"month",...month});
+ const gaps = () => monthly().items[0].filingProgress.gaps.join(" ");
+ const applicabilityGap = /Confirm whether this report applies/;
+ assert.match(gaps(),applicabilityGap);
+ const confirmed = {...draft,applicability:"Required",reviewerEvidence:"Fictional reviewed scope"};
+ assert.equal(f.run(f.save({expectedRevision:1,draft:{...confirmed,effectiveFrom:"2025-07-01"}})).revision,2);
+ assert.match(gaps(),applicabilityGap);
+ assert.equal(f.run(f.save({expectedRevision:2,draft:confirmed})).revision,3);
+ assert.doesNotMatch(gaps(),applicabilityGap);
+ assert.match(gaps(),/Record the filing evidence reference/);
+ assert.equal(monthly().items[0].obligation.applicabilityReview.decision,"Required");
+ const excluded = {...confirmed,applicability:"Not applicable",reviewerEvidence:"Fictional exclusion reference"};
+ assert.equal(f.run(f.save({expectedRevision:3,draft:excluded})).revision,4);
+ const current = monthly();
+ assert.deepEqual(current.items[0].filingProgress,{revision:null,summary:"Internal exclusion recorded",gaps:[]});
+ const home = f.program({operation:"ownerHome"});
+ assert.equal(home.reviews.items.find(item=>item.id===planned.workId).filing.summary,"Internal exclusion recorded");
+ const recorded = f.program({operation:"reviewMonth",...month,requestId:crypto.randomUUID(),
+  fingerprint:current.fingerprint,note:"Fictional exclusion reviewed"});
+ assert.equal(recorded.reviews[0].current,true);
+ assert.equal(f.run(f.save({expectedRevision:4,draft})).revision,5);
+ assert.match(gaps(),applicabilityGap);
+ assert.equal(monthly().reviews[0].current,false);
+ assert.equal(JSON.parse(monthly().reviews[0].snapshot).items[0].obligation.applicabilityReview.decision,"Not applicable");
+ assert.equal(f.run(f.save({expectedRevision:5,draft:excluded})).revision,6);
+ assert.equal(gaps(),"");
+ assert.equal(saveScope(1,{...facts,companyEvidence:"Fictional updated authority"}).revision,2);
+ assert.match(gaps(),/Verify the filing evidence against the current scope and source/);
+ assert.equal(f.run(f.save({expectedRevision:6,draft:excluded,stateReference:{...stateReference,revision:2}})).revision,7);
+ assert.equal(gaps(),"");
+ assert.equal(f.run(f.generate({period:target.period,expectedRevision:7})).occurrence.snapshot,generated);
+});
+
 test("priority-state FV7 filing evidence respects the source, period, cadence and review status", t => {
  const f = fixture(t);
  const saveScope = (jurisdiction, activity, expectedRevision = 0) => complianceCaseWork(f.db, {type:"stateScope",input:{
