@@ -156,7 +156,7 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
     } catch(failure){setError(failure instanceof Error?failure.message:"Could not read this document.");}
   }
   async function loadDocuments() {setBusy(true);setError("");try{setDocuments(await json<Documents>(readUrl,{loanId,view:"documents"}));}catch(failure){setError(failure instanceof Error?failure.message:"Documents unavailable.");}finally{setBusy(false);}}
-  async function checkUpload(request:RequestActivity) {
+  async function checkDocumentRequest(request:RequestActivity) {
     if(busy || !request.applicationRevision)return;
     setBusy(true);setError("");setMessage("");
     try {
@@ -165,7 +165,7 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
       await refresh();
       setMessage(outcome.result?.message ?? "The original request status was refreshed.");
     } catch(failure) {
-      setError(failure instanceof Error?failure.message:"Could not check the original upload.");
+      setError(failure instanceof Error?failure.message:"Could not check the original document request.");
     } finally {setBusy(false);}
   }
   async function price(event:FormEvent<HTMLFormElement>) {
@@ -188,16 +188,18 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
         <h4 className="font-semibold">Condition document requests</h4>
         <ul className="document-list">{documentRequests.slice(0,8).map(request=>{
           const step=documentSteps[request.action];
+          const checkLabel=request.action==="upload-document" ? "Check original upload" :
+            request.action==="attach-documents" ? "Check original attachment" : "Check original submission";
           return <li key={request.id} className="document-item record-form break-words">
             <strong>{step.label}{request.fileName && ` · ${request.fileName}`}</strong>
             <p>{request.state==="Acknowledged" ? step.acknowledged : request.state==="Unknown" ? "Needs verification" :
               request.state==="Dispatching" ? "Request in progress" : request.state==="Reconciled" ? "Staff verification recorded" : "Request rejected"}
               {request.documentId && ` · Document ${request.documentId}`}</p>
-            {request.state==="Unknown" && (request.action==="upload-document" && request.documentId ?
+            {request.state==="Unknown" && (request.action!=="upload-document" || request.documentId ?
               <div><Button size="sm" variant="outline" className="min-h-11" disabled={busy||!connected}
-                aria-label={`Check original upload for ${request.fileName ?? "document "+request.documentId}`}
-                onClick={()=>void checkUpload(request)}>Check original upload</Button>
-                {!connected && <p className="muted">Connect your UWM account to check the saved document reference.</p>}</div> :
+                aria-label={request.fileName ? `${checkLabel} for ${request.fileName}` : undefined}
+                onClick={()=>void checkDocumentRequest(request)}>{checkLabel}</Button>
+                {!connected && <p className="muted">Connect your UWM account to check this request.</p>}</div> :
               <p>Ask a brokerage admin to verify this request in UWM before another attempt.</p>)}
           </li>;
         })}</ul>

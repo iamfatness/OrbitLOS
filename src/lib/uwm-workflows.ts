@@ -7,7 +7,7 @@ import { uwmUserSettings } from "./uwm-user-access";
 import { uwmPublicClient, UwmRequestError } from "./uwm-public-client";
 import { bindUwmTransaction, correlateUwmImport, prepareUwmOperation, uwmRequestDigest } from "./uwm-operations";
 import { requireUwmBranchContact, uwmScanRequest, uwmScanResponse, uwmLoanNumber, uwmDocumentName,
-  uwmConditionAttachments, uwmProductSearch, uwmFloatRequest, uwmLockRequest, uwmRelockRequest } from "./uwm-public-contracts";
+  uwmConditionAttachments, uwmAttachmentList, uwmProductSearch, uwmFloatRequest, uwmLockRequest, uwmRelockRequest } from "./uwm-public-contracts";
 import type { UwmWebhookEvent } from "./uwm-webhooks";
 import type { UwmWebhookRoute, UwmWebhookRouteKey } from "./uwm-routing";
 
@@ -30,6 +30,13 @@ export const uwmWorkflowRequest = z.discriminatedUnion("action", [
 ]);
 type Input = z.infer<typeof uwmWorkflowRequest>;
 type Client = ReturnType<typeof uwmPublicClient>;
+type HeldAttachment = z.infer<typeof uwmAttachmentList>["attachments"][number];
+type AttachmentTerms = Pick<HeldAttachment, "documentType" | "comments" | "files" | "conditions">;
+const attachmentTerms = ({ documentType, comments, files, conditions }: AttachmentTerms) =>
+  uwmRequestDigest(JSON.stringify([documentType, comments, files.map(file => file.documentId).sort((a,b)=>a-b), [...conditions].sort()]));
+const attachmentCheck = z.object({ sentAt: z.iso.datetime(), attachments: z.array(z.object({
+  id: z.number().int().positive().nullable(), revision: z.string().nullable(), terms: z.string(), excludedIds: z.array(z.number()),
+})).min(1) });
 
 export function initializeUwmWorkflows(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS uwm_live_requests (
@@ -140,24 +147,45 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
   const input = uwmWorkflowRequest.parse(raw);
   const environment = context(db, env, staff, input.loanId, true);
   if (input.action === "check-document-request") {
-    const original = db.prepare(`SELECT request.state,request.result,evidence.applicationRevision
+    const original = db.prepare(`SELECT request.action,request.state,request.result,evidence.applicationRevision
       FROM uwm_live_requests request JOIN uwm_request_evidence evidence ON evidence.requestId=request.id
-      WHERE request.id=? AND request.loanId=? AND request.environment=? AND request.action='upload-document'`)
+      WHERE request.id=? AND request.loanId=? AND request.environment=? AND request.action IN ('upload-document','attach-documents','submit-documents')`)
       .get(input.requestId, input.loanId, environment);
-    if (!original || original.applicationRevision !== input.applicationRevision) throw new UwmError("Open the original document upload before checking its status.");
+    if (!original || original.applicationRevision !== input.applicationRevision) throw new UwmError("Open the original document request before checking its status.");
     if (original.state !== "Unknown") return { id: input.requestId, state: original.state, result: null };
-    const target = z.object({documentId:z.number().int().positive(),fileName:uwmDocumentName})
-      .safeParse(original.result ? JSON.parse(String(original.result)) : null);
-    if (!target.success) return { id: input.requestId, state: "Unknown",
-      result: { message: "This upload has no saved document reference. Ask an admin to verify the original request." } };
+    const saved = original.result ? JSON.parse(String(original.result)) : null;
+    const unresolved = (message: string) => ({ id: input.requestId, state: "Unknown", result: { message } });
     const api = client ?? uwmPublicClient(db, env, staff);
-    const held = await api.listConditionDocuments(linkedLoan(db, input.loanId, environment));
-    if (!held.body.documents.some(document => document.documentId === target.data.documentId && document.fileName === target.data.fileName)) {
-      return { id: input.requestId, state: "Unknown",
-        result: { message: "UWM did not return the original document. The upload still needs verification." } };
+    let result: object;
+    if (original.action === "upload-document") {
+      const target = z.object({documentId:z.number().int().positive(),fileName:uwmDocumentName}).safeParse(saved);
+      if (!target.success) return unresolved("This upload has no saved document reference. Ask an admin to verify the original request.");
+      const held = await api.listConditionDocuments(linkedLoan(db, input.loanId, environment));
+      if (!held.body.documents.some(document => document.documentId === target.data.documentId && document.fileName === target.data.fileName)) {
+        return unresolved("UWM did not return the original document. The upload still needs verification.");
+      }
+      result = { ...target.data, message: "Original document found in UWM holding. Attachment and underwriting submission are separate." };
+    } else {
+      const snapshot = attachmentCheck.safeParse(saved);
+      if (!snapshot.success) return unresolved("This request has no saved comparison evidence. Ask an admin to verify it in UWM.");
+      const submitting = original.action === "submit-documents";
+      const { body: { attachments } } = await api.listConditionAttachments(linkedLoan(db, input.loanId, environment));
+      const matched = snapshot.data.attachments.map(expected => {
+        const candidates = attachments.filter(actual => attachmentTerms(actual) === expected.terms &&
+          (expected.id === null ? !expected.excludedIds.includes(actual.attachmentId) : actual.attachmentId === expected.id) &&
+          (submitting ? expected.id !== null && actual.revisionId === expected.revision &&
+            Date.parse(actual.SubmittedDateTime ?? "") >= Date.parse(snapshot.data.sentAt) :
+            !actual.SubmittedDateTime && actual.revisionId !== expected.revision));
+        return candidates.length === 1 ? candidates[0] : undefined;
+      });
+      if (matched.some(item => !item) || new Set(matched.map(item=>item?.attachmentId)).size !== matched.length) {
+        return unresolved("UWM did not return a unique match for every attachment. The original request still needs verification.");
+      }
+      result = { checkedAttachments: matched.map(item=>({ attachmentId:item!.attachmentId, revisionId:item!.revisionId, submittedAt:item!.SubmittedDateTime })),
+        message: submitting ? "UWM lists the original attachments as submitted. Check lender conditions separately for clearance." :
+          "Original attachments confirmed in UWM. Underwriting submission is a separate step." };
     }
     context(db, env, staff, input.loanId, true);
-    const result = { ...target.data, message: "Original document found in UWM holding. Attachment and underwriting submission are separate." };
     db.prepare("UPDATE uwm_live_requests SET state='Acknowledged',result=?,updatedAt=? WHERE id=? AND state='Unknown'")
       .run(JSON.stringify(result), new Date().toISOString(), input.requestId);
     return requestResult(db.prepare("SELECT id,state,result FROM uwm_live_requests WHERE id=?").get(input.requestId)!);
@@ -293,7 +321,11 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
             if (!match || match.revisionId !== attachment.revisionId || match.SubmittedDateTime) throw new UwmError("This attachment changed or was already submitted. Refresh before editing.");
           }
         }
+        const existingIds = current.body.attachments.map(prior=>prior.attachmentId);
+        const snapshot = input.body.attachments.map(item=>({id:item.attachmentId || null,revision:item.revisionId,
+          terms:attachmentTerms(item),excludedIds:item.attachmentId ? [] : existingIds}));
         beforeSend();
+        db.prepare("UPDATE uwm_live_requests SET result=? WHERE id=?").run(JSON.stringify({sentAt:new Date().toISOString(),attachments:snapshot}),input.id);
         result = (await api.attachConditions(number, input.body)).body;
       } else if (input.action === "submit-documents") {
         const current = await api.listConditionAttachments(number);
@@ -304,6 +336,8 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
           return { documentType: match.documentType, comments: match.comments, files: match.files, conditions: match.conditions };
         });
         beforeSend();
+        db.prepare("UPDATE uwm_live_requests SET result=? WHERE id=?").run(JSON.stringify({sentAt:new Date().toISOString(),attachments:
+          input.attachments.map((item,index)=>({id:item.attachmentId,revision:item.revisionId,terms:attachmentTerms(attachments[index]),excludedIds:[]}))}),input.id);
         result = (await api.submitConditions(number, { attachments })).body;
       } else {
         // Product terms are explicit, schema-checked user choices. No defaults,

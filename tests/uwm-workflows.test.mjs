@@ -201,6 +201,41 @@ test("submitted or stale attachment revisions cannot be resubmitted",async t=>{
  assert.equal((await runUwmWorkflow(db,env,staff,{...base(),action:"submit-documents",attachments:[{attachmentId:7,revisionId:"old"}]},api)).state,"Rejected");assert.equal(sent,0);
  assert.equal((await runUwmWorkflow(db,env,staff,{...base(),action:"submit-documents",attachments:[{attachmentId:7,revisionId:"new"}]},api)).state,"Acknowledged");assert.equal(sent,1);
 });
+test("a lost attachment and submission are checked against the original document terms without resending", async t=>{
+ const {db,api}=setup(t);
+ await runUwmWorkflow(db,env,staff,prepare(),api);
+ db.prepare("UPDATE uwm_operations SET state='Completed',lenderLoanNumber='1234567890'").run();
+ const terms={documentType:"All Conditions",comments:"sample",files:[{documentId:9}],conditions:["condition"]};
+ const old={...terms,attachmentId:7,revisionId:"old",SubmittedDateTime:null};
+ const current={...old,attachmentId:8,revisionId:"new"};
+ let visible=[old], writes=0;
+ api.listConditionDocuments=async()=>({body:{documents:[{documentId:9}]}});
+ api.listConditionAttachments=async()=>({body:{attachments:visible}});
+ api.attachConditions=api.submitConditions=async()=>{writes++;throw new Error("lost response");};
+ const check=requestId=>runUwmWorkflow(db,env,staff,{...base(),action:"check-document-request",requestId},api);
+ const attach={...base(),action:"attach-documents",body:{attachments:[{...terms,attachmentId:null,revisionId:null}]}};
+ assert.equal((await runUwmWorkflow(db,env,staff,attach,api)).state,"Unknown");
+ assert.equal((await check(attach.id)).state,"Unknown");
+ visible=[old,current,{...current,attachmentId:9}];
+ assert.equal((await check(attach.id)).state,"Unknown");
+ visible=[old,current];
+ assert.equal((await check(attach.id)).result.checkedAttachments[0].attachmentId,8);
+ const submit={...base(),action:"submit-documents",attachments:[{attachmentId:8,revisionId:"new"}]};
+ assert.equal((await runUwmWorkflow(db,env,staff,submit,api)).state,"Unknown");
+ visible=[{...current,SubmittedDateTime:"2000-01-01T00:00:00Z"}];
+ assert.equal((await check(submit.id)).state,"Unknown");
+ const snapshot=JSON.parse(db.prepare("SELECT result FROM uwm_live_requests WHERE id=?").get(submit.id).result);
+ const submittedAt=new Date(Date.parse(snapshot.sentAt)+1000).toISOString();
+ visible=[{...current,conditions:["other"],SubmittedDateTime:submittedAt}];
+ assert.equal((await check(submit.id)).state,"Unknown");
+ visible=[{...current,revisionId:"different",SubmittedDateTime:submittedAt}];
+ assert.equal((await check(submit.id)).state,"Unknown");
+ visible=[{...current,SubmittedDateTime:submittedAt}];
+ assert.equal((await check(submit.id)).state,"Acknowledged");
+ assert.equal((await check(submit.id)).state,"Acknowledged");
+ assert.equal(writes,2);
+});
+
 test("an assigned processor verifies an uncertain upload using the original held document", async t=>{
   const {db,api}=setup(t);
   await runUwmWorkflow(db,env,staff,prepare(),api);
