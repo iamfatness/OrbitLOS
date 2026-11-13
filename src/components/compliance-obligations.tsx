@@ -8,6 +8,7 @@ import { obligationDraft, reportingDateBasis, obligationStateSource, type Obliga
 import type { ProgramReviewTarget } from "@/lib/compliance-program-model";
 import { Button } from "./ui/button";
 import { NewYorkEmploymentEvidence } from "./new-york-employment-evidence";
+import { ColoradoCompanyRenewal } from "./colorado-company-renewal";
 import { IllinoisAuditEvidence } from "./illinois-audit-evidence";
 import { MichiganMloRenewal } from "./michigan-mlo-renewal";
 import { FloridaAmendments } from "./florida-amendments";
@@ -20,7 +21,7 @@ const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.
 const plannedReview = z.object({ entityId: z.uuid(), month: z.string(), itemId: z.uuid() });
 const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
   reportingBasis: reportingDateBasis.optional(), period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(), ownerEmail: z.string(), from: z.string(), through: z.string(),
-  newYorkEmployment: z.boolean().optional(), illinoisAudit: z.boolean().optional(), michiganMloRenewal: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
+  coloradoCompanyRenewal: z.boolean().optional(), newYorkEmployment: z.boolean().optional(), illinoisAudit: z.boolean().optional(), michiganMloRenewal: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
 })) });
 type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
@@ -48,7 +49,7 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
  const [selected,setSelected]=useState<Row|null>(),[history,setHistory]=useState<z.infer<typeof periods>>();
  const [planned,setPlanned]=useState<ProgramReviewTarget>();
  const [historyOffset,setHistoryOffset]=useState(0);
- const [evidence,setEvidence]=useState<{ type: "illinoisAudit" | "michiganMloRenewal" | "newYorkEmployment"; period: string }>();
+ const [evidence,setEvidence]=useState<{ type: "illinoisAudit" | "michiganMloRenewal" | "newYorkEmployment" | "coloradoCompanyRenewal"; period: string }>();
  const evidenceReturn=useRef<HTMLButtonElement>(null);
  const [floridaAmendments,setFloridaAmendments]=useState(false);
  const floridaReturn=useRef<HTMLButtonElement>(null);
@@ -206,6 +207,8 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
  return <>
  {selected && evidence?.type === "newYorkEmployment" && <NewYorkEmploymentEvidence brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
+ {selected && evidence?.type === "coloradoCompanyRenewal" && <ColoradoCompanyRenewal brokerageId={brokerageId} entityId={entityId}
+   obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
  {selected && evidence?.type === "illinoisAudit" && <IllinoisAuditEvidence brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
  {selected && evidence?.type === "michiganMloRenewal" && <MichiganMloRenewal brokerageId={brokerageId} entityId={entityId}
@@ -322,6 +325,9 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
              {period.newYorkEmployment && <Button className="min-h-11" variant="outline" disabled={busy}
                onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: "newYorkEmployment", period: period.period }); }}>
                Review New York employment evidence</Button>}
+             {period.coloradoCompanyRenewal && <Button className="min-h-11" variant="outline" disabled={busy}
+               onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: "coloradoCompanyRenewal", period: period.period }); }}>
+               Review Colorado company renewal</Button>}
              {period.illinoisAudit && <Button className="min-h-11" variant="outline" disabled={busy}
                onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: "illinoisAudit", period: period.period }); }}>
                Review Illinois audit evidence</Button>}

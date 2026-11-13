@@ -38,7 +38,7 @@ const licensingSources = [
   "REQ-MI-LICENSING-MLO-RENEW", "REQ-FL-LICENSING-MLO-RENEW", "REQ-TX-LICENSING-MLO-RENEW",
   "REQ-NY-LICENSING-MLO-RENEW", "REQ-CO-LICENSING-MLO-RENEW", "REQ-IL-LICENSING-MLO-RENEW",
   "REQ-CA-LICENSING-DRE-MLO-RNW", "REQ-CA-LICENSING-DFPI-MLO-RNW",
-  "REQ-TX-LICENSING-CO-RENEW", "REQ-TX-LICENSING-BANKER-RENEW",
+  "REQ-TX-LICENSING-CO-RENEW", "REQ-TX-LICENSING-BANKER-RENEW", "REQ-CO-LICENSING-CO-RENEW",
   "REQ-CA-LICENSING-CFL-ASSESS", "REQ-CA-LICENSING-DRE-RENEW",
 ];
 export const isObligationStateSource = (key: string) =>
@@ -275,6 +275,8 @@ const filings: Partial<Record<string, FilingRule>> = {
     review: "Confirm the fiscal year end, audited statements, submission channel and any DFS-approved substitution." },
   "REQ-NY-REPORTING-QRES": { route: "Mail to New York DFS Mortgage Banking", cadence: "Quarterly", due: after(30), from: "2025-07-01",
     review: "Confirm reportable hires, separations, Temporary Authority, notarization and no-change instructions with counsel." },
+  "REQ-CO-LICENSING-CO-RENEW": { route: "NMLS company registration renewal", cadence: "Calendar annual", from: "2026-01-01", due: through => through,
+    review: "Confirm company registration, timely MCR filings, current renewal instructions and renewed status." },
   "REQ-CO-REPORTING-MCR": quarter("NMLS Mortgage Call Report", "Confirm registration, current FV7 components and applicable periods."),
   "REQ-CO-REPORTING-QUARTER-FC": quarter("NMLS Financial Condition",
     "Confirm the company reports lending or servicing activity for the quarter, verify the NMLS component and filing receipt, and review separate state financial statements.", "2026-01-01"),

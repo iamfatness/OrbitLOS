@@ -3168,6 +3168,18 @@
   },
   {
     "jurisdiction": "CO",
+    "area": "LICENSING",
+    "id": "CO-RENEW",
+    "title": "Colorado mortgage company registration renewal",
+    "authority": "C.R.S. §12-10-705 and 4 CCR 725-3 rules 4.5 and 8.4",
+    "sourceUrl": "https://dre.colorado.gov/sites/dre/files/documents/2025%20Colorado%20Real%20Estate%20Manual-Chapter%2009.pdf",
+    "summary": "Colorado mortgage companies renew through NMLS by December 31. The board rules tie registration renewal to compliance, including timely MCR filing.",
+    "evidence": "Company registration, state business authority, timely MCR receipts, NMLS renewal submission and resulting registration status.",
+    "counsel": "Confirm renewal eligibility, any pending or late renewal restrictions, and requirements for reinstatement.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CO",
     "area": "REPORTING",
     "id": "MCR",
     "title": "Colorado quarterly call reports",

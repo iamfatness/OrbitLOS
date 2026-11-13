@@ -366,7 +366,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     if (!snapshot || basis?.sourceKey !== "REQ-CO-LICENSING-CO-RENEW" || !nominalDueOn || year < 2026 ||
       snapshot.draft.applicability === "Not applicable") return unavailable;
     const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Denver", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
-    const scopeChanged = !basisIsCurrent(basis);
+    const scopeChanged = !currentStateBasis(basis);
     if (data.operation === "coloradoCompanyRenewalHistory") {
       const before = data.before ?? null;
       const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM colorado_company_renewal_versions
@@ -470,6 +470,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const audit = illinoisAudit && typeof auditEvidence === "string"
         ? reviewIllinoisAuditEvidence(JSON.parse(auditEvidence) as IllinoisAuditEvidence, asOf) : undefined;
       return { ...row, reportingBasis, illinoisAudit,
+        coloradoCompanyRenewal: stateBasis?.sourceKey === "REQ-CO-LICENSING-CO-RENEW" &&
+          Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable",
         newYorkEmployment: stateBasis?.sourceKey === "REQ-NY-REPORTING-QRES" &&
           Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable",
         michiganMloRenewal: stateBasis?.sourceKey === "REQ-MI-LICENSING-MLO-RENEW" &&
