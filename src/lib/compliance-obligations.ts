@@ -9,6 +9,8 @@ import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, fi
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
 import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
+import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
+
 type StateBasis = ObligationStateSource & { snapshot: string };
 type StoredDraft = ObligationDraft & { stateBasis?: StateBasis };
 const obligationSources = stateRequirementSources.filter(item => isObligationStateSource(item.source.key));
@@ -24,6 +26,11 @@ type OccurrenceSnapshot = {
 const illinoisDate = (now: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
 
 export function initializeComplianceObligations(db: Store) {
+  db.exec(`CREATE TABLE IF NOT EXISTS michigan_mlo_renewal_versions (
+    brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL,
+    originatorNmls TEXT NOT NULL, version INTEGER NOT NULL, evidence TEXT NOT NULL, finding TEXT NOT NULL,
+    actor TEXT NOT NULL, at TEXT NOT NULL, correction TEXT,
+    PRIMARY KEY(brokerageId,entityId,obligationId,period,originatorNmls,version));`);
   db.exec(`CREATE TABLE IF NOT EXISTS illinois_audit_evidence_versions (
     brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL, version INTEGER NOT NULL,
     evidence TEXT NOT NULL, finding TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, correction TEXT,
@@ -193,6 +200,56 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     return { kind: "obligationStateSources", items: stateSources().map(describeStateBasis) };
   const matchesStateBasis = (current: StateBasis, saved: StateBasis) => current.sourceKey === saved.sourceKey &&
     current.revision === saved.revision && current.jurisdiction === saved.jurisdiction && current.snapshot === saved.snapshot;
+  if (data.operation === "michiganMloRenewalHistory" || data.operation === "saveMichiganMloRenewal") {
+    const periodKey = [tenant, data.entityId, data.id, data.period] as const;
+    const target = [...periodKey, data.originatorNmls] as const;
+    const occurrence = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...periodKey);
+    const snapshot = occurrence ? JSON.parse(String(occurrence.snapshot)) as OccurrenceSnapshot : null;
+    const dueOn = snapshot?.reportingBasis?.nominalDueOn;
+    const basis = snapshot?.stateBasis;
+    if (!snapshot || basis?.sourceKey !== "REQ-MI-LICENSING-MLO-RENEW" || !dueOn ||
+      snapshot.draft.applicability === "Not applicable") return unavailable;
+    const { from } = snapshot.period;
+    const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+    const scopeChanged = !stateSources().some(source => matchesStateBasis(source, basis));
+    if (data.operation === "michiganMloRenewalHistory") {
+      const before = data.before ?? null;
+      const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM michigan_mlo_renewal_versions
+        WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND originatorNmls=?
+        AND (? IS NULL OR version<?) ORDER BY version DESC LIMIT 21`).all(...target, before, before);
+      const versions = rows.slice(0, 20).map(row => ({ ...row,
+        evidence: JSON.parse(String(row.evidence)) as MichiganMloRenewalEvidence,
+        finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewMichiganMloRenewal> }));
+      return { kind: "michiganMloRenewalHistory", nominalDueOn: dueOn, scopeChanged, versions,
+        currentFinding: before === null && versions[0] ? reviewMichiganMloRenewal(versions[0].evidence, from, dueOn, asOf) : null,
+        next: rows.length > 20 ? rows[19].version : null };
+    }
+    const request = JSON.stringify(data);
+    const replay = db.prepare("SELECT actor,request,result FROM compliance_obligation_events WHERE brokerageId=? AND requestId=?")
+      .get(tenant, data.requestId);
+    if (replay) return replay.actor === staff.email && replay.request === request ? JSON.parse(String(replay.result)) : changed;
+    const current = db.prepare(`SELECT MAX(version) version FROM michigan_mlo_renewal_versions
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND originatorNmls=?`).get(...target);
+    if (Number(current?.version ?? 0) !== data.expected) return changed;
+    if (data.expected && !data.correction) return { error: "Record a reason for updating the renewal evidence." };
+    const { education, request: submitted, regulatorStatus } = data.evidence;
+    const events = [education?.on, education?.route === "First-year exception" ? education.issued.on : undefined,
+      submitted?.on, regulatorStatus?.on];
+    if (events.some(on => on && on > asOf)) return { error: "Record renewal events that have already occurred." };
+    if ((submitted && submitted.on < from) || (regulatorStatus && regulatorStatus.on < from))
+      return { error: "The renewal request and regulator status check must fall within or after the renewal year." };
+    if (submitted && regulatorStatus?.status === "Renewed" && regulatorStatus.on < submitted.on)
+      return { error: "The recorded renewal confirmation cannot precede the request." };
+    const version = data.expected + 1;
+    const finding = reviewMichiganMloRenewal(data.evidence, from, dueOn, asOf);
+    db.prepare("INSERT INTO michigan_mlo_renewal_versions VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+      .run(...target, version, JSON.stringify(data.evidence), JSON.stringify(finding), staff.email, now, data.correction ?? null);
+    const result = { kind: "michiganMloRenewalSaved", version, finding, scopeChanged };
+    db.prepare("INSERT INTO compliance_obligation_events VALUES (?,?,?,?,?,?,?)")
+      .run(tenant, data.requestId, data.entityId, staff.email, now, request, JSON.stringify(result));
+    return result;
+  }
   if (data.operation === "illinoisAuditHistory" || data.operation === "saveIllinoisAudit") {
     const target = [tenant, data.entityId, data.id, data.period] as const;
     const occurrence = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences

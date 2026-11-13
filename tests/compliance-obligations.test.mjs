@@ -398,6 +398,35 @@ test("Michigan company renewal preserves the filing target, expiration context a
  const mloWork=f.sql.prepare("SELECT category,instructions FROM compliance_program_items").get();
  assert.equal(mloWork.category,"License review");
  assert.match(mloWork.instructions,/NMLS individual MLO renewal.*2026-12-31.*education before the request/);
+ const key={entityId:f.entityId,id:individual.id,period:"2026-01",originatorNmls:"12345"};
+ const renewalHistory={...key,operation:"michiganMloRenewalHistory"};
+ const request={on:"2026-11-10",reference:"NMLS submission receipt"};
+ const education={route:"Continuing education",on:request.on,reference:"NMLS education history"};
+ const evidence={request,education};
+ const saveRenewal={...key,operation:"saveMichiganMloRenewal",expected:0,requestId:crypto.randomUUID(),evidence};
+ const saved=f.run(saveRenewal);
+ assert.equal(saved.finding.educationStatus,"Verify same-day sequence");
+ assert.equal(saved.finding.regulatorStatus,"No regulator status recorded");
+ assert.deepEqual(f.run(saveRenewal),saved);
+ assert.ok(f.run({...saveRenewal,requestId:crypto.randomUUID()}).error);
+ assert.ok(f.run(renewalHistory,f.staff,[]).error);
+ assert.ok(f.run({...renewalHistory,id:secondary.id}).error);
+ assert.deepEqual(f.run({...renewalHistory,originatorNmls:"67890"}).versions,[]);
+ const regulatorStatus={status:"Renewed",on:"2026-11-11",reference:"Regulator renewal record"};
+ const update={...saveRenewal,expected:1,requestId:crypto.randomUUID(),correction:"Matched education and status timestamps",
+  evidence:{request,regulatorStatus,education:{...education,sameDaySequenceReference:"Course completion timestamp preceded the request"}}};
+ assert.ok(f.run({...update,correction:undefined}).error);
+ assert.ok(f.run({...update,evidence:{...update.evidence,regulatorStatus:{...regulatorStatus,on:"2026-11-12"}}}).error);
+ assert.equal(f.run(update).finding.educationStatus,"Education documented before request");
+ const history=f.run(renewalHistory);
+ assert.equal(history.currentFinding.regulatorStatus,"Renewed");
+ assert.equal(history.versions[1].finding.regulatorStatus,"No regulator status recorded");
+ assert.deepEqual(f.run({...renewalHistory,before:2}).versions.map(version=>version.version),[1]);
+ const firstYear={route:"First-year exception",on:"2026-08-02",reference:"Prelicensure coursework",
+  issued:{on:"2026-09-07",reference:"Michigan license issued"}};
+ assert.equal(f.run({...saveRenewal,originatorNmls:"67890",requestId:crypto.randomUUID(),evidence:{request,education:firstYear}})
+  .finding.educationStatus,"First-year exception documented");
+
  assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:secondary.id,period:"2026-01",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
  assert.ok(f.sql.prepare("SELECT instructions FROM compliance_program_items").all()
   .some(item=>/Nominal date: 2026-12-15.*internal target falls after/.test(item.instructions)));

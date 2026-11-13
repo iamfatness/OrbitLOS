@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { shiftReportDate } from "./report-date-range";
 import { illinoisAuditEvidence } from "./illinois-audit-evidence-model";
+import { michiganMloRenewalEvidence, michiganOriginatorId } from "./michigan-mlo-renewal-model";
 
 export const obligationPlanningNotice = "Internal planning only; statutory applicability and lawyer approval remain unverified.";
 const note = z.string().trim().min(5).max(1500);
@@ -90,6 +91,10 @@ export const obligationRequest = z.discriminatedUnion("operation", [
     expectedVersion: z.int().nonnegative(), ...filingReceiptFields.shape }),
   z.strictObject({ operation: z.literal("addFilingReceiptReference"), ...filingScope, ...change,
     version: z.int().positive(), location: filingReceiptLocation }),
+  z.strictObject({ operation: z.literal("michiganMloRenewalHistory"), ...occurrence, originatorNmls: michiganOriginatorId,
+    before: z.int().positive().optional() }),
+  z.strictObject({ operation: z.literal("saveMichiganMloRenewal"), ...occurrence, ...change, originatorNmls: michiganOriginatorId,
+    expected: z.int().nonnegative(), evidence: michiganMloRenewalEvidence, correction: note.optional() }),
   z.strictObject({ operation: z.literal("illinoisAuditHistory"), ...occurrence, before: z.int().positive().optional() }),
   z.strictObject({ operation: z.literal("saveIllinoisAudit"), ...occurrence, ...change, expected: z.int().nonnegative(),
     evidence: illinoisAuditEvidence, correction: note.optional() }),
