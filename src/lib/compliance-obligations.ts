@@ -295,7 +295,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       if (!recordedEntity?.name || !recordedEntity.nmls) gaps.push("Verify the originating entity's legal name and NMLS ID.");
       if (scopeChanged) gaps.push("Review the changed source or entity scope.");
       const { activity, rosterReference, temporaryAuthorityReference, separations, notarizedReport, mailed } = evidence;
-      const filingEvidence = { activity, rosterReference, temporaryAuthorityReference, separations, notarizedReport, mailed };
+      const filingEvidence = { activity, rosterReference, temporaryAuthorityReference, separations,
+        ...(notarizedReport ? { notarizedReport } : {}), ...(mailed ? { mailed } : {}) };
       return {
         kind: "newYorkEmploymentWorkpaper",
         version: data.version,
