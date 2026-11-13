@@ -7,7 +7,7 @@ import { canUseSampleDisclosures, currentSignedClosingPackageSql } from "./discl
 import { creditAusAttemptTarget, unconfirmedMockOrder } from "./credit-aus-model";
 import { fictionalUwmWorkspace, type UwmEnvironment } from "./uwm-live";
 import { configuredUwmImportEnvironment } from "./uwm-user-access";
-import { closingPackageException, importVerificationException, importVerificationTarget, fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, unattendedManualReturnFilter,
+import { closingPackageException, documentVerificationException, documentVerificationTarget, importVerificationException, importVerificationTarget, fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, unattendedManualReturnFilter,
   type FileException, type FileExceptionPage, type FileExceptionQuery } from "./file-exception-model";
 import { loanReviewsTarget, reviewTarget } from "./loan-review-model";
 import { closingDisclosureReviewTarget } from "./file-preflight-model";
@@ -77,6 +77,18 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
     WHERE ${activePipeline} AND request.environment = ? AND request.action IN ('prepare-import','commit-import')
       AND (request.state = 'Unknown' OR (request.state = 'Acknowledged' AND request.action = 'commit-import')
         OR (request.state = 'Dispatching' AND request.updatedAt <= ?))`,
+  "request.createdAt", "loan.id", "request.id", [environment, new Date(now.getTime() - 300000).toISOString()]);
+
+  if (environment) add(documentVerificationException, `${loanColumns},
+    CASE request.action WHEN 'upload-document' THEN 'UWM document upload'
+      WHEN 'attach-documents' THEN 'UWM condition attachment' ELSE 'UWM underwriting submission' END AS title,
+    'Outcome unconfirmed' AS status, NULL AS dueOn, NULL AS reopenedAt, NULL AS nextParty,
+    NULL AS ownerName, NULL AS ownerEmail, NULL AS reviewerRole, NULL AS reviewerAccessRevision, 0 AS escalated,
+    evidence.applicationRevision AS version, 0 AS changed, NULL AS requestStatus
+    FROM uwm_live_requests request JOIN loans loan ON loan.id = request.loanId ${loanJoins}
+    JOIN uwm_request_evidence evidence ON evidence.requestId = request.id
+    WHERE ${activePipeline} AND request.environment = ? AND request.action IN ('upload-document','attach-documents','submit-documents')
+      AND (request.state = 'Unknown' OR (request.state = 'Dispatching' AND request.updatedAt <= ?))`,
   "request.createdAt", "loan.id", "request.id", [environment, new Date(now.getTime() - 300000).toISOString()]);
 
   add("Missing evidence", `${loanColumns}, request.kind || CASE WHEN request.recipient = 'Co-borrower' THEN ' · Co-borrower' ELSE '' END AS title,
@@ -313,12 +325,14 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const disclosure = kind === "Disclosure reviews";
     const underwriting = kind === "Underwriting conflicts";
     const importVerification = kind === importVerificationException;
+    const documentVerification = kind === documentVerificationException;
     const dueAt = handoff || disclosure ? sortOn : undefined;
-    const target = importVerification ? importVerificationTarget(id) : underwriting ? creditAusAttemptTarget(id) : handoff ? "processing-handoff" : disclosure ?
+    const target = importVerification ? importVerificationTarget(id) : documentVerification ? documentVerificationTarget(id) : underwriting ? creditAusAttemptTarget(id) : handoff ? "processing-handoff" : disclosure ?
       id.startsWith(disclosureClosingReviewPrefix) ? closingDisclosureReviewTarget : disclosureTarget : closingReview ?
       (status === "Reviewer needed" ? requestClosingPackageReviewTarget : reviewTarget(id)) : gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
       (status === "Reviewer needed" ? loanReviewsTarget : reviewTarget(id)) : conditionTarget(parentId, id);
     const action = importVerification ? "Check the original import in UWM and record what you verified" :
+      documentVerification ? "Check the original document request in UWM and record what you verified" :
       underwriting ? "Review the unmatched response on the original order" : handoff ? "Reviewed 1003 is ready for a processor" : disclosure ?
       id.startsWith(disclosureReviewPrefix) ? "Review the change and prepare an updated sample package" : status :
       closingReview ? (status === "Reviewer unavailable" ? `${ownerName ?? "The assigned reviewer"} can no longer review this package. Reassign it to an eligible teammate.` :
@@ -332,7 +346,7 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
         requestStatus === "Received" ? "Review received evidence" : requestStatus === "Accepted" ? "Check delivery and clearance" :
           requestStatus ? "Follow up on borrower evidence" : "Review the lender request and request evidence";
     const evidence = version === null ? null : closingReview ? `Package v${version}` :
-      `${manual ? "Current 1003" : internalReview || underwriting || importVerification ? "Submitted 1003" : "Document"} revision ${version}`;
+      `${manual ? "Current 1003" : internalReview || underwriting || importVerification || documentVerification ? "Submitted 1003" : "Document"} revision ${version}`;
     const currentStatus = required && status === "Awaiting approval" && !available ? "Reviewer unavailable" : status;
     return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action,
       owner: status === "Reviewer unavailable" && closingReview ? null : member?.name || ownerName || null,

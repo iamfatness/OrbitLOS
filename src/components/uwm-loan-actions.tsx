@@ -2,9 +2,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { RefreshCw, ShieldCheck } from "lucide-react";
 import type { StaffApplication } from "@/lib/application-model";
+import { dateTime } from "@/lib/utils";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { documentDeliveryTarget, importRejectionTarget } from "@/lib/incoming-loan-work-model";
-import { importVerificationTarget } from "@/lib/file-exception-model";
+import { documentVerificationTarget, importVerificationTarget } from "@/lib/file-exception-model";
 import { uwmActionLabels, uwmRateBody, uwmRateFields, type RateAction, type UwmField } from "@/lib/uwm-loan-ui";
 import { uwmConditionAttachments, uwmDocumentType } from "@/lib/uwm-public-contracts";
 import { UwmAccount } from "./uwm-account";
@@ -14,7 +15,8 @@ type Account = { configured: boolean; connectedAt: string | null; environment: s
 type Import = { id: string; actor: string; state: string; applicationRevision: number; transactionId: string | null; lenderLoanNumber: string | null; scan: string | null; ready: number; committed: number; failureReason: string | null };
 type Activity = { uploads: {xml:boolean;documents:boolean}; imports: Import[]; requests: RequestActivity[] };
 type RequestActivity = {id:string;action:string;state:string;createdAt:string;updatedAt:string;applicationRevision:number|null;transactionId:string|null;
-  fileName:string|null;documentId:number|null};
+  fileName:string|null;documentId:number|null;
+  verification?:{outcome:string;evidence:string;recordedAt:string;actor:string}};
 const documentSteps: Record<string,{label:string; acknowledged:string}> = {
   "upload-document": {label:"Document upload", acknowledged:"Confirmed in UWM holding"},
   "attach-documents": {label:"Attach to conditions", acknowledged:"Attachment confirmed"},
@@ -35,8 +37,8 @@ async function json<T>(url:string, body?:unknown, signal?:AbortSignal) {
   return result as T;
 }
 
-export function UwmLoanActions({loanId,staff,application,view,rejectionId,verificationId,deliveryId}:{loanId:string;staff:WorkspaceStaff;application?:StaffApplication;
-  view:"import"|"documents"|"rates";rejectionId?:string;verificationId?:string;deliveryId?:string}) {
+export function UwmLoanActions({loanId,staff,application,view,rejectionId,verificationId,deliveryId,openVerification}:{loanId:string;staff:WorkspaceStaff;application?:StaffApplication;
+  view:"import"|"documents"|"rates";rejectionId?:string;verificationId?:string;deliveryId?:string;openVerification?:(id:string)=>void}) {
   const [account,setAccount]=useState<Account|null>(null), [activity,setActivity]=useState<Activity|null>(null);
   const [error,setError]=useState(""), [message,setMessage]=useState(""), [busy,setBusy]=useState(false), [loading,setLoading]=useState(true);
   const [pending,setPending]=useState<Pending|null>(null), [uncertain,setUncertain]=useState<string|null>(null);
@@ -59,12 +61,13 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
   const verificationPanel=useRef<HTMLElement>(null);
   const verification=activity?.requests.find(request=>request.id===verificationId);
   const verificationState=verification?.state;
+  const verifyingDocument=view==="documents" && !!verificationId;
   useEffect(()=>{
-    if(verificationId && verificationState && !loading) {
+    if(verificationId && verificationState && !loading && !pending) {
       verificationPanel.current?.scrollIntoView({block:"start"});
       verificationPanel.current?.focus({preventScroll:true});
     }
-  },[loading,verificationId,verificationState]);
+  },[loading,pending,verificationId,verificationState]);
   useEffect(()=>{
     if(rejectionId && selectedRejectionId && !loading) {
       rejectionPanel.current?.scrollIntoView({block:"start"});
@@ -132,7 +135,7 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
       definitive=true;setUncertain(null);
       setMessage(result.result?.message || `${uwmActionLabels[pending.action]} acknowledged. Refresh to check the latest lender outcome.`);
       setPending(null);setProducts(null);setDocuments(null);
-      setActivity(await json<Activity>(readUrl,{loanId,view:"activity"}));
+      setActivity(await json<Activity>(readUrl,{loanId,view:"activity",requestId:selectedRequestId}));
     } catch(failure) {
       setError(failure instanceof Error?failure.message:"Request outcome is unknown. Check its status before continuing.");
       // Unknown browser/network outcomes also block a new request until checked.
@@ -192,7 +195,7 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
       <Button variant="outline" size="sm" disabled={busy||loading} onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh</Button></div>
     {loading?<p role="status">Checking your UWM connection…</p>:<>
       <p className="uwm-loan-status"><ShieldCheck size={16}/>{account?.environment==="production"?"Production":"Test environment"} · {linked?`UWM loan ${linked.lenderLoanNumber}`:connected?"Account connected · no completed import":"Account connection needed"}</p>
-      {view==="documents" && !pending && !!documentRequests.length && <section className="record-form" aria-label="Condition document requests">
+      {view==="documents" && !pending && !verifyingDocument && !!documentRequests.length && <section className="record-form" aria-label="Condition document requests">
         <h4 className="font-semibold">Condition document requests</h4>
         <ul className="document-list">{documentRequests.slice(0,8).map(request=>{
           const step=documentSteps[request.action];
@@ -218,17 +221,28 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
       {deliveryId && activity && !deliveryState && <p role="status" className="uwm-feedback">
         The original request is unavailable. Return to Processing and refresh the queue.
       </p>}
-      {verificationId && !pending && staff.brokerage.role==="Admin" &&
-        <section id={importVerificationTarget(verificationId)} ref={verificationPanel} tabIndex={-1}
-          className="uwm-import-review document-item break-words" aria-label="Import verification">
-          <h4 className="font-semibold">Verify original import{verification?.applicationRevision && ` · 1003 revision ${verification.applicationRevision}`}</h4>
+      {verificationId && staff.brokerage.role==="Admin" &&
+        <div hidden={!!pending}><section id={verifyingDocument ? documentVerificationTarget(verificationId) : importVerificationTarget(verificationId)}
+          ref={verificationPanel} tabIndex={-1}
+          className="uwm-import-review document-item break-words" aria-label={verifyingDocument ? "Document delivery verification" : "Import verification"}>
+          <h4 className="font-semibold">{verifyingDocument ? "Verify original delivery" : "Verify original import"}{verification?.applicationRevision && ` · 1003 revision ${verification.applicationRevision}`}</h4>
           {verification?.transactionId && <p className="muted">Transaction {verification.transactionId}</p>}
-          {!verification ? <p>This request is unavailable in the current import activity.</p> :
-            ["Unknown","Dispatching","Acknowledged"].includes(verification.state) ?
-              <><p>Check this request in UWM before sending another import. Record what you found.</p>
+          {verifyingDocument && verification && <p className="muted">
+            {documentSteps[verification.action]?.label}{verification.fileName && ` · ${verification.fileName}`}
+            {verification.documentId && ` · Document ${verification.documentId}`}
+          </p>}
+          {verifyingDocument && verification?.verification && <div className="record-form">
+            <strong>Staff verification · {verification.verification.outcome}</strong>
+            <p>{verification.verification.evidence}</p>
+            <p className="muted">{verification.verification.actor} · {dateTime(verification.verification.recordedAt)} ET</p>
+          </div>}
+          {!verification ? <p>This request is unavailable in the current lender activity.</p> :
+            (verifyingDocument ? ["Unknown","Dispatching"] : ["Unknown","Dispatching","Acknowledged"]).includes(verification.state) ?
+              <><p>{verifyingDocument ? "Check this request in UWM and record what you found. This records staff verification in Orbit." :
+                "Check this request in UWM before sending another import. Record what you found."}</p>
                 <VerificationForm request={verification} disabled={busy} review={review} /></> :
               <p>This request no longer needs verification. Return to Exceptions for current work.</p>}
-        </section>}
+        </section></div>}
       {view==="import" && !processor && !pending && rejection &&
         <section id={importRejectionTarget(rejection.id)} ref={rejectionPanel} tabIndex={-1}
           className="uwm-import-review document-item break-words" aria-label="Rejected UWM import">
@@ -240,7 +254,7 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
         </section>}
       {rejectionId && activity && !rejection && <p role="status">This rejection is unavailable in the current import activity.</p>}
       {!connected && !verificationId && <UwmAccount brokerageId={staff.brokerage.id} onConnectionChange={()=>void refresh()}/>}
-      {connected && !reviewed && <p className="uwm-feedback">Submit and mark the current 1003 reviewed before sending lender requests.</p>}
+      {connected && !reviewed && !verificationId && <p className="uwm-feedback">Submit and mark the current 1003 reviewed before sending lender requests.</p>}
       {(unresolved||uncertain) && <p className="uwm-feedback">An earlier request needs verification. Refresh its status and check the lender file before sending again.</p>}
       {message && <p role="status" className="uwm-feedback">{message}</p>}
       {error && <p role="alert" className="uwm-feedback is-error">{error}</p>}
@@ -292,7 +306,10 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
       </>}
       </div>
       {!!activity?.requests.length && <details className="uwm-loan-history"><summary>UWM request activity</summary><ul>{activity.requests.map(request=><li key={request.id}><div><strong>{uwmActionLabels[request.action]||request.action}</strong><span>{request.state==="Acknowledged"?"Request acknowledged — verify lender outcome":request.state} · {new Date(request.createdAt).toLocaleString()}</span></div>
+        {staff.brokerage.role==="Admin" && openVerification && documentSteps[request.action] && request.state==="Reconciled" && request.id!==verificationId &&
+          <Button size="sm" variant="outline" onClick={()=>openVerification(request.id)}>View staff verification</Button>}
         {staff.brokerage.role==="Admin"&&request.id!==verificationId&&["Unknown","Dispatching","Acknowledged"].includes(request.state)&&
+          !(documentSteps[request.action] && request.state==="Acknowledged")&&
           <details><summary>Record verification in UWM</summary><VerificationForm request={request} disabled={busy||!!pending} review={review} /></details>}</li>)}</ul></details>}
     </>}
   </section>;

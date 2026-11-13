@@ -83,7 +83,7 @@ import { UwmAlertQueue } from "./uwm-alert-queue";
 import { workspaceIcons } from "./workspace-icons";
 import { BrokeragePlaybooks, type ManagerExceptionView } from "./brokerage-playbooks";
 import { FileExceptions } from "./file-exceptions";
-import { closingPackageException, importVerificationException, type FileException } from "@/lib/file-exception-model";
+import { closingPackageException, documentVerificationException, importVerificationException, type FileException } from "@/lib/file-exception-model";
 import { CallCampaigns } from "./call-campaigns";
 import { localCampaignOfficers } from "@/lib/call-campaign-model";
 import { fundingMilestones, fundingTaskAudience, playbookWork, reversedFundingTaskPrefix, type PlaybookWork } from "@/lib/playbook-model";
@@ -1325,7 +1325,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   function openFileException(item: FileException, trigger?: HTMLButtonElement) {
     if (pending.current) return;
     exceptionTrigger.current = trigger ?? null;
-    closingExceptionTrigger.current = section === "Exceptions" && (item.kind === closingPackageException || item.kind === importVerificationException) ? item.id : null;
+    closingExceptionTrigger.current = section === "Exceptions" && (item.kind === closingPackageException || item.kind === importVerificationException || item.kind === documentVerificationException) ? item.id : null;
     void openQueueLoan({ kind: "details", loanId: item.loanId, target: item.target },
       item.kind === "Missing evidence" ? { kind: "document", id: item.id } :
         item.kind === "Manual lender returns" ? { kind: "manual-return-work",

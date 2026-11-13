@@ -1990,4 +1990,20 @@ test("processing routes unconfirmed lender document deliveries to the assigned p
   db.prepare("UPDATE uwm_live_requests SET state = 'Acknowledged' WHERE id = 'submit'").run();
   assert.deepEqual(queue(processor).items.map(({ id }) => id), ["upload", "attachment"]);
   assert.equal(readActionCounts(db, processor, tenant, new Date(at), undefined, undefined, env).processing, 2);
+  const ownerQueue = (actor = admin, brokerage = tenant) => readFileExceptions(db, { filter: "Unconfirmed UWM documents" },
+    actor, brokerage, new Date(at), undefined, env);
+  assert.ok(ownerQueue(processor).error);
+  assert.ok(ownerQueue(admin, crypto.randomUUID()).error);
+  save("fresh", "assigned", "upload-document", "Dispatching");
+  save("stuck", "unassigned", "attach-documents", "Dispatching");
+  db.prepare("UPDATE uwm_live_requests SET updatedAt = '2026-11-09T14:50:00.000Z' WHERE id = 'stuck'").run();
+  const ownerItems = nameFileExceptions(ownerQueue(), []).items;
+  assert.deepEqual(ownerItems.map(({ id }) => id).sort(), ["attachment", "backup-upload", "stuck", "unassigned-upload", "upload"]);
+  assert.equal(ownerItems.find(({ id }) => id === "attachment").target, "uwm-document-verification-attachment");
+  assert.equal(ownerItems.find(({ id }) => id === "attachment").evidence, "Submitted 1003 revision 2");
+  const before = countFileExceptions(db, admin, tenant, new Date(at), 100, undefined, env);
+  db.prepare("UPDATE uwm_live_requests SET state = 'Reconciled' WHERE id = 'attachment'").run();
+  assert.equal(countFileExceptions(db, admin, tenant, new Date(at), 100, undefined, env), before - 1);
+  assert.deepEqual(queue(processor).items.map(({ id }) => id), ["upload"]);
+
 });

@@ -54,7 +54,7 @@ import { StateBrokerAgreement } from "./state-broker-agreement";
 import { StateRefinanceBenefit } from "./state-refinance-benefit";
 import { disclosureTarget, disclosureTask, requestClosingPackageReviewTarget } from "@/lib/disclosure-model";
 import { documentDeliveryTargetPrefix, importRejectionTargetPrefix } from "@/lib/incoming-loan-work-model";
-import { importVerificationTargetPrefix } from "@/lib/file-exception-model";
+import { documentVerificationTarget, documentVerificationTargetPrefix, importVerificationTargetPrefix } from "@/lib/file-exception-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
 import { realtorFinancingTarget } from "@/lib/realtor-financing-model";
@@ -527,7 +527,7 @@ function loanSection(target?: string) {
   if (target === "loan-application" || target === jointBorrowerPortionsTarget || target === loanAmountComparisonTarget || target === "manual-lender-export" ||
     target === manualLenderAcknowledgmentTarget || target.startsWith(importRejectionTargetPrefix) || target.startsWith(importVerificationTargetPrefix)) return "1003";
   if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-") ||
-    target.startsWith(documentDeliveryTargetPrefix) || target === serviceOrdersTarget || target.startsWith(serviceOrderTargetPrefix)) return "Conditions";
+    target.startsWith(documentDeliveryTargetPrefix) || target.startsWith(documentVerificationTargetPrefix) || target === serviceOrdersTarget || target.startsWith(serviceOrderTargetPrefix)) return "Conditions";
   if (target === "credit-aus" || target.startsWith(creditAusAttemptTargetPrefix) || target === "loan-pricing" ||
     target === "income-worksheet" || target === sharedQuoteReviewTarget || target === realtorFinancingTarget) return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" || target === closingDisclosureReviewTarget ||
@@ -796,7 +796,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </>}
       {section === "Conditions" && <>
       {uwmEnabled && !fictionalUwm && staff && <UwmLoanActions key={`documents:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="documents"
-        deliveryId={target?.startsWith(documentDeliveryTargetPrefix) ? target.slice(documentDeliveryTargetPrefix.length) : undefined} />}
+        deliveryId={target?.startsWith(documentDeliveryTargetPrefix) ? target.slice(documentDeliveryTargetPrefix.length) : undefined}
+        verificationId={target?.startsWith(documentVerificationTargetPrefix) ? target.slice(documentVerificationTargetPrefix.length) : undefined}
+        openVerification={(id)=>open(documentVerificationTarget(id))} />}
       <section className="details-section" id="lender-submissions" tabIndex={-1}>
         <div className="section-heading"><h3>Lender conditions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
         <DocumentBatch key={loan.id} loanId={loan.id} requests={requests} submissions={submissions}

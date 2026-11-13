@@ -241,13 +241,16 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
         (previous.state === "Dispatching" && Date.parse(String(previous.updatedAt)) > Date.now() - 300000)) {
         throw new UwmError("This request cannot be reconciled yet. Let an in-progress request finish first.");
       }
+      const documentRequest = ["upload-document", "attach-documents", "submit-documents"].includes(String(previous.action));
+      if (documentRequest && previous.state === "Acknowledged") throw new UwmError("Orbit already confirmed this document request. Refresh to see the recorded status.");
       db.prepare("UPDATE uwm_live_requests SET state='Reconciled',updatedAt=? WHERE id=?").run(now, input.requestId);
       if (input.outcome === "Not applied") {
         const details = savedEvidence ? JSON.parse(String(savedEvidence.details)) as { importId?: string } : null;
         const importId = previous.action === "prepare-import" ? input.requestId : previous.action === "commit-import" ? details?.importId : null;
         if (importId) db.prepare("UPDATE uwm_operations SET state='Rejected',updatedAt=? WHERE id=? AND state IN ('Prepared','Dispatching','Unknown','Acknowledged')").run(now, importId);
       }
-      result = { message: "Lender verification recorded. This is a staff attestation; it does not replace UWM's completion notification.", outcome: input.outcome };
+      result = { message: documentRequest ? "Staff verification recorded in Orbit. Check lender conditions separately for clearance." :
+        "Lender verification recorded. This is a staff attestation; it does not replace UWM's completion notification.", outcome: input.outcome };
     } else if (input.action === "prepare-import") {
       const associations = await api.brokerAssociations();
       requireUwmBranchContact(associations.body, input.scan);
@@ -392,14 +395,24 @@ export async function readUwmFile(db: Store, env: UwmEnvironment, staff: Workspa
     requests: db.prepare(`SELECT request.id,request.action,request.state,request.createdAt,request.updatedAt,evidence.applicationRevision,
       operation.transactionId,
       CASE WHEN request.action='upload-document' THEN json_extract(evidence.details,'$.fileName') END AS fileName,
-      CASE WHEN request.action='upload-document' THEN json_extract(request.result,'$.documentId') END AS documentId
+      CASE WHEN request.action='upload-document' THEN json_extract(request.result,'$.documentId') END AS documentId,
+      CASE WHEN ? AND request.id IS ? AND request.state='Reconciled' THEN (
+        SELECT json_object('outcome',json_extract(note.details,'$.outcome'),'evidence',json_extract(note.details,'$.evidence'),
+          'recordedAt',decision.updatedAt,'actor',decision.actor)
+        FROM uwm_live_requests decision JOIN uwm_request_evidence note ON note.requestId=decision.id
+        WHERE decision.loanId=request.loanId AND decision.environment=request.environment
+          AND decision.action='reconcile-request' AND decision.state='Acknowledged'
+          AND json_extract(note.details,'$.requestId')=request.id
+        ORDER BY decision.updatedAt DESC, decision.id DESC LIMIT 1
+      ) END AS verification
       FROM uwm_live_requests request
       LEFT JOIN uwm_request_evidence evidence ON evidence.requestId=request.id
       LEFT JOIN uwm_operations operation ON operation.id=CASE WHEN request.action='prepare-import' THEN request.id
         WHEN request.action='commit-import' THEN json_extract(evidence.details,'$.importId') END
         AND operation.loanId=request.loanId AND operation.environment=request.environment
       WHERE request.loanId=? AND request.environment=? ORDER BY (request.id IS ?) DESC,request.createdAt DESC LIMIT 50`)
-      .all(input.loanId, environment, input.requestId ?? null),
+      .all(staff.brokerage.role === "Admin" ? 1 : 0, input.requestId ?? null, input.loanId, environment, input.requestId ?? null)
+      .map(({ verification, ...request }) => ({ ...request, ...(typeof verification === "string" ? { verification: JSON.parse(verification) } : {}) })),
   };
   const number = linkedLoan(db, input.loanId, environment), api = uwmPublicClient(db, env, staff);
   if (input.view === "products") {

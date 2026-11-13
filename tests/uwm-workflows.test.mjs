@@ -294,3 +294,30 @@ test("routing registration failure holds the created transaction without uploadi
  assert.equal((await runUwmWorkflow(db,env,staff,prepare(),api,async()=>{throw new Error("directory unavailable");})).state,"Unknown");
  assert.equal(writes(),1);assert.equal(db.prepare("SELECT transactionId FROM uwm_operations").get().transactionId,"tx-fixture");
 });
+
+test("document verification preserves exact evidence and cannot override a lender acknowledgment", async t => {
+  const { db, api, writes } = setup(t);
+  const original = base();
+  const at = new Date().toISOString();
+  db.prepare("INSERT INTO uwm_live_requests VALUES (?,?,'stage',?,'submit-documents',?,'Unknown',NULL,?,?)")
+    .run(original.id, loanId, staff.email, "digest", at, at);
+  db.prepare("INSERT INTO uwm_request_evidence VALUES (?,1,'{}')").run(original.id);
+  const evidence = "Fictional lender activity showed the documents were never submitted.";
+  const decision = {...base(), action:"reconcile-request", requestId:original.id, outcome:"Not applied", evidence};
+  const officer = {...staff, brokerage:{...staff.brokerage,role:"LO"}};
+  await assert.rejects(runUwmWorkflow(db,env,officer,decision,api), /administrator/);
+  db.prepare("UPDATE uwm_live_requests SET state='Acknowledged' WHERE id=?").run(original.id);
+  assert.match((await runUwmWorkflow(db,env,staff,decision,api)).error,/already confirmed/);
+  db.prepare("UPDATE uwm_live_requests SET state='Unknown' WHERE id=?").run(original.id);
+  const actualDecision={...decision,id:crypto.randomUUID()};
+  const saved=await runUwmWorkflow(db,env,staff,actualDecision,api);
+  assert.equal(saved.state,"Acknowledged");
+  assert.deepEqual(await runUwmWorkflow(db,env,staff,actualDecision,api),saved);
+  assert.equal(writes(),0);
+  const view={loanId,view:"activity",requestId:original.id};
+  const selected=(await readUwmFile(db,env,staff,view)).requests[0];
+  assert.equal(selected.state,"Reconciled");
+  assert.equal(selected.verification.evidence,evidence);
+  assert.equal(selected.verification.actor,staff.email);
+  assert.equal((await readUwmFile(db,env,officer,view)).requests[0].verification,undefined);
+});
