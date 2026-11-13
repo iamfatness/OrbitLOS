@@ -80,7 +80,7 @@ export default function DemoPage() {
           <li>Recover a missing mock UWM receipt from Today. Open the mock UWM delivery timeline to see which 1003 revision arrived and why older or duplicate updates left a cleared condition in place.</li>
           <li>In a workspace with the UWM connection configured, a confirmed import rejection takes the assigned loan officer from Today to the exact 1003 revision and lender response.</li>
           <li>Brokerage admins can open unconfirmed UWM imports from Exceptions and record verification against the original request.</li>
-          <li>In a configured UWM workspace, check the original condition attachment or underwriting submission before retrying. Assigned processors can open the exact request from Incoming loan work. Admins can record their verification from Exceptions. If the request was not applied, the assigned processor gets a follow-up.</li>
+          <li>In a configured UWM workspace, check the original condition attachment or underwriting submission before retrying. Assigned processors can open the exact request from Incoming loan work. Admins can record their verification from Exceptions. If the request was not applied, the assigned processor gets a follow-up and can trace a linked replacement from the original request.</li>
           <li>Issue a fictional preapproval PDF from the reviewed purchase 1003. Share the current version separately with the borrower and their realtor.</li>
               <li>Set sample preapproval limits and require independent approval before portal sharing. Issued PDFs keep their template version.</li>
               <li>Find pending sample letter approvals, requested changes, and letters ready to share in Today.</li>

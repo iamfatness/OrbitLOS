@@ -16,9 +16,9 @@ export const uwmWorkflowRequest = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("prepare-import"), ...base, xml: z.string().min(1).max(1024 * 1024), scan: uwmScanRequest }),
   z.strictObject({ action: z.literal("amend-import"), ...base, importId: z.uuid(), values: z.array(z.string().max(10000)).max(500) }),
   z.strictObject({ action: z.literal("commit-import"), ...base, importId: z.uuid() }),
-  z.strictObject({ action: z.literal("upload-document"), ...base, fileName: uwmDocumentName, content: z.string().min(1).max(8 * 1024 * 1024) }),
-  z.strictObject({ action: z.literal("attach-documents"), ...base, body: uwmConditionAttachments }),
-  z.strictObject({ action: z.literal("submit-documents"), ...base, attachments: z.array(z.strictObject({ attachmentId: z.number().int().positive(), revisionId: z.string().min(1) })).min(1).max(100) }),
+  z.strictObject({ action: z.literal("upload-document"), ...base, replacesRequestId: z.uuid().optional(), fileName: uwmDocumentName, content: z.string().min(1).max(8 * 1024 * 1024) }),
+  z.strictObject({ action: z.literal("attach-documents"), ...base, replacesRequestId: z.uuid().optional(), body: uwmConditionAttachments }),
+  z.strictObject({ action: z.literal("submit-documents"), ...base, replacesRequestId: z.uuid().optional(), attachments: z.array(z.strictObject({ attachmentId: z.number().int().positive(), revisionId: z.string().min(1) })).min(1).max(100) }),
   z.strictObject({ action: z.literal("float"), ...base, body: uwmFloatRequest }),
   z.strictObject({ action: z.literal("lock"), ...base, body: uwmLockRequest }),
   z.strictObject({ action: z.literal("relock"), ...base, body: uwmRelockRequest }),
@@ -56,6 +56,11 @@ export function initializeUwmWorkflows(db: Store) {
   CREATE TABLE IF NOT EXISTS uwm_document_follow_up_reviews (
     requestId TEXT PRIMARY KEY REFERENCES uwm_live_requests(id), actor TEXT NOT NULL, reviewedAt TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS uwm_document_replacements (
+    replacementId TEXT PRIMARY KEY REFERENCES uwm_live_requests(id),
+    originalId TEXT NOT NULL REFERENCES uwm_live_requests(id)
+  );
+  CREATE INDEX IF NOT EXISTS uwm_document_replacements_original ON uwm_document_replacements(originalId);
   CREATE VIEW IF NOT EXISTS uwm_document_follow_ups AS
     SELECT original.id AS requestId, original.loanId, original.environment, max(decision.updatedAt) AS recordedAt
     FROM uwm_live_requests decision JOIN uwm_request_evidence evidence ON evidence.requestId = decision.id
@@ -247,13 +252,27 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
     }
   }
   if (input.action === "upload-document" && !env.UWM_DOCUMENT_STORAGE_ORIGIN) throw new UwmError("The approved UWM document storage address must be configured first.");
+  const replacesRequestId = "replacesRequestId" in input ? input.replacesRequestId : undefined;
+  if (replacesRequestId) {
+    const original = db.prepare(`SELECT 1 FROM uwm_document_follow_ups follow
+      JOIN uwm_live_requests request ON request.id = follow.requestId
+      WHERE follow.requestId = ? AND follow.loanId = ? AND follow.environment = ? AND request.action = ?
+        AND NOT EXISTS (SELECT 1 FROM uwm_document_replacements link
+          JOIN uwm_live_requests child ON child.id = link.replacementId
+          WHERE link.originalId = follow.requestId AND child.state <> 'Rejected')`)
+      .get(replacesRequestId, input.loanId, environment, input.action);
+    if (!original) throw new UwmError("This request cannot be replaced. Refresh Conditions to check its original delivery and any newer attempt.");
+  }
   const now = new Date().toISOString();
-  db.prepare("INSERT INTO uwm_live_requests VALUES(?,?,?,?,?,?,'Dispatching',NULL,?,?)").run(input.id, input.loanId, environment, staff.email, input.action, digest, now, now);
-  const evidence = input.action === "prepare-import" ? { scan: input.scan, xmlDigest: uwmRequestDigest(input.xml) }
-    : input.action === "upload-document" ? { fileName: input.fileName, documentDigest: uwmRequestDigest(Buffer.from(input.content, "base64")) }
-    : input.action === "amend-import" ? { importId: input.importId, correctedFieldCount: input.values.length }
-    : input;
-  db.prepare("INSERT INTO uwm_request_evidence VALUES(?,?,?)").run(input.id, input.applicationRevision, JSON.stringify(evidence));
+  db.transaction(() => {
+    db.prepare("INSERT INTO uwm_live_requests VALUES(?,?,?,?,?,?,'Dispatching',NULL,?,?)").run(input.id, input.loanId, environment, staff.email, input.action, digest, now, now);
+    const evidence = input.action === "prepare-import" ? { scan: input.scan, xmlDigest: uwmRequestDigest(input.xml) }
+      : input.action === "upload-document" ? { fileName: input.fileName, documentDigest: uwmRequestDigest(Buffer.from(input.content, "base64")) }
+      : input.action === "amend-import" ? { importId: input.importId, correctedFieldCount: input.values.length }
+      : input;
+    db.prepare("INSERT INTO uwm_request_evidence VALUES(?,?,?)").run(input.id, input.applicationRevision, JSON.stringify(evidence));
+    if (replacesRequestId) db.prepare("INSERT INTO uwm_document_replacements VALUES (?, ?)").run(input.id, replacesRequestId);
+  });
   const api = client ?? uwmPublicClient(db, env, staff);
   let sent = false;
   const beforeSend = () => {
@@ -436,7 +455,15 @@ export async function readUwmFile(db: Store, env: UwmEnvironment, staff: Workspa
         ORDER BY decision.updatedAt DESC, decision.id DESC LIMIT 1
       ) END AS verification,
       CASE WHEN request.id IS ? THEN follow.recordedAt END AS followUpAt,
-      CASE WHEN request.id IS ? THEN followReview.reviewedAt END AS followUpReviewedAt
+      CASE WHEN request.id IS ? THEN followReview.reviewedAt END AS followUpReviewedAt,
+      (SELECT originalId FROM uwm_document_replacements WHERE replacementId=request.id) AS replacesRequestId,
+      CASE WHEN request.id IS ? THEN (
+        SELECT json_group_array(json_object('id',child.id,'state',child.state,'createdAt',child.createdAt,'applicationRevision',child.applicationRevision))
+        FROM (SELECT child.id,child.state,child.createdAt,childEvidence.applicationRevision
+          FROM uwm_document_replacements link JOIN uwm_live_requests child ON child.id=link.replacementId
+          JOIN uwm_request_evidence childEvidence ON childEvidence.requestId=child.id
+          WHERE link.originalId=request.id ORDER BY child.createdAt DESC, child.id DESC LIMIT 20) child
+      ) END AS replacements
       FROM uwm_live_requests request
       LEFT JOIN uwm_request_evidence evidence ON evidence.requestId=request.id
       LEFT JOIN uwm_document_follow_ups follow ON follow.requestId=request.id AND request.id IS ?
@@ -446,8 +473,10 @@ export async function readUwmFile(db: Store, env: UwmEnvironment, staff: Workspa
         AND operation.loanId=request.loanId AND operation.environment=request.environment
       WHERE request.loanId=? AND request.environment=? ORDER BY (request.id IS ?) DESC,request.createdAt DESC LIMIT 50`)
       .all(staff.brokerage.role === "Admin" ? 1 : 0, input.requestId ?? null, input.requestId ?? null, input.requestId ?? null,
-        input.requestId ?? null, input.loanId, environment, input.requestId ?? null)
-      .map(({ verification, ...request }) => ({ ...request, ...(typeof verification === "string" ? { verification: JSON.parse(verification) } : {}) })),
+        input.requestId ?? null, input.requestId ?? null, input.loanId, environment, input.requestId ?? null)
+      .map(({ verification, replacements, ...request }) => ({ ...request,
+        ...(typeof verification === "string" ? { verification: JSON.parse(verification) } : {}),
+        ...(typeof replacements === "string" ? { replacements: JSON.parse(replacements) } : {}) })),
   };
   const number = linkedLoan(db, input.loanId, environment), api = uwmPublicClient(db, env, staff);
   if (input.view === "products") {

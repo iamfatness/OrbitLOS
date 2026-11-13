@@ -17,6 +17,7 @@ type Activity = { uploads: {xml:boolean;documents:boolean}; imports: Import[]; r
 type RequestActivity = {id:string;action:string;state:string;createdAt:string;updatedAt:string;applicationRevision:number|null;transactionId:string|null;
   fileName:string|null;documentId:number|null;
   followUpAt?:string|null;followUpReviewedAt?:string|null;
+  replacesRequestId?:string|null;replacements?:Pick<RequestActivity,"id"|"state"|"createdAt"|"applicationRevision">[];
   verification?:{outcome:string;evidence:string;recordedAt:string;actor:string}};
 const documentSteps: Record<string,{label:string; acknowledged:string; next:string}> = {
   "upload-document": {label:"Document upload", acknowledged:"Confirmed in UWM holding", next:"Review the original file and choose it again under Document to upload when ready."},
@@ -38,13 +39,14 @@ async function json<T>(url:string, body?:unknown, signal?:AbortSignal) {
   return result as T;
 }
 
-export function UwmLoanActions({loanId,staff,application,view,rejectionId,verificationId,deliveryId,openVerification}:{loanId:string;staff:WorkspaceStaff;application?:StaffApplication;
-  view:"import"|"documents"|"rates";rejectionId?:string;verificationId?:string;deliveryId?:string;openVerification?:(id:string)=>void}) {
+export function UwmLoanActions({loanId,staff,application,view,rejectionId,verificationId,deliveryId,openVerification,openDelivery}:{loanId:string;staff:WorkspaceStaff;application?:StaffApplication;
+  view:"import"|"documents"|"rates";rejectionId?:string;verificationId?:string;deliveryId?:string;openVerification?:(id:string)=>void;openDelivery?:(id:string)=>void}) {
   const [account,setAccount]=useState<Account|null>(null), [activity,setActivity]=useState<Activity|null>(null);
   const [error,setError]=useState(""), [message,setMessage]=useState(""), [busy,setBusy]=useState(false), [loading,setLoading]=useState(true);
   const [pending,setPending]=useState<Pending|null>(null), [uncertain,setUncertain]=useState<string|null>(null);
   const [branches,setBranches]=useState<Branch[]>([]), [branch,setBranch]=useState("");
   const [documents,setDocuments]=useState<Documents|null>(null), [rateAction,setRateAction]=useState<RateAction>("products");
+  const [replacementSource,setReplacementSource]=useState<string|null>(null);
   const [products,setProducts]=useState<unknown[]|null>(null);
   const confirmation=useRef<HTMLDivElement>(null);
   const documentInput=useRef<HTMLInputElement>(null);
@@ -80,10 +82,14 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
   const importPending=activity?.imports.some(item=>["Acknowledged","Dispatching","Unknown"].includes(item.state));
   const unresolved=activity?.requests.some(item=>["Unknown","Dispatching"].includes(item.state));
   const documentRequests=activity?.requests.filter(request=>documentSteps[request.action]) ?? [];
+  const statusLabel=(state:string,acknowledged:string)=>state==="Acknowledged" ? acknowledged :
+    state==="Unknown" ? "Needs verification" : state==="Dispatching" ? "Request in progress" :
+    state==="Reconciled" ? "Staff verification recorded" : "Request rejected";
   const deliveryPanel=useRef<HTMLLIElement>(null);
   const delivery=documentRequests.find(request=>request.id===deliveryId);
   const deliveryState=delivery?.state;
   const deliveryReviewedAt=delivery?.followUpReviewedAt;
+  const replacementReview=delivery && delivery.id===replacementSource ? delivery : null;
   useEffect(()=>{
     if(!deliveryId || !deliveryState || loading) return;
     deliveryPanel.current?.scrollIntoView({block:"start"});
@@ -110,16 +116,21 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
     try {
       setAccount(await json<Account>(accountUrl));
       const next=await json<Activity>(readUrl,{loanId,view:"activity",requestId:selectedRequestId});setActivity(next);
-      if(uncertain && next.requests.some(item=>item.id===uncertain && !["Dispatching","Unknown"].includes(item.state))) {
+      const recorded=next.requests.find(item=>item.id===uncertain);
+      if(recorded && (recorded.replacesRequestId || !["Dispatching","Unknown"].includes(recorded.state))) {
         setUncertain(null);
         setPending(current=>current?.id===uncertain?null:current);
+        setReplacementSource(null);
       }
     } catch(failure){setError(failure instanceof Error?failure.message:"Status could not be refreshed.");}
     finally{setBusy(false);}
   }
   function review(action:string,payload:Record<string,unknown>,summary:[string,string][]) {
     const revision=action==="reconcile-request" ? activity?.requests.find(request=>request.id===payload.requestId)?.applicationRevision : application?.revision;
-    setError("");setMessage("");setPending({action,payload,summary,id:crypto.randomUUID(),revision:revision??0});
+    const replaces=delivery && replacementReview && replacementReview.action===action;
+    setError("");setMessage("");setPending({action,
+      payload:replaces ? {...payload,replacesRequestId:delivery.id} : payload,
+      summary:replaces ? [["Original request",delivery.id],...summary] : summary,id:crypto.randomUUID(),revision:revision??0});
   }
   async function send() {
     if(!pending || sending.current || !pending.revision) return;
@@ -133,13 +144,14 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
       if(response.redirected)throw new Error("Sign in to Orbit again, then check request status before sending anything else.");
       const result=await response.json().catch(()=>{throw new Error("Orbit returned an unreadable response. Check the original request before continuing.");}) as {id?:string;state?:string;error?:string;result?:{message?:string}};
       definitive=Boolean(result.id) || (!response.ok && response.status<500);
-      if(result.id && result.state==="Rejected") {setPending(null);throw new Error(result.error || "UWM rejected this request.");}
+      if(result.id && result.state==="Rejected") {setPending(null);setReplacementSource(null);
+        if(pending.payload.replacesRequestId) await refresh();throw new Error(result.error || "UWM rejected this request.");}
       if(!response.ok || result.error || ["Unknown","Dispatching"].includes(result.state??"")) {
         if(result.id || !definitive)setUncertain(pending.id);throw new Error(result.error || "The outcome is not confirmed. Refresh and verify the lender file before another request.");
       }
       definitive=true;setUncertain(null);
       setMessage(result.result?.message || `${uwmActionLabels[pending.action]} acknowledged. Refresh to check the latest lender outcome.`);
-      setPending(null);setProducts(null);setDocuments(null);
+      setPending(null);setReplacementSource(null);setProducts(null);setDocuments(null);
       setActivity(await json<Activity>(readUrl,{loanId,view:"activity",requestId:selectedRequestId}));
     } catch(failure) {
       setError(failure instanceof Error?failure.message:"Request outcome is unknown. Check its status before continuing.");
@@ -219,27 +231,42 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
           const checkLabel=request.action==="upload-document" ? "Check original upload" :
             request.action==="attach-documents" ? "Check original attachment" : "Check original submission";
           const selected=request.id===deliveryId;
+          const replacementRecorded=request.replacements?.some(attempt=>attempt.state!=="Rejected");
           return <li key={request.id} className="document-item record-form break-words"
             id={documentDeliveryTarget(request.id)} ref={selected ? deliveryPanel : undefined} tabIndex={selected ? -1 : undefined}>
             <strong>{step.label}{request.fileName && ` · ${request.fileName}`}</strong>
             {selected && <p className="muted">1003 revision {request.applicationRevision}</p>}
-            <p>{request.state==="Acknowledged" ? step.acknowledged : request.state==="Unknown" ? "Needs verification" :
-              request.state==="Dispatching" ? "Request in progress" : request.state==="Reconciled" ? "Staff verification recorded" : "Request rejected"}
+            <p>{statusLabel(request.state,step.acknowledged)}
               {request.documentId && ` · Document ${request.documentId}`}</p>
+            {request.replacesRequestId && openDelivery && <div><Button size="sm" variant="outline" className="min-h-11"
+              onClick={()=>openDelivery(request.replacesRequestId!)}>Open original delivery</Button></div>}
+            {selected && !!request.replacements?.length && <div className="record-form">
+              <strong>Replacement attempts</strong>
+              <ul className="document-list">{request.replacements.map(replacement=><li className="document-item record-form" key={replacement.id}>
+                <p>{statusLabel(replacement.state,step.acknowledged)} · 1003 revision {replacement.applicationRevision}</p>
+                <p className="muted">{dateTime(replacement.createdAt)} ET</p>
+                {openDelivery && <div><Button size="sm" variant="outline" className="min-h-11"
+                  onClick={()=>openDelivery(replacement.id)}>Open replacement</Button></div>}
+              </li>)}</ul>
+            </div>}
             {selected && request.followUpAt && <div className="record-form">
               <strong>Admin verified the delivery was not applied</strong>
               <p className="muted">{dateTime(request.followUpAt)} ET</p>
-              <p>{step.next}</p>
-              <div className="loan-application-actions">
-                {linked && (request.action==="upload-document" ? activity?.uploads.documents && canWrite : connected && !busy) &&
+              {!replacementRecorded && <p>{step.next}</p>}
+              {!replacementRecorded && <div className="loan-application-actions">
+                {linked && canWrite &&
+                  (request.action!=="upload-document" || activity?.uploads.documents) &&
                   <Button size="sm" variant="outline" className="min-h-11" onClick={()=>{
+                    setReplacementSource(request.id);
                     const control=request.action==="upload-document" ? documentInput.current : heldDocumentsButton.current;
                     control?.scrollIntoView({block:"center"});
                     control?.focus({preventScroll:true});
-                  }}>{request.action==="upload-document" ? "Go to document upload" : "Go to held documents"}</Button>}
+                  }}>Prepare replacement</Button>}
+                {replacementReview && <Button size="sm" variant="outline" className="min-h-11"
+                  onClick={()=>setReplacementSource(null)}>Cancel replacement</Button>}
                 {!request.followUpReviewedAt && <Button size="sm" variant="outline" className="min-h-11" disabled={busy}
                   onClick={()=>void reviewDocumentFollowUp(request)}>Mark follow-up reviewed</Button>}
-              </div>
+              </div>}
               {request.followUpReviewedAt && <p>Follow-up reviewed in Orbit.</p>}
             </div>}
             {request.state==="Unknown" && (request.action!=="upload-document" || request.documentId ?
@@ -318,11 +345,12 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
         </>}
       </>}
       {view==="documents" && <>
+        {replacementReview && <p role="status" className="uwm-feedback">Preparing a linked replacement for {documentSteps[replacementReview.action].label.toLowerCase()}.</p>}
         {!linked?<p>Document delivery becomes available after UWM confirms this loan’s import.</p>:<>
           {!activity?.uploads.documents && <p className="uwm-feedback">Orbit still needs UWM’s approved document upload address. Existing held documents can be reviewed below.</p>}
-          <form className="uwm-loan-form" onSubmit={event=>void uploadDocument(event)}><fieldset disabled={!canWrite||!activity?.uploads.documents}><label className="field"><span>Document to upload</span><input ref={documentInput} type="file" name="document" required accept=".pdf,.doc,.docx,.txt,.tif,.tiff,.gif,.jpg,.jpeg,.png,.xls,.xlsx,.csv,.heif,.heic,.bmp"/></label><Button type="submit">Review document upload</Button></fieldset></form>
+          <form className="uwm-loan-form" onSubmit={event=>void uploadDocument(event)}><fieldset disabled={!canWrite||!activity?.uploads.documents||Boolean(replacementReview && replacementReview.action!=="upload-document")}><label className="field"><span>Document to upload</span><input ref={documentInput} type="file" name="document" required accept=".pdf,.doc,.docx,.txt,.tif,.tiff,.gif,.jpg,.jpeg,.png,.xls,.xlsx,.csv,.heif,.heic,.bmp"/></label><Button type="submit">Review document upload</Button></fieldset></form>
           <Button ref={heldDocumentsButton} variant="outline" disabled={!connected||busy} onClick={()=>void loadDocuments()}>Load UWM documents &amp; attachments</Button>
-          {documents && <DocumentActions documents={documents} disabled={!canWrite} review={review}/>}
+          {documents && <DocumentActions documents={documents} disabled={!canWrite} replacementAction={replacementReview?.action} review={review}/>}
         </>}
       </>}
       {view==="rates" && !processor && <>
@@ -339,6 +367,8 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
       </>}
       </div>
       {!!activity?.requests.length && <details className="uwm-loan-history"><summary>UWM request activity</summary><ul>{activity.requests.map(request=><li key={request.id}><div><strong>{uwmActionLabels[request.action]||request.action}</strong><span>{request.state==="Acknowledged"?"Request acknowledged — verify lender outcome":request.state} · {new Date(request.createdAt).toLocaleString()}</span></div>
+        {openDelivery && documentSteps[request.action] && request.id!==deliveryId &&
+          <Button size="sm" variant="outline" onClick={()=>openDelivery(request.id)}>Open delivery details</Button>}
         {staff.brokerage.role==="Admin" && openVerification && documentSteps[request.action] && request.state==="Reconciled" && request.id!==verificationId &&
           <Button size="sm" variant="outline" onClick={()=>openVerification(request.id)}>View staff verification</Button>}
         {staff.brokerage.role==="Admin"&&request.id!==verificationId&&["Unknown","Dispatching","Acknowledged"].includes(request.state)&&
@@ -371,7 +401,7 @@ function ImportReview({item,editable,review}:{item:Import;editable:boolean;revie
     {!!item.ready&&<Button disabled={!editable} onClick={()=>review("commit-import",{importId:item.id},[["Application",`Revision ${item.applicationRevision}`],["Action","Commit this reviewed loan to UWM. Completion will be confirmed by UWM’s notification."]])}>Review and submit loan</Button>}
   </div>;
 }
-function DocumentActions({documents,disabled,review}:{documents:Documents;disabled:boolean;review:(action:string,payload:Record<string,unknown>,summary:[string,string][])=>void}) {
+function DocumentActions({documents,disabled,replacementAction,review}:{documents:Documents;disabled:boolean;replacementAction?:string;review:(action:string,payload:Record<string,unknown>,summary:[string,string][])=>void}) {
   const [error,setError]=useState(""), [editing,setEditing]=useState<number|null>(null);
   const selected=documents.attachments.find(item=>item.attachmentId===editing && !item.SubmittedDateTime);
   return <div className="uwm-document-actions"><h4>{selected?"Update attachment":"Held documents"}</h4>{selected&&<Button variant="outline" size="sm" onClick={()=>setEditing(null)}>Create a separate attachment</Button>}{!documents.documents.length?<p>No held documents were returned.</p>:<form className="uwm-loan-form" key={selected?.revisionId??"new"} onSubmit={event=>{
@@ -379,13 +409,13 @@ function DocumentActions({documents,disabled,review}:{documents:Documents;disabl
     const body={attachments:[{attachmentId:selected?.attachmentId??null,revisionId:selected?.revisionId??null,documentType:String(data.get("documentType")),comments:String(data.get("comments")||""),files:data.getAll("files").map(id=>({documentId:Number(id)})),conditions:String(data.get("conditions")||"").split(/[\n,]/).map(id=>id.trim()).filter(Boolean)}]};
     if(!uwmConditionAttachments.safeParse(body).success){setError("Choose at least one document, a review team and a condition reference.");return;}
     setError("");review("attach-documents",{body},[["Documents",documents.documents.filter(doc=>body.attachments[0].files.some(file=>file.documentId===doc.documentId)).map(doc=>doc.fileName).join(", ")],["Review team",body.attachments[0].documentType],["Conditions",body.attachments[0].conditions.join(", ")],["Comments",body.attachments[0].comments]]);
-  }}><fieldset disabled={disabled}>{documents.documents.map(doc=><label className="uwm-check" key={doc.documentId}><input type="checkbox" name="files" value={doc.documentId} defaultChecked={selected?.files.some(file=>file.documentId===doc.documentId)??false}/>{doc.fileName}</label>)}
+  }}><fieldset disabled={disabled || Boolean(replacementAction && replacementAction!=="attach-documents")}>{documents.documents.map(doc=><label className="uwm-check" key={doc.documentId}><input type="checkbox" name="files" value={doc.documentId} defaultChecked={selected?.files.some(file=>file.documentId===doc.documentId)??false}/>{doc.fileName}</label>)}
     <label className="field"><span>Underwriting review team</span><select name="documentType" required defaultValue={selected?.documentType??""}><option value="">Choose…</option>{uwmDocumentType.options.map(type=><option key={type}>{type}</option>)}</select></label>
     <label className="field"><span>UWM condition references</span><textarea name="conditions" required defaultValue={selected?.conditions.join("\n")??""} placeholder="One lender condition reference per line"/></label>
     <label className="field"><span>Comments for underwriting</span><textarea name="comments" maxLength={4000} defaultValue={selected?.comments??""}/></label>
     {error&&<p role="alert">{error}</p>}<Button type="submit">Review attachments</Button></fieldset></form>}
     <h4>Underwriting attachments</h4>{!documents.attachments.length?<p>No attachments were returned.</p>:documents.attachments.map(item=><article className="uwm-attachment" key={item.attachmentId}><strong>{item.documentType}</strong><p>{item.comments||"No comments"}</p><p>{item.files.map(file=>documents.documents.find(doc=>doc.documentId===file.documentId)?.fileName||`Document ${file.documentId}`).join(", ")}</p><p>Conditions: {item.conditions.join(", ")}</p>
-      {item.SubmittedDateTime?<span>Submitted {new Date(item.SubmittedDateTime).toLocaleString()}</span>:<div className="loan-application-actions"><Button size="sm" variant="outline" disabled={disabled} onClick={()=>setEditing(item.attachmentId)}>Edit attachment</Button><Button size="sm" disabled={disabled} onClick={()=>review("submit-documents",{attachments:[{attachmentId:item.attachmentId,revisionId:item.revisionId}]},[["Review team",item.documentType],["Conditions",item.conditions.join(", ")],["Action","Send this attachment to underwriting for review."]] )}>Review underwriting submission</Button></div>}</article>)}
+      {item.SubmittedDateTime?<span>Submitted {new Date(item.SubmittedDateTime).toLocaleString()}</span>:<div className="loan-application-actions"><Button size="sm" variant="outline" disabled={disabled || Boolean(replacementAction && replacementAction!=="attach-documents")} onClick={()=>setEditing(item.attachmentId)}>Edit attachment</Button><Button size="sm" disabled={disabled || Boolean(replacementAction && replacementAction!=="submit-documents")} onClick={()=>review("submit-documents",{attachments:[{attachmentId:item.attachmentId,revisionId:item.revisionId}]},[["Review team",item.documentType],["Conditions",item.conditions.join(", ")],["Action","Send this attachment to underwriting for review."]] )}>Review underwriting submission</Button></div>}</article>)}
   </div>;
 }
 function ProductDetails({product}:{product:unknown}) {

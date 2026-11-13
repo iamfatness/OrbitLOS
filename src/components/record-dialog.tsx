@@ -53,7 +53,7 @@ import { TridEvidencePanel } from "./trid-evidence-panel";
 import { StateBrokerAgreement } from "./state-broker-agreement";
 import { StateRefinanceBenefit } from "./state-refinance-benefit";
 import { disclosureTarget, disclosureTask, requestClosingPackageReviewTarget } from "@/lib/disclosure-model";
-import { documentDeliveryTargetPrefix, importRejectionTargetPrefix } from "@/lib/incoming-loan-work-model";
+import { documentDeliveryTarget, documentDeliveryTargetPrefix, importRejectionTargetPrefix } from "@/lib/incoming-loan-work-model";
 import { documentVerificationTarget, documentVerificationTargetPrefix, importVerificationTargetPrefix } from "@/lib/file-exception-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
@@ -798,7 +798,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {uwmEnabled && !fictionalUwm && staff && <UwmLoanActions key={`documents:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="documents"
         deliveryId={target?.startsWith(documentDeliveryTargetPrefix) ? target.slice(documentDeliveryTargetPrefix.length) : undefined}
         verificationId={target?.startsWith(documentVerificationTargetPrefix) ? target.slice(documentVerificationTargetPrefix.length) : undefined}
-        openVerification={(id)=>open(documentVerificationTarget(id))} />}
+        openVerification={(id)=>open(documentVerificationTarget(id))} openDelivery={(id)=>open(documentDeliveryTarget(id))} />}
       <section className="details-section" id="lender-submissions" tabIndex={-1}>
         <div className="section-heading"><h3>Lender conditions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
         <DocumentBatch key={loan.id} loanId={loan.id} requests={requests} submissions={submissions}

@@ -109,7 +109,9 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     JOIN uwm_request_evidence evidence ON evidence.requestId = request.id
     LEFT JOIN uwm_document_follow_ups follow ON follow.requestId = request.id
     LEFT JOIN uwm_document_follow_up_reviews followReview ON followReview.requestId = follow.requestId
-    WHERE request.environment = ? AND (request.state = 'Unknown' OR (follow.requestId IS NOT NULL AND followReview.requestId IS NULL))
+    WHERE request.environment = ? AND (request.state = 'Unknown' OR (follow.requestId IS NOT NULL AND followReview.requestId IS NULL AND NOT EXISTS (
+      SELECT 1 FROM uwm_document_replacements link JOIN uwm_live_requests replacement ON replacement.id = link.replacementId
+      WHERE link.originalId = request.id AND replacement.state <> 'Rejected')))
       AND request.action IN ('upload-document', 'attach-documents', 'submit-documents')
       AND ${activeProcessingLoan} AND ${scope}` : ""}
     ${mockUnderwriting ? `UNION ALL

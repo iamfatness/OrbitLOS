@@ -351,3 +351,39 @@ test("Not applied routes a one-time review to the current processor without any 
   assert.equal((await read(replacement)).state,"Reconciled");
   assert.equal(writes(),0);
 });
+
+test("a replacement records its original before dispatch and recovers an uncertain response", async t=>{
+  const {db,api}=setup(t);
+  const original=base(), at=new Date().toISOString();
+  db.prepare("INSERT INTO uwm_operations (id,loanId,applicationRevision,environment,kind,requestDigest,actor,state,lenderLoanNumber,startedAt,updatedAt) VALUES (?,?,1,'stage','import',?,?,'Completed','1234567890',?,?)")
+    .run(crypto.randomUUID(),loanId,"digest",staff.email,at,at);
+  db.prepare("INSERT INTO uwm_live_requests VALUES (?,?,'stage',?,'submit-documents',?,'Unknown',NULL,?,?)")
+    .run(original.id,loanId,staff.email,"digest",at,at);
+  db.prepare("INSERT INTO uwm_request_evidence VALUES (?,1,'{}')").run(original.id);
+  const replacement={...base(),action:"submit-documents",replacesRequestId:original.id,attachments:[{attachmentId:7,revisionId:"r1"}]};
+  await assert.rejects(runUwmWorkflow(db,env,staff,replacement,api),/needs reconciliation/);
+  await runUwmWorkflow(db,env,staff,{...base(),action:"reconcile-request",requestId:original.id,
+    outcome:"Not applied",evidence:"Fictional review verified the original submission was not applied."},api);
+  await assert.rejects(runUwmWorkflow(db,env,staff,{...base(),action:"upload-document",replacesRequestId:original.id,fileName:"sample.pdf",content:"eA=="},api),/cannot be replaced/);
+  const entry={attachmentId:7,revisionId:"r1",SubmittedDateTime:null,documentType:"All Conditions",
+    files:[{documentId:9}],conditions:["condition"],comments:""};
+  api.listConditionAttachments=async()=>({body:{attachments:[entry]}});
+  let sends=0;
+  api.submitConditions=async()=>{
+    sends++;
+    assert.equal(db.prepare("SELECT originalId FROM uwm_document_replacements WHERE replacementId=?").get(replacement.id).originalId,original.id);
+    throw new Error("simulated lost response");
+  };
+  assert.equal((await runUwmWorkflow(db,env,staff,replacement,api)).state,"Unknown");
+  assert.equal((await runUwmWorkflow(db,env,staff,replacement,api)).state,"Unknown");
+  assert.equal(sends,1);
+  const read=async requestId=>(await readUwmFile(db,env,staff,{loanId,view:"activity",requestId})).requests[0];
+  assert.equal((await read(original.id)).replacements[0].state,"Unknown");
+  assert.equal((await read(replacement.id)).replacesRequestId,original.id);
+  entry.SubmittedDateTime=new Date(Date.now()+1000).toISOString();
+  assert.equal((await runUwmWorkflow(db,env,staff,{...base(),action:"check-document-request",requestId:replacement.id},api)).state,"Acknowledged");
+  assert.equal((await read(original.id)).replacements[0].state,"Acknowledged");
+  assert.equal((await read(original.id)).state,"Reconciled");
+  await assert.rejects(runUwmWorkflow(db,env,staff,{...replacement,id:crypto.randomUUID()},api),/cannot be replaced/);
+  assert.equal(sends,1);
+});
