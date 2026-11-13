@@ -58,7 +58,6 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
       .finally(() => { if (current) { setLoading(false); setOpeningReview(false); } });
     return () => { current = false; };
   }, [brokerageId, entityId, month, paused, version]);
-<<<<<<< HEAD
   useEffect(() => {
     if (paused || !target) return;
     let current = true;
@@ -67,15 +66,12 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
     }, () => { /* The selected review can still be opened. */ });
     return () => { current = false; };
   }, [brokerageId, paused, target]);
-  useEffect(() => { heading.current?.focus(); }, [screen, itemId]);
-=======
   useEffect(() => { if (!returnToWork.current) heading.current?.focus(); }, [screen, itemId]);
   useEffect(() => {
     if (screen !== "list" || loading || !returnToWork.current) return;
     returnToWork.current = false;
     (workButton.current ?? heading.current)?.focus();
   }, [screen, loading]);
->>>>>>> 5ae41b5e (Surface linked filing evidence gaps in monthly review)
   useEffect(() => { if (error || notice) feedback.current?.focus(); }, [error, notice]);
   function reload() { setLoading(true); setError(""); setNotice(""); setData(undefined); refresh(v => v + 1); }
   function navigate(next: typeof screen) { setError(""); setNotice(""); setScreen(next); }
@@ -101,7 +97,6 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   }
   const current = data?.entity.id === entityId && data.month === month ? data : undefined;
   const selected = current?.items.find(i => i.id === itemId);
-<<<<<<< HEAD
   const readyToComplete = selected?.status === "Awaiting review";
   const obligation = selected?.obligation;
   const reporting = obligation?.reportingBasis;
@@ -112,11 +107,9 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
     <a className="name-link break-words" href={obligation.sourceUrl} target="_blank" rel="noreferrer">{obligation.authority}</a>
   </>;
   const entityOptions = current && !entities.some(entity => entity.id === current.entity.id) ? [current.entity, ...entities] : entities;
-=======
   const hasFilingProgress = current?.items.some(item => item.filingProgress);
   const visibleItems = current?.items.filter(item => (!status || item.status === status) &&
     (!hasFilingProgress || !evidenceGapsOnly || Boolean(item.filingProgress?.gaps.length))) ?? [];
->>>>>>> 5ae41b5e (Surface linked filing evidence gaps in monthly review)
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     if (screen === "entity") void save({ operation: "createEntity", name: value(form, "name"), nmls: value(form, "nmls"), scopeNote: value(form, "scopeNote") });
@@ -222,8 +215,10 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         </> : <>
           {screen === "schedule" ? <><label className="field">Review title<input name="title" required minLength={3} maxLength={160} /></label>
             <label className="field">Category<select name="category">{programCategories.map(c => <option key={c}>{c}</option>)}</select></label>
-<<<<<<< HEAD
             <label className="field">Work to review<textarea name="instructions" required minLength={5} maxLength={1500} /></label></> : <>{!selected?.stateReview && !reporting && <p>{selected?.instructions}</p>}
+            {selected?.filingProgress && <div><h3>Filing evidence</h3><p>{selected.filingProgress.summary}</p>
+              {selected.filingProgress.gaps.length > 0 && <ul className="list-disc pl-5">
+                {selected.filingProgress.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul>}</div>}
             <label className="field">Work status<select name="status" defaultValue={selected?.status} aria-describedby="compliance-review-status-help">
               {programStatuses.map(s => <option key={s} disabled={s === "Completed" && !readyToComplete && selected?.status !== s}>{s}</option>)}
             </select></label>
@@ -232,13 +227,6 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
               : selected?.status === "Completed"
                 ? "This review is complete. Choose a different status to reopen it."
                 : "When the work is ready for review, choose Awaiting review and save."}</p></>}
-=======
-            <label className="field">Work to review<textarea name="instructions" required minLength={5} maxLength={1500} /></label></> : <><p className="[overflow-wrap:anywhere]">{selected?.instructions}</p>
-            {selected?.filingProgress && <div><h3>Filing evidence</h3><p>{selected.filingProgress.summary}</p>
-              {selected.filingProgress.gaps.length > 0 && <ul className="list-disc pl-5">
-                {selected.filingProgress.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul>}</div>}
-            <label className="field">Work status<select name="status" defaultValue={selected?.status}>{programStatuses.map(s => <option key={s}>{s}</option>)}</select></label></>}
->>>>>>> 5ae41b5e (Surface linked filing evidence gaps in monthly review)
           <div className="form-grid"><label className="field">Accountable admin<select name="ownerEmail" required defaultValue={selected?.ownerAvailable ? selected.ownerEmail : ""}>
             <option value="">Select an active admin</option>{current?.owners.map(o => <option key={o.email} value={o.email}>{o.name}</option>)}</select></label>
             <label className="field">Internal target (UTC)<input name="internalTarget" type="date" required defaultValue={selected?.internalTarget ?? `${month}-28`} /></label></div>
