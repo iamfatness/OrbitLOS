@@ -50,10 +50,10 @@ export const michiganFilingAmendments = (evidence: MichiganFilingEvidence) =>
   evidence.amendments ?? (evidence.amendment ? [evidence.amendment] : []);
 
 export function reviewNmlsFiling(evidence: MichiganFilingEvidence, nominalDueOn: string | null, asOf: string,
-  component: ReturnType<typeof nmlsFilingComponent>, periodEnd: string) {
-  const dueOn = evidence.deadline?.on ?? nominalDueOn;
+  component: ReturnType<typeof nmlsFilingComponent>, periodEnd: string, basisChanged = false) {
+  const dueOn = basisChanged ? null : evidence.deadline?.on ?? nominalDueOn;
   const gaps: string[] = [];
-  if (!evidence.deadline) gaps.push("Verify the component and deadline against the current filing instructions.");
+  if (!evidence.deadline || basisChanged) gaps.push("Verify the component and deadline against the current filing instructions.");
   if (!evidence.reconciliation) gaps.push("Record the reconciliation to the filed report or financial statement.");
   if (component === "Residential Mortgage Loan Activity" && !evidence.reconciliation?.activity)
     gaps.push("Record the period activity or documented no-activity determination.");
@@ -65,7 +65,7 @@ export function reviewNmlsFiling(evidence: MichiganFilingEvidence, nominalDueOn:
     if (amendments.some(item => item.on > cutoff))
       gaps.push("Verify amendment evidence after the published two-year NMLS filing window.");
   }
-  const summary = !dueOn ? "Filing date needs review" :
+  const summary = basisChanged ? "Filing timing needs review" : !dueOn ? "Filing date needs review" :
     evidence.submission ? (evidence.submission.on <= dueOn ? "Receipt by recorded date" : "Receipt after recorded date") :
       asOf > dueOn ? "Recorded date passed without receipt" : "Awaiting filing receipt";
   return { asOf, dueOn, summary, gaps };

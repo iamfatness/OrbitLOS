@@ -122,6 +122,17 @@ test("priority-state FV7 filing evidence respects the source, period, cadence an
  const month = f.program({operation:"month",entityId:f.entityId,month:"2026-06"});
  const texas = month.items.find(item => item.instructions.includes("REQ-TX-REPORTING-MCR"));
  assert.ok(texas.filingProgress.gaps.includes("Verify the filing evidence against the current scope and source."));
+ assert.equal(texas.filingProgress.summary,"Filing timing needs review");
+ assert.equal(texas.obligation.reportingBasis.nominalDueOn,null);
+ assert.ok(!texas.filingProgress.gaps.includes("Review the late submission."));
+ const prior = history({entityId:f.entityId,id:texas.obligation.obligationId,period:"2026-04"});
+ assert.equal(prior.currentFinding.dueOn,null);
+ assert.equal(prior.versions[0].finding.summary,"Receipt after recorded date");
+ assert.equal(prior.versions[0].evidence.deadline.on,"2026-08-14");
+ const occurrence=f.run({operation:"occurrences",entityId:f.entityId,id:texas.obligation.obligationId}).items[0];
+ assert.equal(occurrence.priorFilingBasis,true);
+ assert.equal(occurrence.reportingBasis.nominalDueOn,"2026-08-14");
+
 });
 
 

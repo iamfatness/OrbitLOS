@@ -23,7 +23,7 @@ const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.
 const plannedReview = z.object({ entityId: z.uuid(), month: z.string(), itemId: z.uuid() });
 const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
   reportingBasis: reportingDateBasis.optional(), period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(), ownerEmail: z.string(), from: z.string(), through: z.string(),
-  coloradoCompanyRenewal: z.boolean().optional(), newYorkEmployment: z.boolean().optional(), newYorkVoor: z.boolean().optional(), illinoisAudit: z.boolean().optional(), michiganMloRenewal: z.boolean().optional(), nmlsFiling: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
+  coloradoCompanyRenewal: z.boolean().optional(), newYorkEmployment: z.boolean().optional(), newYorkVoor: z.boolean().optional(), illinoisAudit: z.boolean().optional(), michiganMloRenewal: z.boolean().optional(), nmlsFiling: z.boolean().optional(), priorFilingBasis: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
 })) });
 type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
@@ -321,7 +321,8 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
                {period.audit.extensionStatus !== "No request recorded" && <><br />Extension · {period.audit.extensionStatus}</>}
              </> : "No Illinois audit evidence recorded"}</p>}
              {period.filingStatus && <p>External filing · {period.filingStatus}</p>}
-             {period.reportingBasis && <p>{period.reportingBasis.route} · {period.reportingBasis.nominalDueOn ? `Nominal filing date ${dateLabel(period.reportingBasis.nominalDueOn)}` : "Filing date needs review"}<br />{period.reportingBasis.review}</p>}
+             {period.reportingBasis && <p>{period.reportingBasis.route} · {period.reportingBasis.nominalDueOn ? `${period.priorFilingBasis ? "Prior nominal filing date" : "Nominal filing date"} ${dateLabel(period.reportingBasis.nominalDueOn)}` : "Filing date needs review"}<br />{period.reportingBasis.review}</p>}
+             {period.priorFilingBasis && <p>Review filing timing against the current brokerage scope.</p>}
              {period.stateBasisChanged && <p>Reporting basis needed review when recorded.</p>}</div>
            {period.review ?
              <Button size="sm" variant="outline" id={`obligation-review-${period.review.itemId}`} aria-label={`Open review item for ${period.period}`} disabled={busy}

@@ -251,8 +251,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const component = nmlsFilingComponent(basis.sourceKey, snapshot.draft, snapshot.period.from);
     if (!component) return unavailable;
     const scopeMatches = financialConditionScopeMatches(db, tenant, data.entityId, basis, snapshot.draft.cadence);
-    const nominalDueOn = scopeMatches ? snapshot.reportingBasis?.nominalDueOn ?? null : null;
     const scopeChanged = !scopeMatches || !currentStateBasis(basis);
+    const nominalDueOn = scopeChanged ? null : snapshot.reportingBasis?.nominalDueOn ?? null;
     const asOf = nmlsFilingDate(now);
     if (data.operation === "michiganFilingHistory") {
       const before = data.before ?? null;
@@ -262,7 +262,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const versions = rows.slice(0, 20).map(row => ({ ...row, evidence: JSON.parse(String(row.evidence)) as MichiganFilingEvidence,
         finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewNmlsFiling> }));
       return { kind: "michiganFilingHistory", component, sourceTitle: basis.title, nominalDueOn, scopeChanged, bounds: snapshot.period, versions,
-        currentFinding: before === null && versions[0] ? reviewNmlsFiling(versions[0].evidence, nominalDueOn, asOf, component, snapshot.period.through) : null,
+        currentFinding: before === null && versions[0] ? reviewNmlsFiling(versions[0].evidence, nominalDueOn, asOf, component, snapshot.period.through, scopeChanged) : null,
         next: rows.length > 20 ? rows[19].version : null };
     }
     const request = JSON.stringify(data);
@@ -284,7 +284,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     if (new Set(amendments.map(item => JSON.stringify([item.on, item.reference.toLowerCase()]))).size !== amendments.length)
       return { error: "Record each amendment receipt once." };
     const version = data.expected + 1;
-    const finding = reviewNmlsFiling(evidence, nominalDueOn, asOf, component, snapshot.period.through);
+    const finding = reviewNmlsFiling(evidence, nominalDueOn, asOf, component, snapshot.period.through, scopeChanged);
     db.prepare("INSERT INTO michigan_filing_versions VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(...target, version, JSON.stringify(evidence), JSON.stringify(finding), staff.email, now, data.correction ?? null);
     const result = { kind: "michiganFilingSaved", version, finding, scopeChanged };
@@ -584,10 +584,12 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
         ? reviewIllinoisAuditEvidence(JSON.parse(auditEvidence) as IllinoisAuditEvidence, asOf) : undefined;
       const cadenceConflict = reportingBasis && stateBasis && draft.applicability !== "Not applicable" &&
         !financialConditionScopeMatches(db, tenant, data.entityId, stateBasis, draft.cadence);
-      return { ...row, ...(cadenceConflict && { status: "Applicability review gap" }),
+      const nmlsFiling = draft.applicability !== "Not applicable" && Boolean(nmlsFilingComponent(stateBasis?.sourceKey ?? "", draft, period.from));
+      const priorFilingBasis = Boolean(nmlsFiling && stateBasis && !currentStateBasis(stateBasis));
+      return { ...row, ...((cadenceConflict || priorFilingBasis) && { status: "Applicability review gap" }), priorFilingBasis,
         reportingBasis: cadenceConflict ? { ...reportingBasis, nominalDueOn: null, review: financialConditionCadenceReview } : reportingBasis,
         illinoisAudit, newYorkVoor: hasNewYorkVoorEvidence({ draft, stateBasis }),
-        nmlsFiling: draft.applicability !== "Not applicable" && Boolean(nmlsFilingComponent(stateBasis?.sourceKey ?? "", draft, period.from)),
+        nmlsFiling,
         coloradoCompanyRenewal: stateBasis?.sourceKey === "REQ-CO-LICENSING-CO-RENEW" &&
           Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable",
         newYorkEmployment: stateBasis?.sourceKey === "REQ-NY-REPORTING-QRES" &&

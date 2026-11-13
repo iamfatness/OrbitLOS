@@ -57,7 +57,7 @@ export function financialConditionScopeMatches(db: Store, brokerageId: string, e
 }
 
 
-export function savedFilingScopeMatches(db: Store, brokerageId: string, entityId: string, basis: ObligationStateSource & { snapshot?: string }) {
+export function savedFilingScopeMatches(db: Store, brokerageId: string, entityId: string, basis: ObligationStateSource & { snapshot?: string }, currentBasis: () => { entitySnapshot: string; licenseSnapshots: string }) {
   const snapshot = basis.snapshot;
   if (!snapshot) return true;
   const rows = db.prepare(`SELECT revision, facts, entitySnapshot, licenseSnapshots, sourceSnapshots FROM compliance_state_scope_versions
@@ -65,6 +65,9 @@ export function savedFilingScopeMatches(db: Store, brokerageId: string, entityId
     .all(brokerageId, entityId, basis.jurisdiction, basis.revision);
   const saved = rows[0];
   if (!saved || saved.revision !== basis.revision) return false;
+  const latest = rows.at(-1);
+  const current = currentBasis();
+  if (latest?.entitySnapshot !== current.entitySnapshot || latest?.licenseSnapshots !== current.licenseSnapshots) return false;
   const currentSource = requirementsByState.get(basis.jurisdiction)?.find(source => source.key === basis.sourceKey);
   return Boolean(currentSource && sourceSnapshot(currentSource) === snapshot &&
     rows.every((row, index) => Number(row.revision) === basis.revision + index &&

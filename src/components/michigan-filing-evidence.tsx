@@ -105,7 +105,8 @@ function FilingForm({ latest, component, nominal, busy, conflict, submit, cancel
 function FilingSummary({ entry, review = entry.finding }: { entry: Version; review?: Version["finding"] }) {
   const { evidence } = entry;
   const lines = [
-    ["Filing deadline", review.dueOn ?? "Needs review", evidence.deadline ? "Reviewed" : review.dueOn ? "Nominal" : null],
+    ["Filing deadline", review.dueOn ?? "Needs review", review.dueOn ? evidence.deadline ? "Reviewed" : "Nominal" : null],
+    ["Previously recorded deadline", !review.dueOn ? evidence.deadline?.on : undefined],
     ["Original filing timing", review.summary],
     ["Deadline evidence", evidence.deadline?.reference],
     ["Report activity", evidence.reconciliation?.activity],

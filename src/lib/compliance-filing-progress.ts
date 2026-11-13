@@ -12,6 +12,7 @@ export type FilingProgress = { revision: string | null; summary: string; gaps: s
 type FilingTarget = {
   brokerageId: string; entityId: string; obligationId: string; period: string; sourceKey: string;
   bounds: { from: string; through: string }; nominalDueOn: string | null;
+  basisChanged?: boolean;
   draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">;
 };
 
@@ -40,7 +41,7 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   const revision = String(row.version);
   const evidence: unknown = JSON.parse(String(row.evidence));
   if (table === "michigan_filing_versions") {
-    const finding = reviewNmlsFiling(evidence as MichiganFilingEvidence, nominalDueOn, asOf, nmlsComponent, bounds.through);
+    const finding = reviewNmlsFiling(evidence as MichiganFilingEvidence, nominalDueOn, asOf, nmlsComponent, bounds.through, target.basisChanged);
     return { revision, summary: finding.summary, gaps: finding.gaps };
   }
   if (table === "new_york_voor_versions") {
