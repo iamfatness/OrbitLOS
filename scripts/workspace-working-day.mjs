@@ -2095,6 +2095,53 @@ try {
     const plannedMonth=await program(owner,{operation:"month",entityId:entity.id,month:planned.month});
     assert.equal(plannedMonth.items.filter(i=>i.id===planned.workId).length,1);
     assert.match(plannedMonth.items.find(i=>i.id===planned.workId).instructions,/Applicability review gap/);
+
+    const recordPeriod = async (jurisdiction, sourceKey, cadence, period, revision) => {
+      const id = randomUUID();
+      const saved = await suite(owner, "obligations", { ...obligation, id, requestId: randomUUID(),
+        stateReference: { jurisdiction, sourceKey, revision }, draft: { ...obligation.draft, cadence } });
+      assert.equal(saved.kind, "obligationSaved", saved.error);
+      const target = { entityId: entity.id, id, period };
+      const recorded = await suite(owner, "obligations", { ...target, operation: "generate", expectedRevision: 1, requestId: randomUUID() });
+      assert.equal(recorded.kind, "obligationOccurrence", recorded.error);
+      return target;
+    };
+    const renewal = await recordPeriod("MI", "REQ-MI-LICENSING-MLO-RENEW", "Annual", "2026-01", 2);
+    const renewalRequest = { ...renewal, operation: "saveMichiganMloRenewal", originatorNmls: "12345", expected: 0,
+      requestId: randomUUID(), evidence: { education: { route: "Continuing education", on: "2026-03-04", reference: "Sample course evidence" } } };
+    const renewalResult = await suite(owner, "obligations", renewalRequest);
+    assert.equal(renewalResult.kind, "michiganMloRenewalSaved", renewalResult.error);
+    assert.deepEqual(await suite(owner, "obligations", renewalRequest), renewalResult);
+    assert.ok((await suite(officer, "obligations", renewalRequest)).error);
+    const renewalHistory = { ...renewal, operation: "michiganMloRenewalHistory", originatorNmls: "12345" };
+    assert.equal((await suite(owner, "obligations", renewalHistory)).versions.length, 1);
+    assert.equal((await suite(owner, "obligations", { ...renewalHistory, originatorNmls: "67890" })).versions.length, 0);
+
+    const bankruptcy = { operation: "save", noticeId: randomUUID(), requestId: randomUUID(), expected: 0, facts: {
+      authority: "Mortgage broker", licenseReference: "Sample Florida authority", zone: "America/New_York",
+      effective: { on: "2026-09-04", reference: "Sample court docket" }, change: { kind: "Bankruptcy" },
+      filed: { on: "2026-10-01", reference: "Sample OFR notice receipt" },
+    } };
+    const florida = (actor, input) => compliance(actor, { type: "floridaAmendment", entityId: entity.id, input });
+    const savedNotice = await florida(owner, bankruptcy);
+    assert.equal(savedNotice.kind, "floridaAmendmentHistory", savedNotice.error);
+    assert.equal(savedNotice.versions[0].finding.dueOn, "2026-10-04");
+    assert.deepEqual(await florida(owner, bankruptcy), savedNotice);
+    assert.ok((await florida(processor, { operation: "history", noticeId: bankruptcy.noticeId })).error);
+
+    const nyScope = await scope(owner, { ...firstScope, jurisdiction: "NY", requestId: randomUUID() });
+    assert.equal(nyScope.revision, 1);
+    const quarter = await recordPeriod("NY", "REQ-NY-REPORTING-QRES", "Quarterly", "2026-07", 1);
+    const nyRequest = { ...quarter, operation: "saveNewYorkEmployment", expected: 0, requestId: randomUUID(),
+      evidence: { activity: "No reportable activity", rosterReference: "Sample roster evidence",
+        temporaryAuthorityReference: "Sample Temporary Authority review", separations: [] } };
+    const nyResult = await suite(owner, "obligations", nyRequest);
+    assert.equal(nyResult.kind, "newYorkEmploymentSaved", nyResult.error);
+    assert.deepEqual(await suite(owner, "obligations", nyRequest), nyResult);
+    const nyHistory = { ...quarter, operation: "newYorkEmploymentHistory" };
+    assert.equal((await suite(owner, "obligations", nyHistory)).nominalDueOn, "2026-10-30");
+    assert.ok((await suite(processor, "obligations", nyHistory)).error);
+
     const draftPolicy={operation:"createVersion",requestId:randomUUID(),contentId:randomUUID(),previousVersionId:null,kind:"Policy",title:"Fictional evidence handling policy",
       body:"Fictional exercise only. Retain evidence and escalate missing facts.",sourceReferences:"Synthetic rehearsal; no real legal review",questions:[],passPercent:100};
     const policy=await suite(owner,"learning",draftPolicy);
