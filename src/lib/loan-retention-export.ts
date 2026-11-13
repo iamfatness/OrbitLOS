@@ -1,3 +1,5 @@
+import { readCaliforniaDfpiExport } from "./california-dfpi-recordkeeping";
+import { readCaliforniaDreRecordkeepingExport } from "./california-dre-recordkeeping";
 import { createHash } from "node:crypto";
 import { strToU8, zipSync } from "fflate";
 import { z } from "zod";
@@ -20,7 +22,9 @@ type Hold = { id: string; reference: string; placedAt: string; placedBy: string;
   releasedAt: string | null; releasedBy: string | null };
 type Snapshot = { loan: { id: string; borrower: string; stage: string }; holds: Hold[]; versions: Version[];
   unmappedAcceptedRevisions: { requestId: string; kind: string; revision: number }[];
-  michiganRetention: ReturnType<typeof readMichiganRetentionExport> };
+  michiganRetention: ReturnType<typeof readMichiganRetentionExport>;
+  californiaDfpi?: ReturnType<typeof readCaliforniaDfpiExport>;
+  californiaDreRecordkeeping?: ReturnType<typeof readCaliforniaDreRecordkeepingExport> };
 export type RetentionExportReview = { snapshot: Snapshot; fingerprint: string } | { status: 404 | 413; error: string };
 
 function review(db: Store, staff: WorkspaceStaff, workspaceId: string, loanId: string): RetentionExportReview {
@@ -52,10 +56,13 @@ function review(db: Store, staff: WorkspaceStaff, workspaceId: string, loanId: s
     WHERE r.loanId=? AND f.objectId IS NULL ORDER BY r.id,a.revision LIMIT ?`)
     .all(loanId,maxEntries+1) as Snapshot["unmappedAcceptedRevisions"];
   const michiganRetention = readMichiganRetentionExport(db,loanId,maxEntries+1);
-  if (holds.length>maxEntries || versions.length>maxEntries || unmappedAcceptedRevisions.length>maxEntries ||
+  const californiaDreRecordkeeping = readCaliforniaDreRecordkeepingExport(db,workspaceId,loanId,maxEntries+1);
+  const californiaDfpi = readCaliforniaDfpiExport(db,workspaceId,loanId,maxEntries+1);
+  if (californiaDreRecordkeeping.length>maxEntries || californiaDfpi.length>maxEntries || holds.length>maxEntries || versions.length>maxEntries || unmappedAcceptedRevisions.length>maxEntries ||
     michiganRetention.length>maxEntries || new Set(versions.map(row=>row.objectId)).size>maxFiles)
     return { status:413, error:"This loan exceeds the retention export limit. Orbit did not create a partial archive." };
-  const snapshot = { loan, holds, versions, unmappedAcceptedRevisions, michiganRetention };
+  const snapshot = { loan, holds, versions, unmappedAcceptedRevisions, michiganRetention,
+    ...(californiaDreRecordkeeping.length ? {californiaDreRecordkeeping} : {}), ...(californiaDfpi.length ? {californiaDfpi} : {}) };
   return { snapshot, fingerprint:digest(JSON.stringify(snapshot)) };
 }
 
@@ -107,6 +114,8 @@ export async function retentionExportResponse(bucket: R2Bucket | undefined, work
   }
   entries["manifest.json"] = strToU8(JSON.stringify({ format:1, exportedAt:new Date().toISOString(), loan:snapshot.loan,
     holdHistory:snapshot.holds, unmappedAcceptedRevisions:snapshot.unmappedAcceptedRevisions, files,
+    ...(snapshot.californiaDreRecordkeeping?.length ? {californiaDreRecordkeeping:snapshot.californiaDreRecordkeeping} : {}),
+    ...(snapshot.californiaDfpi?.length ? {californiaDfpi:snapshot.californiaDfpi} : {}),
     ...(snapshot.michiganRetention.length ? { michiganRetention:snapshot.michiganRetention } : {}) },null,2)+"\n");
   const zip = zipSync(entries,{level:0});
   if (!await confirm(fingerprint)) return problem(409,"Loan records or your access changed while preparing the export. Refresh and try again.");

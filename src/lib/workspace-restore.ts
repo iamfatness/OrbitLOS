@@ -43,7 +43,8 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
     result.push("Compliance program records changed. Reconcile entity profiles, work and review evidence before restoring.");
   if(["settlement_imports", "settlement_feed_receipts", "settlement_feed_corrections"].some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Imported settlement evidence changed. Choose a checkpoint that retains its source records.");
-  const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews","michigan_retention_reviews"];
+  const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews","michigan_retention_reviews",
+    "california_dre_recordkeeping_reviews","california_dfpi_recordkeeping_reviews","crmla_register_versions"];
   if(retentionTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Loan retention evidence changed. This checkpoint requires a separate retention review.");
   result.push(...processorRestoreBlockers(before,current));

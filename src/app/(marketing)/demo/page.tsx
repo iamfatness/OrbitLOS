@@ -35,6 +35,7 @@ export default function DemoPage() {
           <li>Start a state review from Compliance setup using the states recorded on the company profile.</li>
           <li>In a fictional California loan, record and correct mortgage disclosure evidence and reopen the earlier version.</li>
           <li>In a fictional California brokerage, review advertising evidence under DRE, CFL, or CRMLA and download the recorded version.</li>
+          <li>From Loan evidence &amp; retention, review California borrower-file evidence and export the fictional CRMLA application register.</li>
           <li>In fictional pilots, review Midwest brokerage agreement timing and record refinance benefit evidence for Minnesota and Nebraska.</li>
           <li>Compare itemized charges on the original Loan Estimate and Closing Disclosure, and see which differences need review.</li>
           <li>Review the affected charges and timing on a revised Loan Estimate while keeping the original comparison available.</li>

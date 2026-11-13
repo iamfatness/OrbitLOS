@@ -365,7 +365,7 @@ test("Michigan disposition recommendations use current evidence, both dates and 
  const {db,staff}=f, scope=staff.brokerage.id;
  initializeStore(db,false);
  db.exec(`ALTER TABLE loan_retention_reviews DROP COLUMN michiganReview;
-   INSERT INTO loan_retention_reviews VALUES ('legacy-review','old-loan',1,'Withdrawn/2023-01-01/0/0//',NULL,
+   INSERT INTO loan_retention_reviews (id,loanId,policyVersion,basis,previous,outcome,reference,at,actor,actorEmail) VALUES ('legacy-review','old-loan',1,'Withdrawn/2023-01-01/0/0//',NULL,
      'Continue retaining','Fictional legacy review','2026-10-01','Owner','owner@example.test')`);
  initializeRetentionDisposition(db);
  assert.equal(db.prepare("SELECT michiganReview FROM loan_retention_reviews WHERE id='legacy-review'").get().michiganReview,null);
@@ -437,4 +437,289 @@ test("Michigan disposition recommendations use current evidence, both dates and 
  assert.match(work(decide(row("mi-withdrawn"))).error,/reconcile the recorded withdrawal/i);
  assert.equal(save("mi-withdrawn",{...withdrawn,outcome:"Withdrawn"},1).kind,"michiganRetention");
  assert.equal(row("mi-withdrawn").michigan.stateReviewDate,"2025-12-01");
+});
+
+test("California DRE records retain authority, original findings and examination evidence without setting a deletion date", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {auditRetentionExport,reviewRetentionExport,retentionExportResponse}=await import("../src/lib/loan-retention-export.ts");
+ const {strFromU8,unzipSync}=await import("fflate");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {db,staff,capture}=ownerFixture(t);
+ initializeStore(db,false);
+ const tenant=staff.brokerage.id, now="2026-11-12T03:00:00Z", entityId=crypto.randomUUID();
+ db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'002341','Fictional scope',?)").run(tenant,entityId,"Fictional DRE broker",now);
+ db.exec("INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Borrower','','','Borrower')");
+ const addLoan=db.prepare("INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince) VALUES (?,'borrower','LO','',1,'Purchase',?,'2026-11-11')");
+ const addApp=db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES (?,?, '2027-01-01',?, '2026-11-12')");
+ for(const [id,state,stage] of [["ca-closed","CA","Funded"],["ca-ended","CA","Processing"],["outside","MI","Processing"]]){
+  addLoan.run(id,stage);
+  addApp.run(id,id,JSON.stringify({propertyLocation:{state}}));
+ }
+ db.exec(`INSERT INTO closing_progress (loanId,fundingDate) VALUES ('ca-closed','2024-06-06');
+   INSERT INTO past_client_profiles (loanId,closingDate) VALUES ('ca-closed','2024-06-03');
+   UPDATE loans SET disposition='Withdrawn',dispositionDate='2024-03-04' WHERE id='ca-ended'`);
+ const before=capture();
+ const request=(input,actor=staff)=>loanRetentionWork(db,input,actor,tenant,now);
+ const save=(loanId,facts,expected=0)=>({type:"saveCaliforniaDreRecordkeeping",loanId,facts,expected,requestId:crypto.randomUUID(),
+  ...(expected?{correction:"Fictional revised archive evidence"}:{})});
+ const inspection={on:"2026-11-11",reference:"Fictional office viewing and paper production"};
+ const at=(on)=>({on,reference:"Fictional dated record"});
+ const retained={status:"On file",reference:"Fictional signed disclosure reference"};
+ const absent={status:"Not applicable",reference:"Fictional scope review"};
+ const facts={entityId,authorityReference:"Fictional DRE license evidence",fileInventory:"Fictional archive inventory",
+  outcome:{status:"Closed",...at("2024-06-03")},mortgageDisclosure:retained,trustRecords:absent,electronicSignatures:retained,
+  privateMoney:absent,archive:{format:"Electronic",location:"Fictional archive",inspection}};
+ const list=request({type:"list",heldOnly:false,search:"",offset:0});
+ assert.deepEqual(Object.fromEntries(list.loans.map(row=>[row.id,row.canReviewCaliforniaDre])),{"ca-closed":true,"ca-ended":true,outside:false});
+ assert.match(request(save("outside",facts)).error,/California loan/);
+ assert.match(request(save("ca-closed",{...facts,entityId:crypto.randomUUID()})).error,/legal entity/);
+ assert.match(request(save("ca-closed",facts),{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
+ assert.match(request(save("ca-closed",{...facts,archive:{...facts.archive,inspection:at("2026-11-12")}})).error,/already|occurred/);
+ const initial=save("ca-closed",facts);
+ const initialResult=request(initial);
+ assert.equal(initialResult.currentFinding.stateReviewDate,"2027-06-03");
+ assert.equal(initialResult.versions[0].entity.nmls,"002341");
+ assert.deepEqual(initialResult.currentFinding.findings.map(item=>item.key),["immutability","regularCourse","contemporaryRecord","custodian","indexing"]);
+ assert.equal(request(initial).versions.length,1);
+ const corrected=save("ca-closed",{...facts,archive:{...facts.archive,immutability:"Fictional write-once evidence",
+  regularCourse:"Fictional records practice",contemporaryRecord:"Fictional preparation record",
+  custodian:"Fictional custodian evidence",indexing:"Fictional retrieval index"}},1);
+ const result=request(corrected);
+ assert.deepEqual(result.currentFinding.findings,[]);
+ assert.equal(result.versions[1].finding.findings.length,5);
+ assert.match(request({...corrected,requestId:crypto.randomUUID()}).error,/changed/);
+ const ended={...facts,outcome:{status:"Unconsummated",application:at("2024-02-29"),listing:at("2024-02-28")},
+  privateMoney:{status:"Applicable",selfDealing:absent,investorQualifications:retained,investorSuitability:retained}};
+ const gap=request(save("ca-ended",ended)).currentFinding;
+ assert.equal(gap.stateReviewDate,null);
+ assert.ok(gap.findings.some(item=>item.key==="start"));
+ assert.ok(gap.findings.some(item=>item.key==="privateRetention"));
+ const leap=request(save("ca-ended",{...ended,outcome:{status:"Unconsummated",application:at("2024-02-29")}},1)).currentFinding;
+ assert.equal(leap.stateReviewDate,null);
+ assert.ok(leap.findings.some(item=>item.key==="anniversary"));
+ const resolved=request(save("ca-ended",{...ended,outcome:{status:"Unconsummated",application:at("2024-02-28")}},2)).currentFinding;
+ assert.equal(resolved.stateReviewDate,"2027-02-28");
+ assert.equal(resolved.basis.event,"Loan application");
+ const audit=request({type:"exportRetentionAudit",policyVersion:null});
+ assert.equal(JSON.parse(audit.json).californiaDreRecordkeeping.length,5);
+ const archive=reviewRetentionExport(db,staff,tenant,"ca-closed");
+ const zip=await retentionExportResponse(undefined,tenant,archive,async fingerprint=>auditRetentionExport(db,staff,tenant,"ca-closed",fingerprint));
+ const manifest=JSON.parse(strFromU8(unzipSync(new Uint8Array(await zip.arrayBuffer()))["manifest.json"]));
+ assert.deepEqual(manifest.californiaDreRecordkeeping.map(v=>[v.version,v.finding.findings.length]),[[2,0],[1,5]]);
+ assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
+ db.prepare("UPDATE applications SET draft=? WHERE loanId='ca-closed'").run(JSON.stringify({propertyLocation:{state:"NV"}}));
+ const moved=request({type:"californiaDreRecordkeepingHistory",loanId:"ca-closed"});
+ assert.equal(moved.targetChanged,true);
+ assert.equal(moved.currentFinding.stateReviewDate,null);
+ assert.equal(moved.versions[0].finding.stateReviewDate,"2027-06-03");
+});
+
+test("California disposition requires current DRE evidence, private-money dates and counsel review", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {db,staff}=ownerFixture(t);
+ const scope=staff.brokerage.id, now="2026-11-12T06:00:00Z", entityId=crypto.randomUUID();
+ initializeStore(db,false);
+ db.exec("ALTER TABLE loan_retention_reviews DROP COLUMN californiaReview");
+ initializeStore(db,false);
+ db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'002341','Fictional scope',?)").run(scope,entityId,"Fictional DRE broker",now);
+ db.exec(`INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Borrower','','','Borrower');
+   INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince)
+   VALUES ('ca','borrower','LO','',1,'Purchase','Funded','2022-11-04'),('report-only','borrower','LO','',1,'Purchase','Funded','2022-11-04');
+   INSERT INTO closing_progress (loanId,fundingDate) VALUES ('ca','2022-11-04'),('report-only','2022-11-04');
+   INSERT INTO past_client_profiles (loanId,closingDate) VALUES ('ca','2022-11-02'),('report-only','2022-11-02');`);
+ const addApp=db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES (?,?, '2027-01-01',?, '2026-11-12')");
+ for(const [id,state] of [["ca","CA"],["report-only","NV"]]) addApp.run(id,id,JSON.stringify({propertyLocation:{state}}));
+ db.prepare("INSERT INTO call_report_facts VALUES ('report-only',?,1)").run(JSON.stringify({state:"CA"}));
+ const work=(input,at=now)=>loanRetentionWork(db,input,staff,scope,at);
+ assert.equal(work({type:"saveDispositionPolicy",id:crypto.randomUUID(),expected:0,fundedDays:30,closedDays:30,
+  reference:"Fictional policy"}).kind,"disposition");
+ const row=(at=now,id="ca")=>work({type:"dispositionQueue",offset:0},at).rows.find(item=>item.id===id);
+ const review=(item,options={})=>({type:"saveDispositionReview",id:crypto.randomUUID(),loanId:item.id,policyVersion:1,
+  basis:item.basis,previous:item.decision?.id??null,outcome:"Recommend disposition",reference:"Fictional recommendation",offset:0,...options});
+ const save=(facts,expected=0,id="ca")=>work({type:"saveCaliforniaDreRecordkeeping",loanId:id,facts,expected,requestId:crypto.randomUUID(),
+  ...(expected?{correction:"Fictional corrected archive evidence"}:{})});
+ const missing=row();
+ assert.match(work(review(missing)).error,/California license authority/);
+ const continueReview=review(missing,{outcome:"Continue retaining"});
+ assert.equal(work(continueReview).kind,"disposition");
+ assert.equal(row().decision.id,continueReview.id);
+ const absent={status:"Not applicable",reference:"Fictional scope review"};
+ const present={status:"On file",reference:"Fictional retained document"};
+ const facts={entityId,authorityReference:"Fictional DRE authority",fileInventory:"Fictional complete inventory",
+  outcome:{status:"Closed",on:"2022-11-02",reference:"Fictional closing record"},mortgageDisclosure:present,trustRecords:absent,
+  electronicSignatures:absent,archive:{format:"Paper",location:"Fictional office archive",
+   inspection:{on:"2026-10-12",reference:"Fictional retrieval and print test"}},
+  privateMoney:{status:"Applicable",selfDealing:absent,investorQualifications:present,investorSuitability:present,
+   retentionEvidence:"Fictional four-year custody evidence"}};
+ assert.equal(save(facts).versions[0].version,1);
+ assert.equal(row().decision,null);
+ assert.match(work(review(missing)).error,/loan changed/);
+ assert.match(work(review(row())).error,/private-money retain-through/);
+ assert.equal(save(facts,0,"report-only").versions[0].version,1);
+ assert.match(work(review(row(now,"report-only"))).error,/property and reporting state/);
+ assert.equal(save({...facts,privateMoney:{...facts.privateMoney,retainThrough:"2026-11-11"}},1).versions[0].version,2);
+ assert.equal(row().retainCaliforniaThroughToday,true);
+ assert.match(work(review(row())).error,/2026-11-11/);
+ const tomorrow="2026-11-12T09:00:00Z";
+ assert.equal(row(tomorrow).retainCaliforniaThroughToday,false);
+ assert.match(work(review(row(tomorrow)),tomorrow).error,/Record counsel/);
+ const counsel=retainThrough=>({retainThrough,reference:"Fictional counsel scope and retention review"});
+ assert.match(work(review(row(tomorrow),{counsel:counsel("2026-11-10")}),tomorrow).error,/earlier than/);
+ assert.match(work(review(row(tomorrow),{counsel:counsel("2026-11-12")}),tomorrow).error,/Retain the record/);
+ const allowed=review(row(tomorrow),{counsel:counsel("2026-11-11")});
+ assert.equal(work(allowed,tomorrow).kind,"disposition");
+ assert.equal(work(allowed,tomorrow).kind,"disposition");
+ assert.equal(row(tomorrow).decision.counsel.retainThrough,"2026-11-11");
+ const audit=JSON.parse(work({type:"exportRetentionAudit",policyVersion:null},tomorrow).json);
+ const saved=audit.decisions.find(item=>item.id===allowed.id).californiaReview;
+ assert.equal(saved.evidence[0].detail.version,2);
+ assert.equal(saved.evidence[0].detail.entity.nmls,"002341");
+ assert.deepEqual(saved.counsel,counsel("2026-11-11"));
+ assert.equal(db.prepare("SELECT count(*) AS n FROM loans WHERE id='ca'").get().n,1);
+});
+
+test("California DFPI evidence preserves separate CFL and CRMLA findings and examination dates", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {reviewRetentionExport,auditRetentionExport,retentionExportResponse}=await import("../src/lib/loan-retention-export.ts");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {strFromU8,unzipSync}=await import("fflate");
+ const {db,staff,capture}=ownerFixture(t);
+ initializeStore(db,false);
+ db.exec("ALTER TABLE loan_retention_reviews DROP COLUMN californiaReview");
+ initializeStore(db,false);
+ const scope=staff.brokerage.id, now="2026-11-12T06:00:00Z", entityId=crypto.randomUUID();
+ db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'002341','Fictional scope',?)").run(scope,entityId,"Fictional DFPI company",now);
+ db.exec(`INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Borrower','','','Borrower');
+   INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince)
+   VALUES ('ca','borrower','LO','',1,'Purchase','Processing','2026-11-04'),
+     ('outside','borrower','LO','',1,'Purchase','Processing','2026-11-04');
+   UPDATE loans SET disposition='Withdrawn',dispositionDate='2023-11-08' WHERE id='ca';`);
+ const addApp=db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES (?,?, '2027-01-01',?, '2026-11-12')");
+ for(const [id,state] of [["ca","CA"],["outside","MI"]]) addApp.run(id,id,JSON.stringify({propertyLocation:{state}}));
+ const before=capture();
+ const work=(input,at=now,actor=staff)=>loanRetentionWork(db,input,actor,scope,at);
+ const save=(facts,expected=0,loanId="ca")=>({type:"saveCaliforniaDfpi",loanId,facts,expected,requestId:crypto.randomUUID(),
+   ...(expected?{correction:"Fictional revised DFPI evidence"}:{})});
+ const evidence=on=>({on,reference:"Fictional documented event"});
+ const unreviewed={status:"Unreviewed"};
+ const retained={status:"On file",reference:"Fictional archived file"};
+ const cfl={entityId,authority:"CFL",role:"Broker",authorityReference:"Fictional CFL license",
+   finalEntry:evidence("2023-11-08"),inventory:"Fictional inventory",
+   custody:{method:"Digital access from licensed office",office:"Fictional licensed office",retrieval:evidence("2026-10-28")},
+   disclosure:retained,securityInstrument:retained,note:retained,application:retained,paymentRecord:retained,escrow:unreviewed,insurance:retained};
+ assert.match(work(save(cfl,0,"outside")).error,/California loan/);
+ assert.match(work(save(cfl),now,{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
+ assert.match(work(save({...cfl,entityId:crypto.randomUUID()})).error,/legal entity/);
+ const original=save(cfl);
+ const initial=work(original);
+ assert.equal(initial.currentFinding.stateReviewDate,"2026-11-08");
+ assert.deepEqual(initial.currentFinding.findings.map(item=>item.key),["escrow"]);
+ assert.equal(work(original).versions.length,1);
+ const crmla={entityId,authority:"CRMLA",role:"Lender and servicer",authorityReference:"Fictional CRMLA license",
+  finalEntry:evidence("2023-11-08"),inventory:"Fictional inventory",loanLog:"Fictional 36-month log reference",
+  application:retained,commitment:retained,truthInLending:retained,closingStatement:retained,noteAndDeed:retained,
+  adverseAction:{status:"Not applicable",reference:"Fictional closed loan history"},appraisal:retained,creditReport:retained,
+  balance:{status:"Balance remains",reference:"Fictional current servicing ledger"},
+  production:{notice:evidence("2026-11-01")}};
+ assert.match(work(save({...crmla,production:{...crmla.production,produced:evidence("2026-10-31")}})).error,/cannot precede/);
+ assert.match(work(save({...crmla,production:{...crmla.production,produced:evidence("2026-11-12")}})).error,/occurred/);
+ const second=save(crmla);
+ const pending=work(second);
+ assert.equal(pending.currentFinding.productionDue,"2026-11-11");
+ assert.equal(pending.currentFinding.productionStatus,"Awaiting production");
+ assert.deepEqual(pending.currentFinding.findings.map(item=>item.key),["activeBalance"]);
+ const history={type:"californiaDfpiHistory",loanId:"ca",authority:"CRMLA"};
+ const overdue=work(history,"2026-11-12T09:00:00Z");
+ assert.equal(overdue.currentFinding.productionStatus,"Overdue");
+ assert.equal(overdue.versions[0].finding.productionStatus,"Awaiting production");
+ assert.match(work({...second,requestId:crypto.randomUUID()}).error,/changed/);
+ const completed=work(save({...crmla,production:{...crmla.production,produced:evidence("2026-11-11")}},1));
+ assert.equal(completed.currentFinding.productionStatus,"Produced on time");
+ assert.deepEqual(completed.versions.map(item=>item.facts.authority),["CRMLA","CRMLA"]);
+ assert.equal(work({...history,authority:"CFL"}).versions[0].facts.authority,"CFL");
+ assert.equal(work({type:"saveDispositionPolicy",id:crypto.randomUUID(),expected:0,fundedDays:30,closedDays:30,
+  reference:"Fictional policy"}).kind,"disposition");
+ const queue=()=>work({type:"dispositionQueue",offset:0}).rows.find(item=>item.id==="ca");
+ const recommend=row=>({type:"saveDispositionReview",id:crypto.randomUUID(),loanId:row.id,policyVersion:1,
+  basis:row.basis,previous:row.decision?.id??null,outcome:"Recommend disposition",reference:"Fictional recommendation",offset:0,
+  counsel:{retainThrough:"2026-11-08",reference:"Fictional counsel confirmed license scope and dates"}});
+ assert.deepEqual(queue().california.map(item=>item.authority),["CFL","CRMLA"]);
+ assert.match(work(recommend(queue())).error,/Escrow closing evidence/);
+ assert.equal(work(save({...cfl,escrow:retained},1)).versions[0].version,2);
+ assert.match(work(recommend(queue())).error,/outstanding-balance/);
+ assert.equal(work(save({...crmla,balance:{status:"No balance",reference:"Fictional payoff evidence"}},2)).versions[0].version,3);
+ const awaiting=queue();
+ assert.match(work(recommend(awaiting)).error,/open CRMLA notice/);
+ assert.equal(work(save({...crmla,balance:{status:"No balance",reference:"Fictional payoff evidence"},
+  production:{...crmla.production,produced:evidence("2026-11-11")}},3)).versions[0].version,4);
+ assert.match(work(recommend(awaiting)).error,/loan changed/);
+ const accepted=recommend(queue());
+ assert.equal(work(accepted).kind,"disposition");
+ assert.equal(work(accepted).kind,"disposition");
+ const json=JSON.parse(work({type:"exportRetentionAudit",policyVersion:null}).json);
+ assert.equal(json.californiaDfpi.length,6);
+ const decision=json.decisions.find(item=>item.id===accepted.id).californiaReview;
+ assert.deepEqual(decision.evidence.map(item=>[item.authority,item.detail.version]),[["CFL",2],["CRMLA",4]]);
+ assert.equal(decision.counsel.retainThrough,"2026-11-08");
+ const reviewed=reviewRetentionExport(db,staff,scope,"ca");
+ const archive=await retentionExportResponse(undefined,scope,reviewed,async fingerprint=>auditRetentionExport(db,staff,scope,"ca",fingerprint));
+ const manifest=JSON.parse(strFromU8(unzipSync(new Uint8Array(await archive.arrayBuffer()))["manifest.json"]));
+ assert.equal(manifest.californiaDfpi[0].entity.nmls,"002341");
+ assert.equal(manifest.californiaDfpi.at(-1).finding.stateReviewDate,"2026-11-08");
+ assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
+});
+
+test("CRMLA register exports the 36-month population and preserves corrections", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {crmlaRegisterFrom}=await import("../src/lib/crmla-register-model.ts");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {strFromU8,unzipSync}=await import("fflate");
+ const {db,staff,capture}=ownerFixture(t);
+ initializeStore(db,false);
+ const tenant=staff.brokerage.id, entityId=crypto.randomUUID(), secondId=crypto.randomUUID(), now="2026-11-13T06:00:00Z";
+ const add=db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'001234','Fictional scope',?)");
+ add.run(tenant,entityId,"Fictional CRMLA lender",now);
+ add.run(tenant,secondId,"Fictional second entity",now);
+ const before=capture();
+ const work=(input,entity=entityId,actor=staff)=>loanRetentionWork(db,{type:"crmlaRegister",entityId:entity,input},actor,tenant,now);
+ const facts={fileNumber:"000012",applicationOn:"2023-11-12",applicationReference:"Fictional dated receipt",
+  applicants:["=1+1 Fictional Borrower"],outcome:{status:"Closed",on:"2023-12-15",reference:"Fictional closing file"},
+  propertyAddress:"14 Example Street",amountCents:12345678,terms:"30 years fixed",program:"Fictional fixed program",officer:"Fictional loan officer"};
+ const save=(facts,other={})=>({operation:"save",entryId:crypto.randomUUID(),requestId:crypto.randomUUID(),expected:0,facts,...other});
+ const first=save(facts);
+ assert.deepEqual(work(first).versions[0].review.gaps,["Disposition of the loan","Disposition of servicing"]);
+ assert.equal(work(first).versions.length,1);
+ assert.match(work(first,secondId).error,/changed/);
+ assert.match(work(first,entityId,{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
+ assert.match(work(save({...facts,fileNumber:" 000012 "})).error,/already uses/);
+ assert.match(work(save({...facts,outcome:{...facts.outcome,on:"2026-11-13"}})).error,/already occurred/);
+ assert.equal(crmlaRegisterFrom("2024-02-29"),"2021-02-28");
+ const correction=save({...facts,outcome:{...facts.outcome,disposition:"Sold to fictional investor",servicing:"Retained"}},
+  {entryId:first.entryId,expected:1,correction:"Fictional loan and servicing confirmation"});
+ assert.deepEqual(work(correction).versions.map(item=>item.review.gaps.length),[0,2]);
+ assert.match(work({...correction,requestId:crypto.randomUUID()}).error,/changed/);
+ assert.equal(work(save({...facts,fileNumber:"older",applicationOn:"2023-11-11"})).versions.length,1);
+ assert.equal(work(save({...facts,fileNumber:"pending",applicationOn:"2026-11-12",outcome:{status:"Pending"},
+  amountCents:undefined})).versions[0].review.gaps[0],"Loan amount");
+ const remove=save({...facts,fileNumber:"void-me"});
+ assert.equal(work(remove).versions.length,1);
+ assert.equal(work({operation:"void",entryId:remove.entryId,requestId:crypto.randomUUID(),expected:1,correction:"Fictional duplicate"}).versions[0].voided,true);
+ const result=work({operation:"export",through:"2026-11-12"});
+ assert.equal(result.from,"2023-11-12");
+ assert.equal(result.entries,2);
+ assert.equal(result.gaps,1);
+ const book=unzipSync(Buffer.from(result.xlsx,"base64"));
+ const sheet=number=>strFromU8(book[`xl/worksheets/sheet${number}.xml`]);
+ assert.match(sheet(1),/t="inlineStr"[^>]*><is><t xml:space="preserve">=1\+1 Fictional Borrower/);
+ assert.match(sheet(1),/<v>123456.78<\/v>/);
+ assert.match(sheet(1),/Sold to fictional investor/);
+ assert.doesNotMatch(sheet(1),/older|void-me/);
+ assert.match(sheet(2),/Voided/);
+ assert.match(sheet(2),/Disposition of servicing/);
+ assert.match(sheet(3),/Fictional CRMLA lender/);
+ assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
 });

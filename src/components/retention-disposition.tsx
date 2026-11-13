@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { accessLoanRetention } from "@/app/actions";
 import type { DispositionQueue } from "@/lib/retention-disposition";
+import { CaliforniaDreRecordkeeping } from "./california-dre-recordkeeping";
+import { CaliforniaDfpiRecordkeeping } from "./california-dfpi-recordkeeping";
 import { MichiganRetention } from "./michigan-retention";
 import { RetentionAudit } from "./retention-audit";
 import { Button } from "./ui/button";
@@ -25,11 +27,17 @@ function MichiganRetentionStatus({ row }: { row: Candidate }) {
   </>}</p>;
 }
 
+function CaliforniaRetentionStatus({ row }: { row: Candidate }) {
+  return row.california.map(item => <p key={item.authority}>
+    <strong>California {item.authority} retention</strong> · {item.gap ?? `Review date ${item.stateReviewDate}`}
+  </p>);
+}
+
 export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
   brokerageId:string; openLoan:(id:string)=>void; onBack:()=>void;
 }) {
   const [showAudit,setShowAudit] = useState(false);
-  const [evidence,setEvidence] = useState<Candidate>();
+  const [evidence,setEvidence] = useState<{row: Candidate; authority: "MI" | "DRE" | "DFPI"}>();
   const auditLink = useRef<HTMLButtonElement>(null);
   const evidenceLinks = useRef(new Map<string,HTMLButtonElement>());
   const returnEvidenceId = useRef<string>(null);
@@ -93,15 +101,23 @@ export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
   const policy = queue?.policy;
   const enabled = !!(policy?.fundedDays || policy?.closedDays);
   const refresh = () => void submit({type:"dispositionQueue",offset:0},true);
-  const canRecommend = review?.kind==="loan" && (!review.row.michigan || (!review.row.michigan.gap && !review.row.retainMichiganThroughToday));
-  const needsCounsel = review?.kind==="loan" && !!review.row.michigan && review.outcome==="Recommend disposition";
+  const canRecommend = review?.kind==="loan" && (!review.row.michigan || (!review.row.michigan.gap && !review.row.retainMichiganThroughToday)) &&
+    !review.row.retainCaliforniaThroughToday && !review.row.california.some(item=>item.gap || !item.stateReviewDate);
+  const needsCounsel = review?.kind==="loan" && (!!review.row.michigan || !!review.row.california.length) && review.outcome==="Recommend disposition";
 
-  if (evidence) return <MichiganRetention brokerageId={brokerageId}
-    target={{kind:"loan",id:evidence.id,label:evidence.borrower}} backLabel="Back to disposition review" onBack={()=>{
-      returnEvidenceId.current=evidence.id;
+  if (evidence) {
+    const {row, authority} = evidence;
+    const back = () => {
+      returnEvidenceId.current = authority + "/" + row.id;
       setEvidence(undefined);
       void submit({type:"dispositionQueue",offset:queue?.offset??0});
-    }} />;
+    };
+    if (authority === "MI") return <MichiganRetention brokerageId={brokerageId}
+      target={{kind:"loan",id:row.id,label:row.borrower}} backLabel="Back to disposition review" onBack={back} />;
+    const Evidence = authority === "DRE" ? CaliforniaDreRecordkeeping : CaliforniaDfpiRecordkeeping;
+    return <Evidence brokerageId={brokerageId} loan={{id:row.id,label:row.borrower}}
+      backLabel="Back to disposition review" onBack={back} />;
+  }
 
   if (showAudit) return <RetentionAudit brokerageId={brokerageId} openLoan={openLoan} onBack={()=>{
     setShowAudit(false);
@@ -158,6 +174,7 @@ export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
         </label>
       </> : <>
         <MichiganRetentionStatus row={review.row} />
+        <CaliforniaRetentionStatus row={review.row} />
         <p className="muted">Recording a recommendation leaves the loan and documents in place.</p>
         <label className="field w-full max-w-2xl">Review outcome
           <select value={review.outcome} disabled={busy} onChange={event=>setReview({...review,id:crypto.randomUUID(),
@@ -196,12 +213,19 @@ export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
         <p className="muted">{row.category} <time className="whitespace-nowrap" dateTime={row.eventDate}>{row.eventDate}</time>
           {" · "}Internal review due <time className="whitespace-nowrap" dateTime={row.reviewOn}>{row.reviewOn}</time></p>
         <MichiganRetentionStatus row={row} />
+        <CaliforniaRetentionStatus row={row} />
         {row.decision && <p>{row.decision.reference} · {row.decision.actor}</p>}
         <div className="loan-application-actions">
           <Button type="button" variant="outline" disabled={busy||!!review} onClick={()=>openLoan(row.id)}>Open loan</Button>
-          {row.michigan && <Button type="button" variant="outline" disabled={busy||!!review}
-            ref={node=>{if(node)evidenceLinks.current.set(row.id,node);else evidenceLinks.current.delete(row.id);}}
-            onClick={()=>setEvidence(row)}>Michigan evidence</Button>}
+          {(["MI", "DRE", "DFPI"] as const).map(authority =>
+            (authority === "MI" ? row.michigan : row.california.some(item => (item.authority === "DRE") === (authority === "DRE"))) &&
+            <Button key={authority} type="button" variant="outline" disabled={busy||!!review}
+              ref={node => {
+                const key = authority + "/" + row.id;
+                if (node) evidenceLinks.current.set(key,node); else evidenceLinks.current.delete(key);
+              }} onClick={()=>setEvidence({row, authority})}>
+              {authority === "MI" ? "Michigan evidence" : `California ${authority} evidence`}
+            </Button>)}
           <Button type="button" variant="outline" disabled={busy||!!review} onClick={event=>{
             origin.current=event.currentTarget;
             setNotice("");

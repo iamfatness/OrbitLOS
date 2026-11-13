@@ -120,6 +120,10 @@ export function RetentionAudit({ brokerageId, onBack, openLoan }:{
         {data.decisions.map(decision=><li className="loan-task document-item record-form" key={decision.id}>
           <div className="section-heading"><strong>{decision.currentBorrower??"Loan removed"}</strong><span>{decision.outcome}</span></div>
           <p>{decision.reference}</p>
+          {decision.californiaReview?.evidence.map(({authority, gap, stateReviewDate}) => <p key={authority}>
+            <strong>California {authority}</strong> · {gap ?? stateReviewDate}
+          </p>)}
+          {decision.californiaReview?.counsel && <p>Reviewed retain-through date {decision.californiaReview.counsel.retainThrough} · {decision.californiaReview.counsel.reference}</p>}
           <p className="muted">Policy version {decision.policyVersion} · {dateTime(decision.at)} ET · {decision.actor}</p>
           {decision.eventDate && <p className="muted">{decision.category} <time className="whitespace-nowrap" dateTime={decision.eventDate}>{decision.eventDate}</time>
             {decision.reviewOn && <>{" · "}<span className="whitespace-nowrap">Review due <time dateTime={decision.reviewOn}>{decision.reviewOn}</time></span></>}</p>}
