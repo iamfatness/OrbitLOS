@@ -16,7 +16,7 @@ const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.
 const plannedReview = z.object({ entityId: z.uuid(), month: z.string(), itemId: z.uuid() });
 const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
   reportingBasis: reportingDateBasis.optional(), period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(), ownerEmail: z.string(), from: z.string(), through: z.string(),
-  illinoisAudit: z.boolean().optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
+  illinoisAudit: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
 })) });
 type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
@@ -195,6 +195,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
  {selected && auditPeriod && <IllinoisAuditEvidence brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={auditPeriod} onBack={() => {
      setAuditPeriod(undefined);
+     refresh(value => value + 1);
      requestAnimationFrame(() => auditReturn.current?.focus());
    }} />}
  <div hidden={Boolean(auditPeriod)}><section className="integration manager-panel record-form compliance-pilot-form" aria-label="Obligations">
@@ -279,6 +280,10 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
              {period.stateBasis && <p>Scope version {period.stateBasis.revision} · {period.stateBasis.jurisdiction} ·{" "}
                <a className="underline" href={period.stateBasis.sourceUrl} target="_blank" rel="noreferrer">{period.stateBasis.title}</a>
              </p>}
+             {period.illinoisAudit && <p>{period.audit ? <>
+               <strong>{period.audit.filingStatus}</strong> · Filing deadline {dateLabel(period.audit.dueOn)}
+               {period.audit.extensionStatus !== "No request recorded" && <><br />Extension · {period.audit.extensionStatus}</>}
+             </> : "No Illinois audit evidence recorded"}</p>}
              {period.filingStatus && <p>External filing · {period.filingStatus}</p>}
              {period.reportingBasis && <p>{period.reportingBasis.route} · {period.reportingBasis.nominalDueOn ? `Nominal filing date ${dateLabel(period.reportingBasis.nominalDueOn)}` : "Filing date needs review"}<br />{period.reportingBasis.review}</p>}
              {period.stateBasisChanged && <p>Reporting basis needed review when recorded.</p>}</div>

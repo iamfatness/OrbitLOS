@@ -21,6 +21,8 @@ type OccurrenceSnapshot = {
   reportingBasis?: ReturnType<typeof obligationReportingBasis>;
 };
 
+const illinoisDate = (now: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+
 export function initializeComplianceObligations(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS illinois_audit_evidence_versions (
     brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL, version INTEGER NOT NULL,
@@ -198,7 +200,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const snapshot = occurrence ? JSON.parse(String(occurrence.snapshot)) as OccurrenceSnapshot : null;
     if (snapshot?.stateBasis?.sourceKey !== "REQ-IL-REPORTING-ANNUAL-AUDIT" ||
       !snapshot.reportingBasis?.nominalDueOn || snapshot.draft.applicability === "Not applicable") return unavailable;
-    const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+    const asOf = illinoisDate(now);
     if (data.operation === "illinoisAuditHistory") {
       const before = data.before ?? null;
       const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM illinois_audit_evidence_versions
@@ -233,21 +235,29 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     return result;
   }
   if (data.operation === "occurrences") {
+    const asOf = illinoisDate(now);
     const rows = db.prepare(`SELECT o.obligationId,o.period,o.version,o.status,o.internalTarget,o.snapshot,o.createdBy,o.createdAt,w.workId,w.month,
       (SELECT json_extract(r.evidence,'$.status') FROM compliance_filing_receipts r
         WHERE r.brokerageId=o.brokerageId AND r.entityId=o.entityId AND r.obligationId=o.obligationId AND r.period=o.period
-        ORDER BY r.version DESC LIMIT 1) AS filingStatus
+        ORDER BY r.version DESC LIMIT 1) AS filingStatus,
+      (SELECT a.evidence FROM illinois_audit_evidence_versions a
+        WHERE a.brokerageId=o.brokerageId AND a.entityId=o.entityId AND a.obligationId=o.obligationId AND a.period=o.period
+        ORDER BY a.version DESC LIMIT 1) AS auditEvidence
       FROM compliance_obligation_occurrences o LEFT JOIN compliance_obligation_work w
         ON w.brokerageId=o.brokerageId AND w.entityId=o.entityId AND w.obligationId=o.obligationId AND w.period=o.period
       WHERE o.brokerageId=? AND o.entityId=? AND o.obligationId=? ORDER BY o.period DESC LIMIT 51 OFFSET ?`)
       .all(tenant, data.entityId, data.id, data.offset);
-    return { kind: "obligationOccurrences", items: rows.slice(0, 50).map(({ workId, month, ...row }) => {
+    return { kind: "obligationOccurrences", items: rows.slice(0, 50).map(({ workId, month, auditEvidence, ...row }) => {
       const { stateBasis, stateBasisChanged, draft, period, reportingBasis } = JSON.parse(String(row.snapshot)) as {
         stateBasis?: StateBasis; stateBasisChanged?: boolean; draft: ObligationDraft; period: { from: string; through: string }; reportingBasis?: ReturnType<typeof obligationReportingBasis>;
       };
-      return { ...row, reportingBasis,
-        illinoisAudit: stateBasis?.sourceKey === "REQ-IL-REPORTING-ANNUAL-AUDIT" &&
-          Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable", ownerEmail: draft.ownerEmail, from: period.from, through: period.through,
+      const illinoisAudit = stateBasis?.sourceKey === "REQ-IL-REPORTING-ANNUAL-AUDIT" &&
+        Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable";
+      const audit = illinoisAudit && typeof auditEvidence === "string"
+        ? reviewIllinoisAuditEvidence(JSON.parse(auditEvidence) as IllinoisAuditEvidence, asOf) : undefined;
+      return { ...row, reportingBasis, illinoisAudit, audit: audit && {
+        dueOn: audit.dueOn, extensionStatus: audit.extensionStatus, filingStatus: audit.filingStatus,
+      }, ownerEmail: draft.ownerEmail, from: period.from, through: period.through,
         filingStatus: row.filingStatus ?? (draft.preparation ? "No confirmation recorded" : undefined), review: typeof workId === "string" && typeof month === "string" ? { entityId: data.entityId, month, itemId: workId } : undefined,
         ...(stateBasis ? { stateBasis: describeStateBasis(stateBasis), stateBasisChanged } : {}) };
     }), more: rows.length > 50, notice: obligationPlanningNotice };

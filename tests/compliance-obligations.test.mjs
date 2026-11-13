@@ -67,6 +67,9 @@ test("Illinois audit evidence preserves the original deadline and regulator deci
  const original=f.run(f.generate({period})).occurrence;
  const target={entityId:f.entityId,id:f.id,period};
  const history={operation:"illinoisAuditHistory",...target};
+ const listed=()=>f.run({operation:"occurrences",entityId:f.entityId,id:f.id}).items[0];
+ assert.equal(listed().illinoisAudit,true);
+ assert.equal(listed().audit,undefined);
  const save=(evidence,expected=0,changes={})=>({operation:"saveIllinoisAudit",...target,requestId:crypto.randomUUID(),expected,evidence,...changes});
  assert.equal(f.run(history).nominalDueOn,"2026-03-31");
  const evidence={originalDeadline:{on:"2026-03-31",reference:"Reviewed fiscal deadline"},
@@ -76,6 +79,8 @@ test("Illinois audit evidence preserves the original deadline and regulator deci
  assert.deepEqual(first.finding,{asOf:"2026-11-11",requestDueOn:"2026-03-16",dueOn:"2026-03-31",requestStatus:"On time",
    filingStatus:"Past due",extensionStatus:"Pending decision"});
  assert.deepEqual(f.run(initial),first);
+ assert.deepEqual(listed().audit,{dueOn:"2026-03-31",extensionStatus:"Pending decision",filingStatus:"Past due"});
+ assert.equal(listed().auditEvidence,undefined);
  assert.ok(f.run({...history,entityId:crypto.randomUUID()}).error);
  assert.ok(f.run(history,f.staff,[]).error);
  const filing={on:"2026-04-30",reference:"IDFPR filing receipt"};
@@ -86,6 +91,7 @@ test("Illinois audit evidence preserves the original deadline and regulator deci
    decision:{result:"Granted",on:"2026-03-25",dueOn:"2026-04-30",reference:"Corrected written regulator decision"}}};
  const corrected=save(grant,2,{correction:"Correct request date and regulator decision"});
  assert.equal(f.run(corrected).finding.filingStatus,"Filed on time");
+ assert.deepEqual(listed().audit,{dueOn:"2026-04-30",extensionStatus:"Granted",filingStatus:"Filed on time"});
  assert.match(f.run(save(grant,2,{correction:"Conflicting correction"})).error,/changed/);
  const versions=f.run(history).versions;
  assert.deepEqual(versions.map(item=>item.finding.extensionStatus),["Granted","Denied","Pending decision"]);
