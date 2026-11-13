@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { shiftReportDate } from "./report-date-range";
 
 export const newYorkApplicationLogSource = "https://govt.westlaw.com/nycrr/Document/I4e77f867cd1711dda432a117e6e0f345?transitionType=Default";
 const date = z.iso.date().refine(value => value >= "1900-01-01" && value <= "2199-12-31");
@@ -28,6 +29,29 @@ const brokerageFees = z.discriminatedUnion("status", [
   })).min(1).max(100) }),
 ]);
 
+const branchReport = z.strictObject({
+  activityOn: date, activityReference: reference,
+  deadline: z.strictObject({ on: date, reference }).optional(),
+  delivery: z.strictObject({ at: z.iso.datetime({ offset: true }).refine(at => Number.isFinite(Date.parse(at))), reference }).optional(),
+});
+const branchReporting = z.discriminatedUnion("office", [
+  z.strictObject({ office: z.literal("Principal office"), reference }),
+  z.strictObject({ office: z.literal("Branch office"), reports: z.array(branchReport).max(100) }),
+]);
+const nyDateTime = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit",
+  minute: "2-digit", second: "2-digit", hourCycle: "h23",
+});
+function easternParts(at: string) {
+  const parts = Object.fromEntries(nyDateTime.formatToParts(new Date(at)).map(part => [part.type, part.value]));
+  return { on: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}:${parts.second}` };
+}
+function afterNoon(at: string, dueOn: string) {
+  const { on, time } = easternParts(at);
+  if (on !== dueOn) return on > dueOn;
+  return time > "12:00:00" || (time === "12:00:00" && /\.[0-9]*[1-9][0-9]*(?:Z|[+-])/u.test(at));
+}
+
 export const newYorkApplicationFacts = z.strictObject({
   fileNumber: text(100), office: text(160), applicationOn: date,
   applicants: z.array(person).min(1).max(12), propertyAddress: text(300),
@@ -49,8 +73,24 @@ export const newYorkApplicationFacts = z.strictObject({
     accounting,
   ]),
   preclosingFees, brokerageFees,
+  branchReporting: branchReporting.optional(),
   earlierLog: z.strictObject({ on: date, reference }).optional(),
 }).superRefine((facts, ctx) => {
+  if (facts.branchReporting?.office === "Branch office") {
+    const dates = new Set<string>();
+    facts.branchReporting.reports.forEach((report, index) => {
+      const path = ["branchReporting", "reports", index];
+      if (dates.has(report.activityOn))
+        ctx.addIssue({ code: "custom", path, message: "Use one daily branch report per activity date." });
+      dates.add(report.activityOn);
+      if (report.activityOn < facts.applicationOn)
+        ctx.addIssue({ code: "custom", path, message: "Branch activity cannot precede application receipt." });
+      if (report.deadline && report.deadline.on < shiftReportDate(report.activityOn, 5))
+        ctx.addIssue({ code: "custom", path, message: "The fifth business day must be at least five calendar days after the activity." });
+      if (report.delivery && Number.isFinite(Date.parse(report.delivery.at)) && easternParts(report.delivery.at).on < report.activityOn)
+        ctx.addIssue({ code: "custom", path, message: "Principal-office receipt cannot precede branch activity." });
+    });
+  }
   if (facts.earlierLog && facts.earlierLog.on < facts.applicationOn)
     ctx.addIssue({ code: "custom", path: ["earlierLog"], message: "The earlier log entry cannot precede application receipt." });
   if (facts.disposition.status === "Final" && facts.disposition.on < facts.applicationOn)
@@ -60,7 +100,7 @@ export const newYorkApplicationFacts = z.strictObject({
 });
 export type NewYorkApplicationFacts = z.infer<typeof newYorkApplicationFacts>;
 
-export function reviewNewYorkApplication(facts: NewYorkApplicationFacts, firstSavedOn: string) {
+export function reviewNewYorkApplication(facts: NewYorkApplicationFacts, firstSavedOn: string, reviewedAt?: string) {
   const gaps: string[] = [];
   if (facts.source.status === "Unreviewed") gaps.push("Application source");
   if (facts.placement.status === "Unreviewed") gaps.push("Placement or basis");
@@ -70,7 +110,20 @@ export function reviewNewYorkApplication(facts: NewYorkApplicationFacts, firstSa
   const loggedAfterReceipt = firstLoggedOn > facts.applicationOn;
   if (loggedAfterReceipt) gaps.push("First documented log entry follows receipt date");
   if (firstLoggedOn < facts.applicationOn) gaps.push("Recorded application date follows the first Orbit save");
-  return { gaps, firstLoggedOn, loggedAfterReceipt };
+  const reporting = facts.branchReporting;
+  if (!reporting) gaps.push("Confirm whether the originating office was a branch.");
+  if (reporting?.office === "Branch office" && !reporting.reports.some(report => report.activityOn === facts.applicationOn))
+    gaps.push("Document the branch report for the application receipt date.");
+  const branchReports = reporting?.office === "Branch office" ? reporting.reports.map(report => {
+    const dueOn = report.deadline?.on ?? null;
+    const comparedAt = report.delivery?.at ?? reviewedAt;
+    const missed = !!comparedAt && !!dueOn && afterNoon(comparedAt, dueOn);
+    const status = !dueOn ? "Verify calendar" : report.delivery ? missed ? "Late" : "On time" :
+      missed ? "Overdue" : "Awaiting receipt";
+    if (status !== "On time") gaps.push(`Branch activity ${report.activityOn} · ${status}`);
+    return { ...report, status, dueOn };
+  }) : [];
+  return { gaps, firstLoggedOn, loggedAfterReceipt, branchReports };
 }
 
 export const newYorkApplicationLogRequest = z.strictObject({

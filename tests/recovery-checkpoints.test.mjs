@@ -1185,7 +1185,7 @@ test("New York application log preserves referrals, fees and denial evidence acr
  addEntity.run(tenant,entityId,"Fictional New York broker",now);
  addEntity.run(tenant,otherId,"Fictional separate broker",now);
  const before=capture();
- const request=(input,entity=entityId,actor=staff)=>loanRetentionWork(db,{type:"newYorkApplicationLog",entityId:entity,input},actor,tenant,now);
+ const request=(input,entity=entityId,actor=staff,at=now)=>loanRetentionWork(db,{type:"newYorkApplicationLog",entityId:entity,input},actor,tenant,at);
  const party={name:"Fictional Referral",address:"1 Fictional Street",description:"Real estate broker"};
  const facts={office:"Fictional branch",fileNumber:"000042",applicationOn:"2026-11-10",
   applicants:[{name:"=1+1 Fictional Applicant",address:"2 Fictional Street"}],propertyAddress:"3 Fictional Street",
@@ -1197,24 +1197,35 @@ test("New York application log preserves referrals, fees and denial evidence acr
  assert.equal(request(initial).versions[0].review.firstLoggedOn,"2026-11-11");
  assert.equal(request(initial).versions[0].review.loggedAfterReceipt,true);
  assert.equal(request(initial).versions.length,1);
+ assert.ok(request(initial).versions[0].review.gaps.includes("Confirm whether the originating office was a branch."));
  assert.match(request(initial,otherId).error,/changed/);
  assert.match(request(initial,entityId,{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
  assert.match(request(make({...facts,fileNumber:" 000042 "})).error,/already uses/);
  assert.match(request(make({...facts,applicationOn:"2026-11-12"})).error,/already occurred/);
  assert.match(request(make({...facts,earlierLog:{on:"2026-11-12",reference:"Future log date"}})).error,/cannot follow/);
- const corrected=make({...facts,earlierLog:{on:"2026-11-10",reference:"Fictional branch log"},
+ const day={activityOn:"2026-11-10",activityReference:"Fictional branch intake batch",
+  deadline:{on:"2026-11-18",reference:"Fictional verified holiday calendar"}};
+ const secondDay={activityOn:"2026-11-11",activityReference:"Fictional decision batch",
+  deadline:{on:"2026-11-18",reference:"Fictional verified holiday calendar"}};
+ const report=(...reports)=>({office:"Branch office",reports});
+ const delivery={at:"2026-11-12T12:00:00-05:00",reference:"Fictional receipt"};
+ const reviewAt="2026-11-18T17:00:00Z";
+ assert.match(request(make({...facts,fileNumber:"FUTURE",branchReporting:report({...day,delivery})})).error,/already occurred/);
+ const corrected=make({...facts,branchReporting:report({...day,delivery:{...delivery,at:reviewAt}},
+  {...secondDay,delivery:{...delivery,at:"2026-11-18T11:59:59-05:00"}}),earlierLog:{on:"2026-11-10",reference:"Fictional branch log"},
   disposition:{status:"Final",outcome:"Denied",on:"2026-11-11",reference:"Fictional denied file"},
   placement:{status:"Not placed",reference:"Fictional placement review"},
   brokerageFees:{status:"Accounting record",reference:"Fictional ledger 42"}},
   {entryId:initial.entryId,expected:1,correction:"Fictional disposition and branch evidence"});
- const history=request(corrected);
+ const history=request(corrected,entityId,staff,reviewAt);
  assert.deepEqual(history.versions.map(item=>item.review.loggedAfterReceipt),[false,true]);
  assert.deepEqual(history.versions[0].review.gaps,[]);
+ assert.deepEqual(history.versions[0].review.branchReports.map(report=>report.status),["On time","On time"]);
  assert.match(request({...corrected,requestId:crypto.randomUUID()}).error,/changed/);
  const listing={operation:"list",from:"2026-11-10",through:"2026-11-11",search:"000042",offset:0};
  assert.equal(request(listing).items.length,1);
  assert.equal(request(listing,otherId).items.length,0);
- const result=request({operation:"export",from:listing.from,through:listing.through});
+ const result=request({operation:"export",from:listing.from,through:listing.through},entityId,staff,reviewAt);
  assert.equal(result.entries,1);
  assert.equal(result.gaps,0);
  const book=unzipSync(Buffer.from(result.xlsx,"base64"));
@@ -1225,8 +1236,19 @@ test("New York application log preserves referrals, fees and denial evidence acr
  assert.match(sheet(4),/Fictional denied file/);
  assert.match(sheet(5),/Fictional ledger 42/);
  assert.match(sheet(5),/Fictional disposition and branch evidence/);
+ assert.match(sheet(6),/Fifth business day \(noon ET\)/);
+ assert.match(sheet(6),/2026-11-18T17:00:00Z/);
+ assert.match(sheet(7),/Status when saved/);
+ const correction=make({...corrected.facts,branchReporting:report({...day,delivery:{...delivery,at:"2026-11-18T17:00:00.0001Z"}},secondDay)},
+  {entryId:initial.entryId,expected:2,correction:"Fictional exact receipt reconciliation"});
+ const late=request(correction,entityId,staff,"2026-11-18T17:00:01Z");
+ assert.deepEqual(late.versions[0].review.branchReports.map(report=>report.status),["Late","Overdue"]);
+ assert.deepEqual(late.versions[1].review.branchReports.map(report=>report.status),["On time","On time"]);
+ const principal=request(make({...facts,fileNumber:"PRINCIPAL",applicationOn:"2026-11-09",branchReporting:{office:"Principal office",reference:"Fictional approved office"}}));
+ assert.deepEqual(principal.versions[0].review.branchReports,[]);
+ assert.ok(!principal.versions[0].review.gaps.some(gap=>/branch/i.test(gap)));
  assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
- const voided=request({operation:"void",entryId:initial.entryId,expected:2,requestId:crypto.randomUUID(),correction:"Fictional duplicate"});
+ const voided=request({operation:"void",entryId:initial.entryId,expected:3,requestId:crypto.randomUUID(),correction:"Fictional duplicate"},entityId,staff,"2026-11-18T17:00:02Z");
  assert.equal(voided.versions[0].voided,true);
  assert.equal(request({operation:"export",from:listing.from,through:listing.through}).entries,0);
 });

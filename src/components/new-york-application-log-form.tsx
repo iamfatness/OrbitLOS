@@ -62,6 +62,9 @@ export function NewYorkApplicationLogForm({ initial, busy, save, cancel }: {
   const [applicants, setApplicants] = useState(initial?.applicants.length ?? 1);
   const [preclosingCount, setPreclosingCount] = useState(initial?.preclosingFees.status === "Recorded" ? initial.preclosingFees.items.length : 1);
   const [brokerageCount, setBrokerageCount] = useState(initial?.brokerageFees.status === "Recorded" ? initial.brokerageFees.items.length : 1);
+  const [office, setOffice] = useState<"Unreviewed" | "Principal office" | "Branch office">(initial?.branchReporting?.office ?? "Unreviewed");
+  const initialBranch = initial?.branchReporting?.office === "Branch office" ? initial.branchReporting : undefined;
+  const [branchCount, setBranchCount] = useState(initialBranch?.reports.length ?? 0);
   const [error, setError] = useState("");
 
   function submit(form: FormData) {
@@ -73,6 +76,17 @@ export function NewYorkApplicationLogForm({ initial, busy, save, cancel }: {
     };
     const earlierOn = read("earlierOn");
     const earlierReference = read("earlierReference");
+    const branchReporting = office === "Principal office" ? { office, reference: read("principalReference") } :
+      office === "Branch office" ? { office, reports: Array.from({ length: branchCount }, (_, index) => {
+        const key = `branch-${index}`;
+        const on = read(key + "-deadline");
+        const calendar = read(key + "-calendar");
+        const at = read(key + "-receivedAt");
+        const receipt = read(key + "-receipt");
+        return { activityOn: read(key + "-activity"), activityReference: read(key + "-activityReference"),
+          deadline: on || calendar ? { on, reference: calendar } : undefined,
+          delivery: at || receipt ? { at, reference: receipt } : undefined };
+      }) } : undefined;
     const facts = newYorkApplicationFacts.safeParse({
       fileNumber: read("fileNumber"), office: read("office"), applicationOn: read("applicationOn"), propertyAddress: read("propertyAddress"),
       applicants: Array.from({ length: applicants }, (_, index) => ({
@@ -95,11 +109,13 @@ export function NewYorkApplicationLogForm({ initial, busy, save, cancel }: {
         const key = "brokerage-" + index;
         return { amountCents: cents(key + "-amount"), source: read(key + "-source"), sourceType: read(key + "-type") };
       }) } : brokerage === "Unreviewed" ? { status: brokerage } : { status: brokerage, reference: read("brokerage-reference") },
+      branchReporting,
       earlierLog: earlierOn || earlierReference ? { on: earlierOn, reference: earlierReference } : undefined,
     });
     if (!facts.success) {
       const issue = facts.error.issues[0];
       const messages: Record<string, string> = {
+        branchReporting: "Check the branch dates, references and receipt timestamp with its time zone offset.",
         earlierLog: "Enter the earlier log date and its evidence reference.",
         source: "Complete the application source or its accounting reference.",
         disposition: "Complete the outcome date and evidence reference.",
@@ -128,6 +144,32 @@ export function NewYorkApplicationLogForm({ initial, busy, save, cancel }: {
         <Field name="office" label="Principal or originating branch office" value={initial?.office} required />
         <Field name="propertyAddress" label="Property address" value={initial?.propertyAddress} required limit={300} />
       </div>
+      <details className="details-section" open={!!initial?.branchReporting}>
+        <summary className="min-h-11 content-center">Branch reporting</summary>
+        <div className="record-form">
+          <RegisterChoice label="Originating office type" value={office} options={["Unreviewed", "Principal office", "Branch office"]} change={setOffice} />
+          {office === "Principal office" && <Field name="principalReference" label="Principal office evidence"
+            value={initial?.branchReporting?.office === "Principal office" ? initial.branchReporting.reference : undefined} required limit={240} />}
+          {office === "Branch office" && <>
+            <p className="muted">The principal office must receive each daily report by noon Eastern on the documented fifth business day.</p>
+            <p className="muted">Include the receipt time zone offset, for example 2026-11-10T12:00:00-05:00.</p>
+            <RepeatedFields name="Branch report" count={branchCount} setCount={setBranchCount} min={0} max={100}>
+              {index => {
+                const prefix = `branch-${index}`;
+                const report = initialBranch?.reports[index];
+                return <div className={twoColumns}>
+                  <Field name={prefix + "-activity"} label="Activity date" value={report?.activityOn} date required />
+                  <Field name={prefix + "-activityReference"} label="Activity evidence" value={report?.activityReference} required limit={240} />
+                  <Field name={prefix + "-deadline"} label="Fifth business day" value={report?.deadline?.on} date />
+                  <Field name={prefix + "-calendar"} label="Calendar evidence" value={report?.deadline?.reference} limit={240} />
+                  <Field name={prefix + "-receivedAt"} label="Principal-office receipt timestamp" value={report?.delivery?.at} limit={48} />
+                  <Field name={prefix + "-receipt"} label="Receipt evidence" value={report?.delivery?.reference} limit={240} />
+                </div>;
+              }}
+            </RepeatedFields>
+          </>}
+        </div>
+      </details>
       <RepeatedFields name="Applicant" count={applicants} setCount={setApplicants} max={12}>
         {index => <div className={twoColumns}>
           <Field name={`applicant-${index}-name`} label="Applicant name" value={initial?.applicants[index]?.name} required />
@@ -212,7 +254,8 @@ export function NewYorkApplicationLogForm({ initial, busy, save, cancel }: {
 export function NewYorkApplicationEvidence({ entry }: { entry: Entry }) {
   const { facts, review } = entry;
   const rows: [string, string | undefined][] = [
-    ["Originating office", facts.office], ["Received", facts.applicationOn], ["Property address", facts.propertyAddress],
+    ["Originating office", facts.office], ["Office type", facts.branchReporting?.office],
+    ["Principal office evidence", facts.branchReporting?.office === "Principal office" ? facts.branchReporting.reference : undefined], ["Received", facts.applicationOn], ["Property address", facts.propertyAddress],
     ...facts.applicants.map((applicant, index): [string, string] => [`Applicant ${index + 1}`, `${applicant.name} · ${applicant.address}`]),
     ["Source", facts.source.status],
     ["Source details", facts.source.status === "Direct" ? facts.source.description : facts.source.status === "Referral" ?
@@ -235,6 +278,17 @@ export function NewYorkApplicationEvidence({ entry }: { entry: Entry }) {
       {rows.map(([label, value]) => value && <div key={label} className="contents"><dt className="font-medium">{label}</dt>
         <dd className="min-w-0 [overflow-wrap:anywhere]">{value}</dd></div>)}
     </dl>
+    {review.branchReports.length > 0 && <details className="details-section">
+      <summary className="min-h-11 content-center">Branch reports</summary>
+      <ul className="record-form [overflow-wrap:anywhere]">
+        {review.branchReports.map(report => <li key={report.activityOn} className="border-b border-[var(--line)] pb-2">
+          <p><strong>{report.activityOn} · {report.status}</strong></p>
+          <p>{report.activityReference}</p>
+          {report.deadline && <p>Due {report.deadline.on} at noon Eastern · {report.deadline.reference}</p>}
+          {report.delivery && <p>Received {report.delivery.at} · {report.delivery.reference}</p>}
+        </li>)}
+      </ul>
+    </details>}
     {facts.preclosingFees.status === "Recorded" && <details className="details-section">
       <summary className="min-h-11 content-center">Preclosing fee details</summary>
       <ul className="list-disc space-y-2 pl-5 [overflow-wrap:anywhere]">{facts.preclosingFees.items.map((fee, index) =>

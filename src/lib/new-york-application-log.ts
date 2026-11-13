@@ -31,9 +31,9 @@ const format = new Intl.DateTimeFormat("en-CA", {
 });
 const localDate = (at: string) => format.format(new Date(at));
 
-function entry(row: Stored) {
+function entry(row: Stored, reviewedAt = row.at) {
   const facts = JSON.parse(row.facts) as NewYorkApplicationFacts;
-  return { entryId: row.entryId, version: row.version, facts, review: reviewNewYorkApplication(facts, localDate(row.originalAt)),
+  return { entryId: row.entryId, version: row.version, facts, review: reviewNewYorkApplication(facts, localDate(row.originalAt), reviewedAt),
     entity: JSON.parse(row.entity) as Entity, at: row.at, actor: row.actor, correction: row.correction, voided: Boolean(row.voided) };
 }
 
@@ -75,6 +75,12 @@ function exportLog(rows: Entry[], history: Entry[], entity: Entity, from: string
   ]);
   const denied = rows.flatMap(({ facts }) => facts.disposition.status === "Final" && facts.disposition.outcome === "Denied" ?
     [[facts.fileNumber, facts.office, facts.applicationOn, facts.disposition.on, facts.disposition.reference]] : []);
+  const branchRows = (entries: Entry[]) => entries.flatMap(({ facts, review, version, voided }) => review.branchReports.map(report => [
+    facts.fileNumber, facts.office, version, voided ? "Voided" : "Recorded", report.activityOn, report.activityReference,
+    report.dueOn ?? "", report.deadline?.reference ?? "", report.delivery?.at ?? "", report.delivery?.reference ?? "", report.status,
+  ]));
+  const branchHeaders = ["File number", "Office", "Version", "Entry status", "Activity date", "Activity evidence",
+    "Fifth business day (noon ET)", "Calendar evidence", "Principal-office receipt", "Receipt evidence"];
   const scope = [
     ["Legal entity", entity.name], ["NMLS", entity.nmls], ["Received from", from], ["Received through", through],
     ["Prepared at", now], ["Reconciliation", "Confirm all office activity, open items and external records before examination use."],
@@ -91,6 +97,8 @@ function exportLog(rows: Entry[], history: Entry[], entity: Entity, from: string
     workbookSheet("Evidence history", ["Entry ID", "File number", "Version", "Office", "Received", "Source status", "Source record",
       "Placement status", "Placement evidence", "Preclosing fees", "Preclosing fee evidence", "Brokerage fees", "Brokerage fee evidence",
       "First documented entry", "Earlier log evidence", "Evidence gaps", "Entry status", "Saved at", "Actor", "Correction"], evidence),
+    workbookSheet("Branch reports", [...branchHeaders, "Current status"], branchRows(rows)),
+    workbookSheet("Branch report history", [...branchHeaders, "Status when saved"], branchRows(history)),
     { name: "Export scope", rows: scope, widths: [28, 100], filter: false },
   ]);
   return { kind: "newYorkApplicationLogExport", xlsx: Buffer.from(file).toString("base64"), entries: rows.length,
@@ -112,7 +120,7 @@ export function newYorkApplicationLogWork(db: Store, { entityId, input }: NewYor
       ORDER BY v.applicationOn,v.entryId LIMIT ? OFFSET ?`)
       .all(...scope, input.from, input.through, listing ? normalize(input.search) : "", Number(!listing), limit + 1, offset) as Stored[];
     if (listing)
-      return { kind: "newYorkApplicationLogList", items: rows.slice(0, limit).map(entry), next: rows.length > limit ? offset + limit : null };
+      return { kind: "newYorkApplicationLogList", items: rows.slice(0, limit).map(row => entry(row, now)), next: rows.length > limit ? offset + limit : null };
     if (rows.length > limit) return { error: "This export exceeds 3,000 entries. Narrow the application date range." };
     const historyLimit = 12000;
     const versions = db.prepare(`WITH selected AS (SELECT DISTINCT v.entryId FROM new_york_application_log_versions v
@@ -121,20 +129,25 @@ export function newYorkApplicationLogWork(db: Store, { entityId, input }: NewYor
       WHERE a.brokerageId=? AND a.entityId=? ORDER BY a.entryId,a.version LIMIT ?`)
       .all(...scope, input.from, input.through, ...scope, historyLimit + 1) as Stored[];
     if (versions.length > historyLimit) return { error: "This export exceeds 12,000 evidence versions. Narrow the application date range." };
-    const entries = rows.map(entry);
+    const entries = rows.map(row => entry(row, now));
     const feeCount = entries.reduce((total, { facts }) => total +
       (facts.preclosingFees.status === "Recorded" ? facts.preclosingFees.items.length : 0) +
       (facts.brokerageFees.status === "Recorded" ? facts.brokerageFees.items.length : 0), 0);
     if (feeCount > 12000) return { error: "This export exceeds 12,000 fee records. Narrow the application date range." };
+    const branchReportCount = versions.reduce((total, row) => {
+      const { branchReporting } = JSON.parse(row.facts) as NewYorkApplicationFacts;
+      return total + (branchReporting?.office === "Branch office" ? branchReporting.reports.length : 0);
+    }, 0);
+    if (branchReportCount > 12000) return { error: "This export exceeds 12,000 branch reports. Narrow the application date range." };
     accessEvent(db, staff, "Exported New York application log", entityId, now);
-    return exportLog(entries, versions.map(entry), entity, input.from, input.through, now);
+    return exportLog(entries, versions.map(row => entry(row)), entity, input.from, input.through, now);
   }
 
   const target = [...scope, input.entryId] as const;
   function history(before?: number): NewYorkApplicationLogResult {
     const rows = db.prepare(`SELECT * FROM new_york_application_log_versions WHERE brokerageId=? AND entityId=? AND entryId=?
       AND (? IS NULL OR version<?) ORDER BY version DESC LIMIT ?`).all(...target, before ?? null, before ?? null, pageSize + 1) as Stored[];
-    const versions = rows.slice(0, pageSize).map(entry);
+    const versions = rows.slice(0, pageSize).map((row, index) => entry(row, index === 0 && before === undefined ? now : row.at));
     return { kind: "newYorkApplicationLogHistory", versions, next: rows.length > pageSize ? versions[pageSize - 1].version : null };
   }
   if (input.operation === "history") return history(input.before);
@@ -161,6 +174,9 @@ export function newYorkApplicationLogWork(db: Store, { entityId, input }: NewYor
     return { error: "Record application and payment events that have already occurred." };
   if (facts.earlierLog && facts.earlierLog.on > firstSavedOn)
     return { error: "The documented earlier log entry cannot follow the first Orbit save." };
+  if (facts.branchReporting?.office === "Branch office" && facts.branchReporting.reports.some(report =>
+    report.activityOn > today || (report.delivery && Date.parse(report.delivery.at) > Date.parse(now))))
+    return { error: "Record branch activity and principal-office receipts that have already occurred." };
   const voided = input.operation === "void";
   const fileKey = normalize(facts.fileNumber);
   if (!voided && db.prepare(`SELECT 1 FROM new_york_application_log_versions v WHERE v.brokerageId=? AND v.entityId=?

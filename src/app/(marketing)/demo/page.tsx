@@ -43,6 +43,7 @@ export default function DemoPage() {
           <li>Record Texas origination and processing entries, download both examination logs, and review a fictional borrower file.</li>
           <li>See which Texas evidence needs attention before a disposition recommendation and find the reviewed version in the audit.</li>
           <li>Find a New York application by office or file number, correct its evidence, and export the selected company’s log.</li>
+          <li>Record a New York branch report receipt against the documented deadline and reopen the original evidence after a correction.</li>
           <li>In fictional pilots, review Midwest brokerage agreement timing and record refinance benefit evidence for Minnesota and Nebraska.</li>
           <li>Compare itemized charges on the original Loan Estimate and Closing Disclosure, and see which differences need review.</li>
           <li>Review the affected charges and timing on a revised Loan Estimate while keeping the original comparison available.</li>
