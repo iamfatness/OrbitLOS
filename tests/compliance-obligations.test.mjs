@@ -424,7 +424,7 @@ test("priority state reporting uses distinct periods and leaves unverified dates
  assert.doesNotMatch(transitionWork,/Nominal date:/);
  check("TX","MCR","Quarterly","2026-01","NMLS Residential Mortgage Loan Activity","2026-05-15");
  check("TX","FC","Annual","2025-01","NMLS Financial Condition","2026-03-31");
- check("TX","FC","Quarterly","2026-04","NMLS Financial Condition","2026-08-14");
+ check("TX","FC","Quarterly","2026-04","NMLS Financial Condition",null);
  check("TX","SSSF","Quarterly","2025-10","NMLS State-Specific Supplemental Form",null);
  check("TX","SSSF","Quarterly","2026-01","NMLS State-Specific Supplemental Form","2026-05-15");
  const occc=check("TX","OCCC-ANNUAL","Annual","2025-01","Texas OCCC annual reporting portal","2026-05-01");
@@ -480,9 +480,40 @@ test("priority state reporting uses distinct periods and leaves unverified dates
  check("IL","ACTIVITY","Quarterly","2026-01","NMLS Mortgage Call Report","2026-05-15");
  check("IL","ACTIVITY","Annual","2025-01","NMLS Mortgage Call Report",null);
  check("MI","FC","Annual","2025-01","NMLS Financial Condition","2026-03-31");
- check("MI","FC","Quarterly","2026-04","NMLS Financial Condition","2026-08-14");
+ const mismatched = check("MI","FC","Quarterly","2026-04","NMLS Financial Condition",null);
  check("MI","FC","Annual","2025-07","NMLS Financial Condition",null,7);
  check("MI","GAAP","Annual","2025-07","NMLS financial statement upload","2026-09-28",7);
+ const saved = f.sql.prepare("SELECT snapshot FROM compliance_obligation_occurrences WHERE obligationId=?").get(mismatched.id);
+ const legacy = JSON.parse(saved.snapshot);
+ legacy.reportingBasis.nominalDueOn = "2026-08-14";
+ const historicalSnapshot = JSON.stringify(legacy);
+ f.sql.prepare("UPDATE compliance_obligation_occurrences SET snapshot=?,status=? WHERE obligationId=?")
+   .run(historicalSnapshot,"Internal preparation planned",mismatched.id);
+ const target = { entityId: f.entityId, id: mismatched.id, period: "2026-04" };
+ const [occurrence] = f.run({ operation: "occurrences", entityId: f.entityId, id: mismatched.id }).items;
+ assert.equal(occurrence.status, "Applicability review gap");
+ assert.equal(occurrence.reportingBasis.nominalDueOn, null);
+ assert.equal(occurrence.snapshot, historicalSnapshot);
+ const history = f.run({ operation: "michiganFilingHistory", ...target });
+ assert.equal(history.nominalDueOn, null);
+ assert.equal(history.scopeChanged, true);
+ const cadencePlan = f.run({ operation: "planWork", ...target, requestId: crypto.randomUUID() });
+ const work = f.program({ operation: "month", entityId: f.entityId, month: cadencePlan.month }).items.find(item => item.id === cadencePlan.workId);
+ assert.equal(work.obligation.reportingBasis.nominalDueOn, null);
+ assert.match(work.filingProgress.gaps[0], /cadence conflicts/);
+ for (const [jurisdiction, activity] of [["MI", "Brokerage and lending"], ["TX", "Brokerage and servicing"]]) {
+   const revised = complianceCaseWork(f.db, { type: "stateScope", input: { operation: "save", entityId: f.entityId, jurisdiction,
+     expectedRevision: 1, requestId: crypto.randomUUID(), facts: { activity, lienScope: "First lien", companyEvidence: "Fictional license",
+       officeEvidence: "", originatorEvidence: "", products: "", responsibility: "", reportingBasis: "", counselPacketReference: "" } } },
+   f.staff, f.staff.brokerage.id, [f.actor], "2026-11-12T12:00:00Z");
+   assert.equal(revised.revision, 2);
+   for (const [cadence, period, due] of [["Quarterly", "2026-04", "2026-08-14"], ["Annual", "2026-01", null]]) {
+     const id = crypto.randomUUID();
+     assert.equal(f.run(f.save({ id, draft: { ...f.draft, cadence }, stateReference: { jurisdiction, sourceKey: `REQ-${jurisdiction}-REPORTING-FC`, revision: 2 } })).revision, 1);
+     const generated = f.run(f.generate({ id, period })).occurrence;
+     assert.equal(JSON.parse(generated.snapshot).reportingBasis.nominalDueOn, due);
+   }
+ }
 });
 
 test("Michigan company renewal preserves the filing target, expiration context and late-target review",t=>{

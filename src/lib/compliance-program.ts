@@ -8,7 +8,7 @@ import { storedQuoteRouting } from "./quote-intake-model";
 import type { SqlValue, Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
-import { stateScopeBasisChanges, stateScopeLicenseSnapshot, stateScopeSourceBasis } from "./compliance-state-basis";
+import { financialConditionCadenceReview, financialConditionScopeMatches, stateScopeBasisChanges, stateScopeLicenseSnapshot, stateScopeSourceBasis } from "./compliance-state-basis";
 import { stateScopePageSize, type StateScopeSummary } from "./compliance-program-model";
 import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth, type ComplianceOwnerHomeData } from "./compliance-program-model";
 import { currentFilingProgress } from "./compliance-filing-progress";
@@ -277,18 +277,27 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   for (const row of bases) {
     const item = byItem.get(String(row.workId));
     if (!item) continue;
-    const { draft, stateBasis, reportingBasis, period: bounds } = JSON.parse(String(row.snapshot)) as {
+    const { draft, stateBasis, reportingBasis: recordedReportingBasis, period: bounds } = JSON.parse(String(row.snapshot)) as {
       draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"]; reportingBasis?: ObligationReviewBasis["reportingBasis"];
       period?: { from: string; through: string };
     };
+    const cadenceConflict = recordedReportingBasis && stateBasis && draft.applicability !== "Not applicable" &&
+      !financialConditionScopeMatches(db, staff.brokerage.id, entity.id, stateBasis, draft.cadence);
+    const reportingBasis = cadenceConflict
+      ? { ...recordedReportingBasis, nominalDueOn: null, review: financialConditionCadenceReview } : recordedReportingBasis;
     if (stateBasis && bounds && draft.applicability !== "Not applicable") {
       item.filingProgress = currentFilingProgress(db, { brokerageId: staff.brokerage.id, entityId: entity.id,
         obligationId: String(row.obligationId), period: String(row.period), sourceKey: stateBasis.sourceKey,
         bounds, draft, nominalDueOn: reportingBasis?.nominalDueOn ?? null }, now);
+      if (cadenceConflict) {
+        const progress = item.filingProgress ?? { revision: null, summary: "Filing date needs review", gaps: [] };
+        item.filingProgress = { ...progress, gaps: [financialConditionCadenceReview, ...progress.gaps] };
+      }
     }
     const [year, month] = String(row.period).split("-");
     item.obligation = {
-      obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version), status: String(row.status),
+      obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version),
+      status: cadenceConflict ? "Applicability review gap" : String(row.status),
       sourceUrl: draft.sourceUrl, authority: draft.authority, reportingBasis,
       filingReceipts: supportsFilingReceipts({ draft, stateBasis, reportingBasis }),
       michiganFiling: draft.applicability !== "Not applicable" && Boolean(michiganFilingComponent(stateBasis?.sourceKey ?? "", draft)),

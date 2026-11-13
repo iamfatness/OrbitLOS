@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type { ProgramLicense } from "./compliance-program-model";
+import type { ObligationDraft, ObligationStateSource } from "./compliance-obligations-model";
 import { stateRequirementSources, stateRolloutSources, sourceSnapshot } from "./compliance-research-model";
+import type { Store } from "./store";
 
 const requirementsByState = Map.groupBy(stateRequirementSources.map(item => item.source), source => source.jurisdiction);
 const sourceBasisByState = new Map([...Map.groupBy(stateRolloutSources, source => source.jurisdiction)].map(([jurisdiction, areas]) => {
@@ -33,4 +35,23 @@ export function stateScopeBasisChanges(saved: { sourceHash?: unknown; entitySnap
 export function sameStateScopeFacts(saved: Record<string, unknown>, current: Record<string, unknown>) {
   return typeof saved.licenseSnapshots === "string" && saved.licenseSnapshots === current.licenseSnapshots &&
     saved.entitySnapshot === current.entitySnapshot && saved.facts === current.facts;
+}
+
+const roleBasedFinancialCondition = new Set([
+  "REQ-MI-REPORTING-FC", "REQ-TX-REPORTING-FC", "REQ-CA-REPORTING-DRE-FC", "REQ-CA-REPORTING-CFL-FC",
+]);
+const quarterlyFinancialCondition = new Set(["REQ-CA-REPORTING-CRMLA-FC", "REQ-CO-REPORTING-QUARTER-FC"]);
+export const financialConditionCadenceReview = "The filing cadence conflicts with the recorded brokerage activity. Verify the period and date before filing.";
+
+export function usesFinancialConditionScope(sourceKey: string) {
+  return roleBasedFinancialCondition.has(sourceKey) || quarterlyFinancialCondition.has(sourceKey);
+}
+
+export function financialConditionScopeMatches(db: Store, brokerageId: string, entityId: string, basis: ObligationStateSource,
+  cadence: ObligationDraft["cadence"]) {
+  if (!usesFinancialConditionScope(basis.sourceKey)) return true;
+  const scope = db.prepare(`SELECT json_extract(facts,'$.activity') AS activity FROM compliance_state_scope_versions
+    WHERE brokerageId=? AND entityId=? AND jurisdiction=? AND revision=?`).get(brokerageId, entityId, basis.jurisdiction, basis.revision);
+  return roleBasedFinancialCondition.has(basis.sourceKey) && cadence === "Annual" ? scope?.activity === "Brokerage" :
+    cadence === "Quarterly" && (scope?.activity === "Brokerage and lending" || scope?.activity === "Brokerage and servicing");
 }

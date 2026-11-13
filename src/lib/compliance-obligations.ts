@@ -1,7 +1,7 @@
 import { easternDate } from "./client-retention";
 import type { Store } from "./store";
 import { complianceProgramWork } from "./compliance-program";
-import { sameStateScopeFacts, stateScopeLicenseSnapshot } from "./compliance-state-basis";
+import { financialConditionCadenceReview, financialConditionScopeMatches, sameStateScopeFacts, stateScopeLicenseSnapshot, usesFinancialConditionScope } from "./compliance-state-basis";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
 import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
@@ -250,8 +250,9 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     if (!snapshot || !basis || snapshot.draft.applicability === "Not applicable") return unavailable;
     const component = michiganFilingComponent(basis.sourceKey, snapshot.draft);
     if (!component) return unavailable;
-    const nominalDueOn = snapshot.reportingBasis?.nominalDueOn ?? null;
-    const scopeChanged = !currentStateBasis(basis);
+    const scopeMatches = financialConditionScopeMatches(db, tenant, data.entityId, basis, snapshot.draft.cadence);
+    const nominalDueOn = scopeMatches ? snapshot.reportingBasis?.nominalDueOn ?? null : null;
+    const scopeChanged = !scopeMatches || !currentStateBasis(basis);
     const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
     if (data.operation === "michiganFilingHistory") {
       const before = data.before ?? null;
@@ -581,7 +582,11 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
         Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable";
       const audit = illinoisAudit && typeof auditEvidence === "string"
         ? reviewIllinoisAuditEvidence(JSON.parse(auditEvidence) as IllinoisAuditEvidence, asOf) : undefined;
-      return { ...row, reportingBasis, illinoisAudit, newYorkVoor: hasNewYorkVoorEvidence({ draft, stateBasis }),
+      const cadenceConflict = reportingBasis && stateBasis && draft.applicability !== "Not applicable" &&
+        !financialConditionScopeMatches(db, tenant, data.entityId, stateBasis, draft.cadence);
+      return { ...row, ...(cadenceConflict && { status: "Applicability review gap" }),
+        reportingBasis: cadenceConflict ? { ...reportingBasis, nominalDueOn: null, review: financialConditionCadenceReview } : reportingBasis,
+        illinoisAudit, newYorkVoor: hasNewYorkVoorEvidence({ draft, stateBasis }),
         michiganFiling: draft.applicability !== "Not applicable" && Boolean(michiganFilingComponent(stateBasis?.sourceKey ?? "", draft)),
         coloradoCompanyRenewal: stateBasis?.sourceKey === "REQ-CO-LICENSING-CO-RENEW" &&
           Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable",
@@ -631,13 +636,16 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const requestId = crypto.randomUUID();
       const stateNote = snapshot.stateBasis ? ` State scope version ${snapshot.stateBasis.revision}, ${snapshot.stateBasis.sourceKey}.` : "";
       const reporting = snapshot.reportingBasis;
-      const routeNote = reporting ? ` Filing route: ${reporting.route}.${reporting.nominalDueOn ? ` Nominal date: ${reporting.nominalDueOn}.` : ""} ${reporting.review}` : "";
+      const cadenceConflict = reporting && snapshot.stateBasis && snapshot.draft.applicability !== "Not applicable" &&
+        !financialConditionScopeMatches(db, tenant, data.entityId, snapshot.stateBasis, snapshot.draft.cadence);
+      const routeNote = reporting ? ` Filing route: ${reporting.route}.${reporting.nominalDueOn && !cadenceConflict ? ` Nominal date: ${reporting.nominalDueOn}.` : ""} ${cadenceConflict ? financialConditionCadenceReview : reporting.review}` : "";
+      const status = cadenceConflict ? "Applicability review gap" : String(occurrence.status);
       const result = complianceProgramWork(db,{operation:"schedule",requestId,entityId:data.entityId,month,
         title:snapshot.draft.title,
         category:/^REQ-[A-Z]{2}-LICENSING-.+-(?:RENEW|RNW)$/.test(snapshot.stateBasis?.sourceKey ?? "") ? "License review" : "Management review",
         ownerEmail:snapshot.draft.ownerEmail,
         internalTarget:String(occurrence.internalTarget),instructions:
-          `Period ${data.period}; obligation version ${snapshot.revision}. ${String(occurrence.status)}. Review applicability, evidence and next steps.${stateNote}${routeNote} Source: ${snapshot.draft.sourceUrl}`.slice(0,1500)},staff,roster,now);
+          `Period ${data.period}; obligation version ${snapshot.revision}. ${status}. Review applicability, evidence and next steps.${stateNote}${routeNote} Source: ${snapshot.draft.sourceUrl}`.slice(0,1500)},staff,roster,now);
       if ("error" in result) return result;
       workId=String(db.prepare("SELECT id FROM compliance_program_events WHERE brokerageId=? AND requestId=?").get(tenant,requestId)!.id);
       db.prepare("INSERT INTO compliance_obligation_work VALUES (?,?,?,?,?,?,?)").run(tenant,data.entityId,data.id,data.period,workId,month,now);
@@ -685,17 +693,13 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   const partial = draft.effectiveFrom > period.from || Boolean(draft.effectiveThrough && draft.effectiveThrough < period.through);
   const stateBasisChanged = Boolean(stateBasis && !currentStateBasis(stateBasis));
   const reportingBasis = obligationReportingBasis(stateBasis?.sourceKey, draft.cadence, draft.annualStartMonth, period);
-  const sourceKey = stateBasis?.sourceKey;
-  const californiaRoleBased = sourceKey === "REQ-CA-REPORTING-DRE-FC" || sourceKey === "REQ-CA-REPORTING-CFL-FC";
-  if (reportingBasis?.nominalDueOn && stateBasis && (californiaRoleBased || sourceKey === "REQ-CA-REPORTING-CRMLA-FC" ||
-    sourceKey === "REQ-CO-REPORTING-QUARTER-FC")) {
-    const scope = db.prepare(`SELECT json_extract(facts,'$.activity') AS activity FROM compliance_state_scope_versions
-      WHERE brokerageId=? AND entityId=? AND jurisdiction=? AND revision=?`)
-      .get(tenant, data.entityId, stateBasis.jurisdiction, stateBasis.revision);
-    const brokerPeriod = (californiaRoleBased && draft.cadence === "Annual");
-    const eligible = !stateBasisChanged && (brokerPeriod ? scope?.activity === "Brokerage" :
-      scope?.activity === "Brokerage and lending" || scope?.activity === "Brokerage and servicing");
-    if (!eligible) reportingBasis.nominalDueOn = null;
+  const cadenceConflict = reportingBasis && stateBasis && draft.applicability !== "Not applicable" &&
+    !financialConditionScopeMatches(db, tenant, data.entityId, stateBasis, draft.cadence);
+  if (reportingBasis && cadenceConflict) {
+    reportingBasis.nominalDueOn = null;
+    reportingBasis.review = financialConditionCadenceReview;
+  } else if (reportingBasis && stateBasisChanged && stateBasis && usesFinancialConditionScope(stateBasis.sourceKey)) {
+    reportingBasis.nominalDueOn = null;
   }
   const lateTarget = Boolean(reportingBasis?.nominalDueOn && period.internalTarget > reportingBasis.nominalDueOn);
   if (reportingBasis && lateTarget) reportingBasis.review += " The internal target falls after the nominal filing date. Review the target.";
