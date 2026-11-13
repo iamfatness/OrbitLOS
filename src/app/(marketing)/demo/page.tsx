@@ -73,7 +73,7 @@ export default function DemoPage() {
           <li>Download a versioned sample closing packet with the confirmed disclosure, mock signer receipts, and the checklist as it stood at preparation.</li>
           <li>Change sample fees or select revised terms to reopen the closing review. Compare before-and-after values, assign a named closing reviewer, and return the exact package for corrections. Retrieve earlier decisions and packets from history.</li>
           <li>Open file preflight, jump to the exact missing sample fee or lender condition, and assign a review of the current evidence. Changes to the file flag an earlier approval as out of date.</li>
-          <li>Set a default reviewer for revised sample closing packages. Open the assigned review, or use Exceptions to assign an eligible reviewer when the default can’t take it.</li>
+          <li>Set a default reviewer for revised sample closing packages. If an assigned reviewer loses access, Exceptions takes the owner to the same review for reassignment.</li>
           <li>Open a settlement exception on the exact funding cycle. Review the difference between sample purchase advice and receipts, and keep corrections in the cycle history.</li>
           <li>Open Exceptions as a brokerage owner. Assign a processor, open a closing review that needs attention and see who acts next, or jump to a reopened mock lender condition.</li>
           <li>Compare a sample settlement fee statement with the confirmed disclosure. Open itemized fee differences directly from the settlement exception queue.</li>

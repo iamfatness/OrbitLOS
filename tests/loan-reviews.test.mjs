@@ -655,12 +655,30 @@ test("a named closing reviewer returns and approves exact signed versions withou
   assert.equal(auto.history[0].actorName, "Orbit closing policy");
   assert.deepEqual(auto.history[0].closingPackage, fourth);
   assert.equal(isOpenTask(fourth), false);
+  const access = { checkedEmails: [admin.email], members: roster.filter(({ email }) => email !== admin.email) };
+  const withAccess = (filter, snapshot = access, time = at) =>
+    nameFileExceptions(readFileExceptions(db, { filter }, admin, id, new Date(time), snapshot), snapshot.members).items;
+  const [blocked] = withAccess(closingPackageException);
+  assert.deepEqual([blocked.id, blocked.status, blocked.nextParty, blocked.overdue, blocked.target, blocked.closingPackageVersion],
+    [next.reviewId, "Reviewer unavailable", "Brokerage owner", false, reviewTarget(next.reviewId), fourth.version]);
+  const afterDeadline = "2026-11-11T15:00:00.000Z";
+  assert.equal(withAccess(closingPackageException, access, afterDeadline).filter(({ id }) => id === next.reviewId).length, 1);
+  assert.equal(withAccess("All file exceptions").filter(({ id }) => id === next.reviewId).length, 1);
+  assert.equal(countFileExceptions(db, admin, id, new Date(at), 100, access), countFileExceptions(db, admin, id, new Date(at), 100) + 1);
+  assert.equal(withAccess(closingPackageException, { ...access, checkedEmails: [] }).length, 0);
+  const renewedAccess = roster.map(member => member.email === admin.email ? { ...member, accessRevision: (member.accessRevision ?? 0) + 1 } : member);
+  assert.equal(withAccess(closingPackageException, { ...access, members: renewedAccess })[0].status, "Reviewer unavailable");
+  const reassign = { type: "reassign", loanId, id: next.reviewId, revision: 1, eventId: crypto.randomUUID(),
+    reviewerEmail: processor.email, dueOn: today, note: "Reassigned after the original reviewer lost access." };
+  assert.equal(work(reassign, admin, renewedAccess).kind, "saved");
+  assert.equal(withAccess(closingPackageException, { checkedEmails: [processor.email], members: renewedAccess }).length, 0);
+  assert.deepEqual(work({ type: "detail", loanId, id: next.reviewId }, admin).review.closingPackage.version, fourth.version);
   await saveFees(4, 172_000);
   const [stale] = exceptions();
   assert.deepEqual([stale.status, stale.owner, stale.closingPackageVersion, stale.target],
     ["Package outdated", officer.name, 4, reviewTarget(next.reviewId)]);
   assert.equal(readDisclosureWork(db, loanId).closingAssignment.current, false);
-  assert.match(work({ ...approve, id: next.reviewId, revision: 1, eventId: crypto.randomUUID() }, admin).error, /signed closing package changed/);
+  assert.match(work({ ...approve, id: next.reviewId, revision: 2, eventId: crypto.randomUUID() }, processor).error, /signed closing package changed/);
   const disabled = closingGateWork(db, { ...policy, revision: 2, rules: { closing: [], funding: [], changedPackageReview: false } }, admin, id, at);
   assert.equal(disabled.revision, 3);
   assert.equal(readDisclosureWork(db, loanId).changedClosingApproval, undefined);

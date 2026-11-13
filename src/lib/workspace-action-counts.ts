@@ -1,6 +1,6 @@
 import { countMyLicenseRenewals } from "./compliance-program";
 import { readIncomingLoanWorkPage } from "./incoming-loan-work";
-import { countFileExceptions } from "./file-exceptions";
+import { countFileExceptions, type ClosingReviewerAccess } from "./file-exceptions";
 import { countDeliveryExceptions } from "./automation-exceptions";
 import { countLeadAttention } from "./lead-inbox-query";
 import { readOfficerQueue } from "./officer-queue";
@@ -11,7 +11,7 @@ import type { Store } from "./store";
 export const actionCountsUnavailable = "Workspace action counts are unavailable.";
 const countLimit = 100;
 
-export function readActionCounts(db: Store, staff: WorkspaceStaff | null, brokerageId: string, now = new Date(), localName?: string) {
+export function readActionCounts(db: Store, staff: WorkspaceStaff | null, brokerageId: string, now = new Date(), localName?: string, access?: ClosingReviewerAccess) {
   if (!staff || staff.brokerage.id !== brokerageId) {
     return { error: actionCountsUnavailable };
   }
@@ -38,7 +38,7 @@ export function readActionCounts(db: Store, staff: WorkspaceStaff | null, broker
     for (const { id } of page.replies.items) actions.add(`conversation:${id}`);
     after = page.next ?? undefined;
   } while (after);
-  const fileExceptions = countFileExceptions(db, staff, brokerageId, now, countLimit);
+  const fileExceptions = countFileExceptions(db, staff, brokerageId, now, countLimit, access);
   const deliveryExceptions = countDeliveryExceptions(db, staff, brokerageId, now.toISOString(), countLimit);
   const renewals = actions.size >= countLimit ? 0 : countMyLicenseRenewals(db, staff, now.toISOString(), countLimit - actions.size);
   return { today: Math.min(actions.size + renewals, countLimit), leads: countLeadAttention(db, staff, countLimit),

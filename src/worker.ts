@@ -170,12 +170,12 @@ import { loanReviewWork, reviewParticipants, routeChangedClosingReview } from ".
 import { playbookRunWork } from "./lib/playbook-runs";
 import { nextDocumentReminderCheck, runScheduledDocumentReminders } from "./lib/document-reminder-runs";
 import { brokerageFinanceWork } from "./lib/brokerage-finance";
-import { fileExceptionOwners, nameFileExceptions, readFileExceptions } from "./lib/file-exceptions";
+import { closingReviewEmails, fileExceptionOwners, nameFileExceptions, readFileExceptions, type ClosingReviewerAccess } from "./lib/file-exceptions";
 import { managerExceptionInput, managerExceptionsUnavailable, type ManagerExceptionResult } from "./lib/manager-exception-model";
 import { readManagerExceptionWork } from "./lib/manager-exceptions";
 import { readMigrationRecord } from "./lib/migration-record";
 import { migrationRecordUnavailable } from "./lib/migration-record-model";
-import { fileExceptionsUnavailable, type FileExceptionPage } from "./lib/file-exception-model";
+import { closingPackageException, fileExceptionQuery, fileExceptionsUnavailable, type FileExceptionPage } from "./lib/file-exception-model";
 import { reportingReadinessWork } from "./lib/call-report-readiness";
 import { reviewInput, reviewsUnavailable, type ReviewResult } from "./lib/loan-review-model";
 import { departureWork, hasDepartureWork } from "./lib/offboarding";
@@ -824,8 +824,9 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return readOfficerQueue(this.#store, input, staff, this.#id);
   }
 
-  actionCounts(staff: WorkspaceStaff) {
-    return this.#store.transaction(() => readActionCounts(this.#store, staff, this.#id));
+  async actionCounts(staff: WorkspaceStaff): Promise<ReturnType<typeof readActionCounts>> {
+    const access = await this.#closingReviewerAccess(staff);
+    return this.#store.transaction(() => readActionCounts(this.#store, staff, this.#id, undefined, undefined, access ?? undefined));
   }
 
   workspaceTasks(input: unknown, staff: WorkspaceStaff) {
@@ -905,8 +906,26 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return hasDepartureWork(this.#store, email);
   }
 
+  async #closingReviewerAccess(staff: WorkspaceStaff): Promise<ClosingReviewerAccess | null> {
+    const checkedEmails = closingReviewEmails(this.#store, staff, this.#id);
+    if (!checkedEmails.length) return { checkedEmails, members: [] };
+    const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    const members: VersionedBrokerageMember[] = [];
+    for (let start = 0; start < checkedEmails.length; start += 20) {
+      const batch = await directory.fileExceptionRoster(staff, emails, checkedEmails.slice(start, start + 20));
+      if (!batch) return null;
+      members.push(...batch);
+    }
+    return { checkedEmails, members };
+  }
+
   async staffFileExceptions(input: unknown, staff: WorkspaceStaff): Promise<FileExceptionPage | { error: string }> {
-    const page = readFileExceptions(this.#store, input, staff, this.#id);
+    const query = fileExceptionQuery.safeParse(input);
+    const needsAccess = query.success && (query.data.filter === "All file exceptions" || query.data.filter === closingPackageException);
+    const access = needsAccess ? await this.#closingReviewerAccess(staff) : undefined;
+    if (needsAccess && !access) return { error: fileExceptionsUnavailable };
+    const page = readFileExceptions(this.#store, input, staff, this.#id, undefined, access ?? undefined);
     if ("error" in page) return page;
     const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
     const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];

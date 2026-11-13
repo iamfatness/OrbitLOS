@@ -21,7 +21,7 @@ function fileExceptionAction(item: FileException) {
     case "Closing and funding holds": return "Open required evidence";
     case "Unassigned handoffs": return "Open processing handoff";
     case "Disclosure reviews": return "Open disclosure review";
-    case closingPackageException: return "Open closing review";
+    case closingPackageException: return item.status === "Reviewer unavailable" ? "Reassign closing reviewer" : "Open closing review";
     case "Underwriting conflicts": return "Review reference conflict";
     default: return "Open lender condition";
   }

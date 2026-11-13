@@ -32,22 +32,30 @@ type Base = Omit<FileException, "target" | "action" | "evidence" | "owner" | "ow
   returnEventId: string | null; returnFollowUp: string | null;
 };
 type Candidates = { rows: Base[]; next: FileExceptionPage["next"]; today: string; checkedAt: string };
+export type ClosingReviewerAccess = { checkedEmails: string[]; members: VersionedBrokerageMember[] };
 
-function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, staff: WorkspaceStaff, now: Date, countCap?: number) {
+export function closingReviewEmails(db: Store, staff: WorkspaceStaff, brokerageId: string) {
+  if (staff.brokerage.id !== brokerageId || staff.brokerage.role !== "Admin" || !canUseSampleDisclosures(staff)) return [];
+  return db.prepare(`SELECT DISTINCT review.reviewerEmail FROM loan_reviews review JOIN loans loan ON loan.id = review.loanId
+    WHERE ${activePipeline} AND review.category = ? AND review.status = 'Requested'`)
+    .all(closingPackageReviewCategory).map(row => String(row.reviewerEmail));
+}
+
+function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, staff: WorkspaceStaff, now: Date, countCap?: number, access?: ClosingReviewerAccess) {
   const today = easternDate(now);
   const checkedAt = now.toISOString();
   const overdueReturns = filter === overdueManualReturnFilter || filter === unattendedManualReturnFilter;
   const { requireSecondReview: requireApproval, handoffHours } = readPlaybook(db);
   const showCheckpoint = (filter === "All file exceptions" || filter === "Required 1003 approvals") && requireApproval;
   const parts: { sql: string; args: SqlValue[] }[] = [];
-  function add(kind: FileException["kind"], select: string, sort: string, parent: string, id: string, params: SqlValue[] = [], returnEvent = "NULL") {
+  function add(kind: FileException["kind"], select: string, sort: string, parent: string, id: string, params: SqlValue[] = [], returnEvent = "NULL", prefix = "") {
     if (filter !== "All file exceptions" && filter !== kind && !(overdueReturns && kind === "Manual lender returns")) return;
     if (countCap !== undefined) {
-      parts.push({ sql: `SELECT count(*) AS total FROM (SELECT ${select} LIMIT ?)`, args: params });
+      parts.push({ sql: `${prefix} SELECT count(*) AS total FROM (SELECT ${select} LIMIT ?)`, args: params });
       return;
     }
     const rank = fileExceptionKinds.indexOf(kind);
-    parts.push({ sql: `SELECT '${kind}' AS kind, ${rank} AS rank, ${sort} AS sortOn, ${parent} AS parentId, ${id} AS id, ${returnEvent} AS returnEventId, ${select}
+    parts.push({ sql: `${prefix} SELECT '${kind}' AS kind, ${rank} AS rank, ${sort} AS sortOn, ${parent} AS parentId, ${id} AS id, ${returnEvent} AS returnEventId, ${select}
       ${after ? `AND (${sort}, ${rank}, ${parent}, ${id}) > (?, ?, ?, ?)` : ""}
       ORDER BY ${sort}, ${parent}, ${id} LIMIT ?`,
       args: [...params, ...(after ? [after.sortOn, fileExceptionKinds.indexOf(after.kind), after.parentId, after.id] : []), limit + 1] });
@@ -109,8 +117,25 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
   if (canUseSampleDisclosures(staff)) {
     const packageChanged = "package.version IS NULL";
     const packageRequesterActs = `review.status = 'Changes requested' OR ${packageChanged}`;
+    const members = new Map(access?.members.filter(member => member.status === "Active").map(member => [member.email, member]));
+    const checked = access?.checkedEmails.map(email => {
+      const member = members.get(email);
+      return [email, member ? [member.role, member.accessRevision ?? 0] : null];
+    }) ?? [];
+    const unavailable = checked.length ? "unavailable.id IS NOT NULL AND package.version IS NOT NULL" : "0";
+    const accessCte = checked.length ? `WITH unavailable_reviews AS MATERIALIZED (
+      SELECT review.id FROM loan_reviews review JOIN loans loan ON loan.id = review.loanId ${loanJoins}
+      JOIN json_each(?) member ON json_extract(member.value, '$[0]') = review.reviewerEmail
+      WHERE ${activePipeline} AND review.category = '${closingPackageReviewCategory}' AND review.status = 'Requested'
+        AND (json_extract(member.value, '$[1][0]') IS NOT review.reviewerRole
+          OR json_extract(member.value, '$[1][1]') IS NOT review.reviewerAccessRevision
+          OR review.reviewerEmail = review.requesterEmail
+          OR (review.reviewerRole = 'LO' AND loan.officerEmail IS NOT review.reviewerEmail)
+          OR (review.reviewerRole = 'Processor' AND processing.processorEmail IS NOT review.reviewerEmail))
+    )` : "";
     add(closingPackageException, `${loanColumns}, 'Sample closing review' AS title,
       CASE WHEN review.status = 'Changes requested' THEN 'Returned for corrections' WHEN ${packageChanged} THEN 'Package outdated'
+        WHEN (${unavailable}) THEN 'Reviewer unavailable'
         WHEN review.dueOn < ? THEN 'Review overdue' ELSE 'Escalated' END AS status,
       review.dueOn, NULL AS reopenedAt, NULL AS nextParty,
       CASE WHEN ${packageRequesterActs} THEN review.requesterName ELSE review.reviewerName END AS ownerName,
@@ -119,6 +144,7 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
       CASE WHEN NOT (${packageRequesterActs}) THEN review.reviewerAccessRevision END AS reviewerAccessRevision,
       review.escalatedAt IS NOT NULL AS escalated, pinned.version, (${packageChanged}) AS changed, NULL AS requestStatus
       FROM loan_reviews review JOIN loans loan ON loan.id = review.loanId ${loanJoins}
+      ${checked.length ? "LEFT JOIN unavailable_reviews unavailable ON unavailable.id = review.id" : ""}
       JOIN loan_review_events event ON event.sequence = (
         SELECT candidate.sequence FROM loan_review_events candidate
         WHERE candidate.reviewId = review.id AND candidate.action IN ('Requested', 'Resubmitted') ORDER BY candidate.sequence DESC LIMIT 1
@@ -126,8 +152,8 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
       LEFT JOIN disclosure_packages package ON package.loanId = loan.id AND package.version = pinned.version AND package.revision = pinned.revision
         AND ${currentSignedClosingPackageSql}
       WHERE ${activePipeline} AND review.category = '${closingPackageReviewCategory}' AND review.status IN ('Requested', 'Changes requested')
-        AND (review.dueOn < ? OR review.escalatedAt IS NOT NULL OR ${packageRequesterActs})`,
-    "review.dueOn", "loan.id", "review.id", [today, today]);
+        AND (review.dueOn < ? OR review.escalatedAt IS NOT NULL OR ${packageRequesterActs} OR (${unavailable}))`,
+    "review.dueOn", "loan.id", "review.id", [...(checked.length ? [JSON.stringify(checked)] : []), today, today], "NULL", accessCte);
     if (currentClosingGatePolicy(db).rules.changedPackageReviewer) {
       add(closingPackageException, `${loanColumns}, 'Sample closing review' AS title, 'Reviewer needed' AS status,
         route.dueOn, NULL AS reopenedAt, 'Brokerage owner' AS nextParty, NULL AS ownerName, NULL AS ownerEmail,
@@ -218,9 +244,9 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
   return { parts, today, checkedAt };
 }
 
-export function countFileExceptions(db: Store, staff: WorkspaceStaff, brokerageId: string, now: Date, cap: number) {
+export function countFileExceptions(db: Store, staff: WorkspaceStaff, brokerageId: string, now: Date, cap: number, access?: ClosingReviewerAccess) {
   if (staff.brokerage.role !== "Admin" || staff.brokerage.id !== brokerageId) return undefined;
-  const { parts } = selectFileExceptions(db, { filter: "All file exceptions" }, staff, now, cap);
+  const { parts } = selectFileExceptions(db, { filter: "All file exceptions" }, staff, now, cap, access);
   let count = 0;
   for (const { sql, args } of parts) {
     count += Number(db.prepare(sql).get(...args, cap - count)?.total ?? 0);
@@ -232,11 +258,11 @@ export function countFileExceptions(db: Store, staff: WorkspaceStaff, brokerageI
 // Dates and generated record keys use binary order, matching the SQL cursor.
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
-export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date()): Candidates | { error: string } {
+export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date(), access?: ClosingReviewerAccess): Candidates | { error: string } {
   if (!staff || staff.brokerage.id !== brokerageId || staff.brokerage.role !== "Admin") return { error: fileExceptionsUnavailable };
   const parsed = fileExceptionQuery.safeParse(input);
   if (!parsed.success) return { error: "Choose a valid file exception view." };
-  const { parts, today, checkedAt } = selectFileExceptions(db, parsed.data, staff, now);
+  const { parts, today, checkedAt } = selectFileExceptions(db, parsed.data, staff, now, undefined, access);
   // Keep each read bounded and within the hosted SQLite compound-query limit.
   const all = parts.flatMap(({ sql, args }) => db.prepare(`SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp
     FROM (${sql}) page`).all(...args) as unknown as Base[])
@@ -273,7 +299,8 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
       (status === "Reviewer needed" ? loanReviewsTarget : reviewTarget(id)) : conditionTarget(parentId, id);
     const action = underwriting ? "Review the unmatched response on the original order" : handoff ? "Reviewed 1003 is ready for a processor" : disclosure ?
       id.startsWith(disclosureReviewPrefix) ? "Review the change and prepare an updated sample package" : status :
-      closingReview ? (status === "Reviewer needed" ? requestStatus ?? "Assign an eligible reviewer" :
+      closingReview ? (status === "Reviewer unavailable" ? `${ownerName ?? "The assigned reviewer"} can no longer review this package. Reassign it to an eligible teammate.` :
+        status === "Reviewer needed" ? requestStatus ?? "Assign an eligible reviewer" :
         !available ? "Check staff availability" : status === "Returned for corrections" ? "Correct and resubmit the signed replacement" :
         changed ? "Resubmit with the current signed package" : "Review the signed package") :
       gate ? closingGateLabels[gate] : manual ? manual.action : kind === "Missing evidence" ? (status === "Needs replacement" ? "Follow up on replacement evidence" : "Follow up on requested evidence") :
@@ -285,12 +312,14 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const evidence = version === null ? null : closingReview ? `Package v${version}` :
       `${manual ? "Current 1003" : internalReview || underwriting ? "Submitted 1003" : "Document"} revision ${version}`;
     const currentStatus = required && status === "Awaiting approval" && !available ? "Reviewer unavailable" : status;
-    return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action, owner: member?.name || ownerName || null,
+    return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action,
+      owner: status === "Reviewer unavailable" && closingReview ? null : member?.name || ownerName || null,
       ...(returnEventId ? { returnEventId, returnSubmissionId: requestStatus === "Rejected" ? null : id, returnDueAt: sortOn } : {}),
       ...(dueAt ? { dueAt } : {}),
       ...(closingReview && version !== null ? { closingPackageVersion: version } : {}),
       ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}),
-      ownerAvailable: available, nextParty, dueOn, reopenedAt, evidence, overdue: returnEventId || dueAt ? sortOn < checkedAt : !!dueOn && dueOn < today,
+      ownerAvailable: available, nextParty: status === "Reviewer unavailable" && closingReview ? "Brokerage owner" : nextParty,
+      dueOn, reopenedAt, evidence, overdue: returnEventId || dueAt ? sortOn < checkedAt : !!dueOn && dueOn < today,
       escalated: Boolean(escalated) };
   });
   return { items, next, today };

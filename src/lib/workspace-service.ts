@@ -85,7 +85,7 @@ import { loanReviewWork, routeChangedClosingReview } from "./loan-reviews";
 import { reviewInput, type ReviewResult } from "./loan-review-model";
 import { playbookRunWork } from "./playbook-runs";
 import { brokerageFinanceWork } from "./brokerage-finance";
-import { nameFileExceptions, readFileExceptions } from "./file-exceptions";
+import { closingReviewEmails, nameFileExceptions, readFileExceptions } from "./file-exceptions";
 import { readManagerExceptionWork } from "./manager-exceptions";
 import { readMigrationRecord } from "./migration-record";
 import { reportingReadinessWork } from "./call-report-readiness";
@@ -260,7 +260,10 @@ function localClosingReviewer(db: Store) {
 }
 
 export async function loadFileExceptions(input: unknown, staff: WorkspaceStaff | null) {
-  const page = readFileExceptions(database(), input, staff ?? localAdmin, demoBrokerageId);
+  const db = database();
+  const actor = staff ?? localAdmin;
+  const page = readFileExceptions(db, input, actor, demoBrokerageId, undefined,
+    { checkedEmails: closingReviewEmails(db, actor, demoBrokerageId), members: localReviewMembers });
   return "error" in page ? page : nameFileExceptions(page, localReviewMembers);
 }
 
@@ -289,7 +292,9 @@ export async function loadOfficerQueue(input: unknown, staff: WorkspaceStaff | n
 
 export async function loadActionCounts(staff: WorkspaceStaff | null) {
   const db = database();
-  return db.transaction(() => readActionCounts(db, staff ?? localAdmin, demoBrokerageId, new Date(), staff ? undefined : localAdmin.name));
+  const actor = staff ?? localAdmin;
+  return db.transaction(() => readActionCounts(db, actor, demoBrokerageId, new Date(), staff ? undefined : localAdmin.name,
+    { checkedEmails: closingReviewEmails(db, actor, demoBrokerageId), members: localReviewMembers }));
 }
 
 export async function loadCampaignCallbacks(input: unknown, staff: WorkspaceStaff | null) {

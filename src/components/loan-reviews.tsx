@@ -159,10 +159,11 @@ const actionNames = { comment: "Add comment", approve: "Approve review", changes
 type Action = keyof typeof actionNames;
 
 function ReviewActions({ page, busy, save }: { page: DetailPage; busy: boolean; save: Save }) {
-  const [action, setAction] = useState<Action>("comment");
-  const attempt = useRef<{ key: string; id: string } | null>(null);
   const { review, today } = page;
   const isClosing = review.category === closingPackageReviewCategory;
+  const [action, setAction] = useState<Action>(isClosing && review.status === "Requested" && !review.reviewerAvailable &&
+    !review.evidenceChanged && review.canManage && review.options.length > 0 ? "reassign" : "comment");
+  const attempt = useRef<{ key: string; id: string } | null>(null);
   const available: Action[] = ["comment"];
   if (review.canDecide) {
     if (!review.preflight || !preflightBlocked(review.preflight)) available.push("approve");
@@ -321,7 +322,10 @@ export function LoanReviews({ brokerageId, loanId, focusId, onChanged, openEvide
       {page.review.evidenceChanged && <p>{closing ? (needsReplacement
         ? "Prepare, issue and sign a replacement before resubmitting this review." : "This review refers to an earlier package version.")
         : page.review.preflight ? "The file evidence has changed since this review." : "The submitted 1003 version has changed since this review."}</p>}
-      {!page.review.reviewerAvailable && (page.review.status === "Requested" || page.review.status === "Changes requested") && <p>The reviewer needs to be reassigned.</p>}
+      {!page.review.reviewerAvailable && (page.review.status === "Requested" || page.review.status === "Changes requested") &&
+        <p>{closing && page.review.canManage && !page.review.options.length ?
+          "No eligible reviewer is available. Give another teammate access to this loan, then reopen the review." :
+          "The reviewer needs to be reassigned."}</p>}
       {evidence && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => openEvidence(evidence[1])}>{evidence[0]}</Button></div>}
       {page.review.preflight && <details className="document-form" open>
         <summary>Current preflight checks</summary>
