@@ -98,10 +98,43 @@ export function readSettlementQueue(db: Store, { view, after }: SettlementQueueQ
     WHEN ${reviewed} THEN 'Reviewed differences'
     ELSE 'Differences' END`;
   const counts: SettlementQueuePage["counts"] = { Differences: 0, "Matches to confirm": 0, "Missing evidence": 0, "Reviewed differences": 0,
-    ...settlementFeeQueueCounts(db) };
+    ...settlementFeeQueueCounts(db), "Wires to review": 0 };
   const totals = db.prepare(`SELECT ${category} AS view, count(*) AS count ${source} WHERE progress.fundingDate IS NOT NULL GROUP BY view`)
     .all() as { view: SettlementQueueQuery["view"] | null; count: number }[];
   for (const total of totals) if (total.view) counts[total.view] = total.count;
+  const pendingWires = `FROM settlement_feed_receipts receipt JOIN closing_progress progress
+    ON progress.loanId = receipt.loanId AND progress.fundingCycle = receipt.cycle
+    WHERE progress.fundingDate IS NOT NULL AND receipt.status = 'Needs review'
+      AND json_extract(receipt.payload, '$.kind') = 'Wire receipt'`;
+  counts["Wires to review"] = Number(db.prepare(`SELECT count(*) AS total ${pendingWires}`).get()?.total ?? 0);
+  if (view === "Wires to review") {
+    const rows = db.prepare(`WITH wires AS (
+      SELECT receipt.loanId AS id, receipt.cycle, receipt.sequence, receipt.payload, progress.fundingDate AS date,
+        (SELECT json_extract(snapshot, '$.at') FROM settlement_feed_corrections correction
+          WHERE correction.loanId = receipt.loanId AND correction.cycle = receipt.cycle
+            AND correction.evidenceId = json_extract(receipt.payload, '$.evidenceId')
+          ORDER BY correction.sequence DESC LIMIT 1) AS reopenedAt
+      ${pendingWires}
+    ), ordered AS (
+      SELECT *, coalesce(reopenedAt, json_extract(payload, '$.occurredOn') || 'T00:00:00.000Z') AS changedAt FROM wires
+    )
+    SELECT ordered.*, contact.name AS borrower, loan.officer FROM ordered
+    JOIN loans loan ON loan.id = ordered.id JOIN contacts contact ON contact.id = loan.contactId
+    ${after ? "WHERE (changedAt, ordered.id, cycle, sequence) < (?, ?, ?, ?)" : ""}
+    ORDER BY changedAt DESC, ordered.id DESC, cycle DESC, sequence DESC LIMIT ?`)
+      .all(...(after ? [after.changedAt, after.id, after.cycle, after.sequence ?? 0] : []), pageSize + 1) as unknown as
+      (Pick<SettlementQueueRow, "id" | "cycle" | "date" | "borrower" | "officer" | "changedAt"> &
+        { sequence: number; payload: string; reopenedAt: string | null })[];
+    const page = rows.slice(0, pageSize).map(({ payload, reopenedAt, ...row }): SettlementQueueRow => {
+      const { evidenceId, fundingReference, amountCents, occurredOn } = JSON.parse(payload) as
+        { evidenceId: string; fundingReference: string; amountCents: number; occurredOn: string };
+      return { ...row, status: occurredOn !== row.date ? "Earlier funding date" : reopenedAt ? "Reopened wire" : "Unmatched wire",
+        wire: { evidenceId, reference: fundingReference, amountCents }, expectedCents: null, receivedCents: 0, differenceCents: null };
+    });
+    const last = page.at(-1);
+    return { kind: "settlementQueue", rows: page, counts,
+      next: rows.length > pageSize && last ? { id: last.id, cycle: last.cycle, changedAt: last.changedAt, sequence: last.sequence } : null };
+  }
   if (view === "Fee differences" || view === "Reviewed fee differences") return settlementFeeQueuePage(db, { type: "settlementQueue", view, after }, counts);
   const changed = "coalesce(summary.changedAt, progress.fundingDate || 'T00:00:00.000Z')";
   const order = `${changed}, progress.loanId, progress.fundingCycle`;

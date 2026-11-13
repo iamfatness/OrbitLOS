@@ -11,17 +11,18 @@ const emptyText = {
   Differences: "No active settlement differences need review.",
   "Matches to confirm": "No matching settlement totals need confirmation.",
   "Missing evidence": "No funded cycles are waiting for purchase advice or a receipt.",
+  "Wires to review": "No simulated wires need review.",
   "Reviewed differences": "No active settlements have a reviewed difference.",
   "Fee differences": "No sample fee differences need review.",
   "Reviewed fee differences": "No active fee comparisons have a reviewed difference.",
 } satisfies Record<SettlementQueueQuery["view"], string>;
 
-export function SettlementExceptionQueue({ brokerageId, fundingVersion, view, selectView, open, returnTo }: {
+export function SettlementExceptionQueue({ brokerageId, fundingVersion, view, selectView, open, returnTo, after, setAfter }: {
   brokerageId: string; fundingVersion: Workspace["closingProgress"]; view: SettlementQueueQuery["view"];
-  selectView: (view: SettlementQueueQuery["view"]) => void; open: (loanId: string, cycle: number, focusFees?: true) => void;
-  returnTo?: { loanId: string; cycle: number };
+  selectView: (view: SettlementQueueQuery["view"]) => void; open: (loanId: string, cycle: number, focusFees?: true, wire?: string) => void;
+  returnTo?: { loanId: string; cycle: number; wire?: string };
+  after: SettlementQueueQuery["after"]; setAfter: (after: SettlementQueueQuery["after"]) => void;
 }) {
-  const [after, setAfter] = useState<SettlementQueueQuery["after"]>();
   const [version, setVersion] = useState(0);
   const [response, setResponse] = useState<{
     brokerageId: string; view: typeof view; after: typeof after; version: number;
@@ -52,7 +53,6 @@ export function SettlementExceptionQueue({ brokerageId, fundingVersion, view, se
     <div className="section-heading max-sm:flex-wrap"><h3>Settlement exception queue</h3>
       <Button size="sm" variant="ghost" className="max-sm:min-h-11" onClick={() => { setAfter(undefined); setVersion((value) => value + 1); }}>Refresh settlement exceptions</Button>
     </div>
-    <p className="muted">Open the funding cycle behind a proceeds or itemized fee difference and record the review.</p>
     <div className="loan-application-actions" role="group" aria-label="Settlement exception filters">
       {settlementQueueViews.map((option) => <Button key={option} ref={option === view ? selectedFilter : undefined} size="sm" variant={option === view ? "default" : "outline"}
         aria-pressed={option === view} onClick={() => { setAfter(undefined); selectView(option); }}>
@@ -60,14 +60,16 @@ export function SettlementExceptionQueue({ brokerageId, fundingVersion, view, se
       </Button>)}
     </div>
     {!data ? <p className="muted" role="status">Loading settlement exceptions…</p> : "error" in data ? <p role="alert">{data.error}</p> : <>
-      {data.rows.length ? <ul className="document-list">{data.rows.map((row) => <li className="document-item" key={`${row.id}:${row.cycle}`}>
+      {data.rows.length ? <ul className="document-list">{data.rows.map((row) => <li className="document-item break-words" key={`${row.id}:${row.cycle}:${row.sequence ?? 0}`}>
         <div className="document-item-head"><strong>{row.borrower}</strong>
-          <Button size="sm" variant="outline" ref={row.id === returnTo?.loanId && row.cycle === returnTo.cycle ? returnedRow : undefined}
-            aria-label={`Open ${row.feeComparison ? "fee comparison" : "settlement cycle"} for ${row.borrower}`}
-            onClick={() => open(row.id, row.cycle, row.feeComparison ? true : undefined)}>{row.feeComparison ? "Open fee comparison" : "Open settlement cycle"}</Button>
+          <Button size="sm" variant="outline" className="max-sm:min-h-11" ref={row.id === returnTo?.loanId && row.cycle === returnTo.cycle && row.wire?.evidenceId === returnTo.wire ? returnedRow : undefined}
+            aria-label={row.wire ? `Review wire for ${row.borrower}, ${row.wire.reference}` : `Open ${row.feeComparison ? "fee comparison" : "settlement cycle"} for ${row.borrower}`}
+            onClick={() => open(row.id, row.cycle, row.feeComparison ? true : undefined, row.wire?.evidenceId)}>
+            {row.wire ? "Review wire" : row.feeComparison ? "Open fee comparison" : "Open settlement cycle"}
+          </Button>
         </div>
         <p className="muted">Funded {dateLabel(row.date)} · Cycle {row.cycle} · {row.officer || "Unassigned"}</p>
-        {row.feeComparison ? <p>{row.feeComparison.differenceCount} fee {row.feeComparison.differenceCount === 1 ? "difference" : "differences"}
+        {row.wire ? <p>{financeMoney(row.wire.amountCents)} · {row.wire.reference}</p> : row.feeComparison ? <p>{row.feeComparison.differenceCount} fee {row.feeComparison.differenceCount === 1 ? "difference" : "differences"}
           {row.feeComparison.missingCount > 0 && ` · ${row.feeComparison.missingCount} with missing figures`}</p> :
           <p>Expected {financeMoney(row.expectedCents)} · Received {financeMoney(row.receivedCents)} · Difference {financeMoney(row.differenceCents)}</p>}
         <span className="pill">{row.status}</span>

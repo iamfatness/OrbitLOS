@@ -7,10 +7,13 @@ import { dateLabel } from "@/lib/client-retention";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
-export function SettlementFeed({ brokerageId, loan, onImported, openCycle }: {
-  brokerageId: string; loan: FinanceLoan; onImported: () => void; openCycle: (id: string, cycle: number) => void;
+export function SettlementFeed({ brokerageId, loan, onImported, openCycle, initialWire }: {
+  brokerageId: string; loan: FinanceLoan; onImported: () => void; openCycle: (id: string, cycle: number) => void; initialWire?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(Boolean(initialWire));
+  const wireTarget = useRef<HTMLLIElement>(null);
+  const feedSummary = useRef<HTMLElement>(null);
+  const pendingWire = useRef(initialWire);
   const [feed, setFeed] = useState<Feed>();
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -32,6 +35,11 @@ export function SettlementFeed({ brokerageId, loan, onImported, openCycle }: {
     }, () => { if (current) setError("Could not load provider deliveries. Try again."); });
     return () => { current = false; };
   }, [open, loanId, cycle, date, brokerageId, refresh]);
+  useEffect(() => {
+    if (!open || !pendingWire.current || (!feed && !error)) return;
+    pendingWire.current = undefined;
+    (wireTarget.current ?? feedSummary.current)?.focus();
+  }, [feed, open, error]);
 
   async function save(input: FinanceInput) {
     if (pending.current) return;
@@ -67,8 +75,8 @@ export function SettlementFeed({ brokerageId, loan, onImported, openCycle }: {
     void save({ type: "correctSettlementFeedMatch", loanId, cycle, fundingDate: date, evidenceId, matchId, entryId: correction.current.id, note });
   }
 
-  return <details className="document-form" onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary className="min-h-11 content-center">Simulated settlement provider</summary>
+  return <details className="document-form" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary ref={feedSummary} className="min-h-11 content-center">Simulated settlement provider</summary>
     {open && <div className="record-form">
       <div ref={feedback} tabIndex={-1}>
         {error && <p role="alert">{error}</p>}
@@ -86,7 +94,8 @@ export function SettlementFeed({ brokerageId, loan, onImported, openCycle }: {
           onClick={() => void save({ type: "pullSettlementFeed", loanId, cycle, fundingDate: loan.date })}>
           {busy ? "Checking…" : feed.rows.length ? "Check provider again" : "Pull sample evidence"}</Button></div>}
         {feed.rows.length === 0 ? <p className="muted">No deliveries recorded for this cycle.</p> :
-          <ul className="document-list">{feed.rows.map((row, index) => <li className="document-item break-words" key={`${row.evidenceId}:${index}`}>
+          <ul className="document-list">{feed.rows.map((row, index) => <li className="document-item break-words" key={`${row.evidenceId}:${index}`}
+            ref={row.evidenceId === initialWire ? wireTarget : undefined} tabIndex={row.evidenceId === initialWire ? -1 : undefined}>
             <div className="document-item-head"><strong>{row.kind} · {financeMoney(row.amountCents)}</strong><span className="pill">{row.status}</span></div>
             <p>{row.detail}</p>
             <p className="muted">Funding reference {row.fundingReference} · Evidence {row.evidenceId}</p>

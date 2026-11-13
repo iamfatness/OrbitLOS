@@ -32,8 +32,8 @@ export const settlementEvidence = z.discriminatedUnion("kind", [
   z.strictObject({ ...settlementImportBase, kind: z.literal("Wire receipt"), amountCents: settlementAmount.min(1) }),
 ]);
 export type SettlementEvidence = z.infer<typeof settlementEvidence>;
-export const settlementQueueViews = ["Differences", "Matches to confirm", "Missing evidence", "Reviewed differences", ...settlementFeeQueueViews] as const;
-const settlementCursor = z.object({ id: loanId, cycle, changedAt: z.iso.datetime() });
+export const settlementQueueViews = ["Differences", "Wires to review", "Matches to confirm", "Missing evidence", "Reviewed differences", ...settlementFeeQueueViews] as const;
+const settlementCursor = z.object({ id: loanId, cycle, changedAt: z.iso.datetime(), sequence: z.number().int().positive().optional() });
 
 const settlementInputs = [
   z.object({ type: z.literal("settlementAdvice"), ...write, occurredOn: date, reference: settlementReference,
@@ -88,8 +88,9 @@ export type FinanceListQuery = Extract<FinanceInput, { type: "list" }>;
 export type SettlementQueueQuery = Extract<FinanceInput, { type: "settlementQueue" }>;
 export type SettlementQueueRow = z.infer<typeof settlementCursor> & {
   borrower: string; officer: string; date: string; expectedCents: number | null; receivedCents: number;
-  differenceCents: number | null; status: SettlementWork["status"] | SettlementFeeStatus;
+  differenceCents: number | null; status: SettlementWork["status"] | SettlementFeeStatus | "Unmatched wire" | "Reopened wire" | "Earlier funding date";
   feeComparison?: { differenceCount: number; missingCount: number };
+  wire?: { evidenceId: string; reference: string; amountCents: number };
 };
 export type SettlementQueuePage = { kind: "settlementQueue"; rows: SettlementQueueRow[];
   counts: Record<SettlementQueueQuery["view"], number>; next: z.infer<typeof settlementCursor> | null };

@@ -129,7 +129,7 @@ test("fictional settlement matches partial receipts, preserves corrections, and 
   assert.equal(detail().settlement.status, "Difference reviewed");
   assert.equal(detail().settlement.entries[0].amountCents, 50_000);
   assert.deepEqual(queue().counts, { Differences: 0, "Matches to confirm": 0, "Missing evidence": 0, "Reviewed differences": 1,
-    "Fee differences": 0, "Reviewed fee differences": 0 });
+    "Fee differences": 0, "Reviewed fee differences": 0, "Wires to review": 0 });
   const beforeUpgrade = queue("Reviewed differences");
   db.exec("DROP TRIGGER settlement_cycle_event_insert; DROP TABLE settlement_cycle_summary");
   initializeStore(db, false);
@@ -183,6 +183,10 @@ test("simulated settlement feed imports exact matches and records unmatched evid
   assert.match(finance({ ...pull, fundingDate: correctedFunding }).error, /cycle changed/);
   assert.deepEqual(finance({ type: "settlementFeed" }).rows, []);
   const result = finance(pull);
+  const wireQueue = () => finance({ type: "settlementQueue", view: "Wires to review" });
+  assert.equal(wireQueue().counts["Wires to review"], 1);
+  assert.equal(wireQueue().rows[0].wire.evidenceId, result.rows[3].evidenceId);
+  assert.equal(wireQueue().rows[0].status, "Unmatched wire");
   assert.equal(result.checkedFundingDate, initialFunding);
   assert.deepEqual(result.rows.map(row => row.status), ["Imported", "Imported", "Already recorded", "Needs review"]);
   assert.deepEqual(finance(pull), result);
@@ -194,6 +198,7 @@ test("simulated settlement feed imports exact matches and records unmatched evid
   assert.match(finance({ ...review, evidenceId: result.rows[1].evidenceId }).error, /changed/);
   const reviewed = finance(review);
   assert.equal(reviewed.rows[3].status, "Reviewed");
+  assert.equal(wireQueue().counts["Wires to review"], 0);
   assert.equal(reviewed.rows[3].reviewNote, review.note);
   assert.deepEqual(finance(review), reviewed);
   assert.match(finance({ ...review, note: "Changed after the fact." }).error, /changed/);
@@ -278,6 +283,9 @@ test("routing a simulated wire keeps the original delivery and adds proceeds onl
   assert.match(finance({ ...correction, matchId: crypto.randomUUID() }).error, /match changed/);
   const corrected = finance(correction);
   const reopened = corrected.rows.find(row => row.evidenceId === wire.evidenceId);
+  const queued = finance({ type: "settlementQueue", view: "Wires to review" });
+  assert.equal(queued.rows[0].status, "Reopened wire");
+  assert.equal(queued.rows[0].wire.evidenceId, wire.evidenceId);
   assert.equal(reopened.status, "Needs review");
   assert.equal(reopened.corrections[0].matchNote, match.note);
   assert.equal(reopened.corrections[0].note, correction.note);
@@ -359,7 +367,7 @@ test("settlement exceptions page across tied timestamps and reopen only the curr
   assert.deepEqual(second.rows.map(({ id }) => id), ids.slice(0, 2).reverse());
   assert.equal(second.next, null);
   assert.deepEqual(second.counts, { Differences: 22, "Matches to confirm": 0, "Missing evidence": 1, "Reviewed differences": 0,
-    "Fee differences": 0, "Reviewed fee differences": 0 });
+    "Fee differences": 0, "Reviewed fee differences": 0, "Wires to review": 0 });
 
   const loanId = ids[0];
   assert.equal(finance({ type: "settlementReview", loanId, cycle: 1, fundingDate: initialFunding, revision: 2,
