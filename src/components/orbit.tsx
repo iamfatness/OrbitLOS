@@ -845,7 +845,15 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
       const context = expected?.kind === "stalled" || expected?.kind === "brokerage-stalled" ? expected.kind : undefined;
       const result = await readLoanForWork(next.loanId, staff?.brokerage.id ?? demoBrokerageId, context);
       if (!openingRecord.current) return;
-      if ("error" in result) { setError(result.error ?? "Could not open the loan. Please try again."); return; }
+      if ("error" in result) {
+        if (section === "Today" && next.kind === "details" && next.target === "income-worksheet" && todayWorkTrigger.current) {
+          setTodayWorkReturn(todayWorkTrigger.current);
+          todayWorkTrigger.current = null;
+          setReviewVersion((version) => version + 1);
+        }
+        setError(result.error ?? "Could not open the loan. Please try again.");
+        return;
+      }
       if (next.kind === "retention" && (processor || !pastClientLoan(result.loans[0]))) {
         setError("Past-client follow-up is unavailable on this loan.");
         return;
@@ -1378,7 +1386,10 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     exceptionTrigger.current = null;
     closingExceptionTrigger.current = null;
     recordTrigger.current = null;
-    if (todayWork) setTodayWorkReturn(todayWork);
+    if (todayWork) {
+      setTodayWorkReturn(todayWork);
+      if (todayWork.startsWith("income-review:")) setReviewVersion((version) => version + 1);
+    }
     else if (reviewWork) setReviewQueueReturn(reviewWork);
     else if (closingException) {
       setClosingExceptionReturn(closingException);

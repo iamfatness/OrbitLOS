@@ -98,7 +98,7 @@ export default function DemoPage() {
           <li>Choose which website intake fields staff can correct when creating a 1003. The loan keeps the original answer and the reason for the change.</li>
           <li>Publish brokerage questions for new 1003s. Each applicant can save and resume their own answers, and the loan shows the question version they submitted.</li>
           <li>Preview document requests suggested by each applicant’s reviewed answers. Choose the requests to add and see which answer triggered each one.</li>
-          <li>Send a fictional income worksheet to the assigned loan officer’s Today queue. Review it against the submitted 1003, accepted documents, and mock verification returns. Open the exact income worksheet from its mock quote.</li>
+          <li>Send a fictional income worksheet to the assigned loan officer’s Today queue. A pending income review follows the loan when it’s reassigned. Review it against the submitted 1003, accepted documents, and mock verification returns. Open the exact income worksheet from its mock quote.</li>
           <li>Run the fictional wholesale profile checks and download the reviewed MISMO export. Share it with an expiring link, or rehearse a rejection before acknowledgment. Use Today to follow the borrower’s correction through review and revised acknowledgment.</li>
           <li>When the brokerage requires a second 1003 review, open it from the guide. The manager queue distinguishes a corrected revision that needs approval from a file whose current revision already has a lender receipt.</li>
           <li>Compare the recorded Pipeline amount with a corrected 1003 request. Use the reviewed amount from the loan and see the change in its audit history.</li>
