@@ -177,6 +177,55 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   assert.equal(history.items.find(item => item.period === "2024-04").stateBasisChanged, true);
 });
 
+test("a catalog-only refresh keeps counsel decisions and planned work for an unchanged source", t => {
+  const f = fixture(t);
+  const { entityId, id } = f;
+  const jurisdiction = "FL", now = "2026-11-12T12:00:00Z";
+  const facts = { activity: "Brokerage", lienScope: "First lien", companyEvidence: "Fictional license",
+    officeEvidence: "", originatorEvidence: "", products: "Purchase", responsibility: "", reportingBasis: "", counselPacketReference: "" };
+  const work = (type, input) => complianceCaseWork(f.db, { type, input: { ...input, entityId, jurisdiction } },
+    f.staff, f.staff.brokerage.id, [f.actor], now);
+  const save = (expectedRevision, scopeFacts = facts) =>
+    ({ operation: "save", expectedRevision, requestId: crypto.randomUUID(), facts: scopeFacts });
+  const original = work("stateScope", save(0));
+  const sourceKey = "REQ-FL-REPORTING-MCR";
+  const added = "REQ-FL-LICENSING-MLO-RENEW";
+  const decision = { counsel: "Counsel advised applicable", counselEvidence: "Fictional counsel decision",
+    control: "Control tested internally", controlEvidence: "Fictional test evidence", nextAction: "Review prior release" };
+  assert.equal(work("stateReadiness", { operation: "save", scopeRevision: 1, sourceKey, expectedRevision: 0,
+    requestId: crypto.randomUUID(), facts: decision }).kind, "stateReadinessSaved");
+  const oldSources = JSON.parse(original.savedBasis.sources).filter(snapshot => JSON.parse(snapshot).key !== added);
+  f.sql.prepare("UPDATE compliance_state_scope_versions SET sourceSnapshots=?,sourceHash='older-catalog' WHERE entityId=?")
+    .run(JSON.stringify(oldSources), entityId);
+  const list = { operation: "list", entityId }, sources = { operation: "stateSources", entityId };
+  assert.ok(!f.run(sources).items.some(source => source.sourceKey === added));
+  assert.equal(f.run(f.save({ stateReference: { jurisdiction, revision: 1, sourceKey },
+    draft: { ...f.draft, cadence: "Quarterly", applicability: "Required", reviewerEvidence: "Fictional evidence" } })).kind, "obligationSaved");
+  const period = "2026-01";
+  const originalPeriod = f.run(f.generate({ period })).occurrence;
+  const plan = { operation: "planWork", entityId, id, period, requestId: crypto.randomUUID() };
+  const originalWork = f.run(plan);
+  assert.equal(originalWork.kind, "obligationWorkPlanned");
+  const refresh = save(1);
+  assert.equal(work("stateScope", refresh).revision, 2);
+  assert.equal(work("stateScope", refresh).revision, 2);
+  const reviews = revision => new Map(work("stateReadiness", { operation: "read", scopeRevision: revision })
+    .items.map(item => [item.key, item.recorded]));
+  assert.deepEqual(reviews(2).get(sourceKey).facts, { ...decision, control: "Open", controlEvidence: "", nextAction: "" });
+  assert.equal(reviews(2).get(sourceKey).carriedFromScope, 1);
+  assert.equal(reviews(2).get(sourceKey).carriedFromRevision, 1);
+  assert.equal(reviews(2).get(added), null);
+  assert.deepEqual(reviews(1).get(sourceKey).facts, decision);
+  assert.ok(f.run(sources).items.some(source => source.sourceKey === added));
+  assert.equal(f.run(list).items[0].stateBasisChanged, false);
+  assert.equal(f.run(f.generate({ period })).occurrence.snapshot, originalPeriod.snapshot);
+  assert.equal(f.run({ ...plan, requestId: crypto.randomUUID() }).workId, originalWork.workId);
+  assert.equal(JSON.parse(f.run(f.generate({ period: "2026-04" })).occurrence.snapshot).stateBasisChanged, false);
+  assert.equal(work("stateScope", save(2, { ...facts, products: "Refinance" })).revision, 3);
+  assert.equal(reviews(3).get(sourceKey), null);
+  assert.equal(f.run(list).items[0].stateBasisChanged, true);
+});
+
 test("planning a period creates one owned monthly item and retains its original basis",t=>{
  const f=fixture(t);f.run(f.save());f.run(f.generate());
  f.run(f.save({expectedRevision:1,draft:{...f.draft,title:"New version title"}}));

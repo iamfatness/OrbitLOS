@@ -1,7 +1,7 @@
 import { easternDate } from "./client-retention";
 import type { Store } from "./store";
 import { complianceProgramWork } from "./compliance-program";
-import { stateScopeLicenseSnapshot } from "./compliance-state-basis";
+import { sameStateScopeFacts, stateScopeLicenseSnapshot } from "./compliance-state-basis";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
 import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
@@ -198,8 +198,25 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   };
   if (data.operation === "stateSources")
     return { kind: "obligationStateSources", items: stateSources().map(describeStateBasis) };
-  const matchesStateBasis = (current: StateBasis, saved: StateBasis) => current.sourceKey === saved.sourceKey &&
-    current.revision === saved.revision && current.jurisdiction === saved.jurisdiction && current.snapshot === saved.snapshot;
+  let currentSources: StateBasis[] | undefined;
+  const scopeHistory = new Map<string, Record<string, unknown>[]>();
+  const currentStateBasis = (saved: StateBasis) => {
+    const current = (currentSources ??= stateSources()).find(source => source.sourceKey === saved.sourceKey &&
+      source.jurisdiction === saved.jurisdiction && source.snapshot === saved.snapshot);
+    if (!current || current.revision < saved.revision) return false;
+    if (current.revision === saved.revision) return true;
+    let versions = scopeHistory.get(saved.jurisdiction);
+    if (!versions) {
+      versions = db.prepare(`SELECT revision,facts,entitySnapshot,licenseSnapshots,sourceSnapshots FROM compliance_state_scope_versions
+        WHERE brokerageId=? AND entityId=? AND jurisdiction=? ORDER BY revision`).all(tenant, data.entityId, saved.jurisdiction);
+      scopeHistory.set(saved.jurisdiction, versions);
+    }
+    const chain = versions.filter(row => Number(row.revision) >= saved.revision && Number(row.revision) <= current.revision);
+    return chain.length === current.revision - saved.revision + 1 && chain.every((row, index) =>
+      Number(row.revision) === saved.revision + index && sameStateScopeFacts(chain[0], row) &&
+      (index === 0 || row.sourceSnapshots !== chain[index - 1].sourceSnapshots) &&
+      (JSON.parse(String(row.sourceSnapshots)) as string[]).includes(saved.snapshot));
+  };
   if (data.operation === "michiganMloRenewalHistory" || data.operation === "saveMichiganMloRenewal") {
     const periodKey = [tenant, data.entityId, data.id, data.period] as const;
     const target = [...periodKey, data.originatorNmls] as const;
@@ -212,7 +229,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       snapshot.draft.applicability === "Not applicable") return unavailable;
     const { from } = snapshot.period;
     const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
-    const scopeChanged = !stateSources().some(source => matchesStateBasis(source, basis));
+    const scopeChanged = !currentStateBasis(basis);
     if (data.operation === "michiganMloRenewalHistory") {
       const before = data.before ?? null;
       const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM michigan_mlo_renewal_versions
@@ -326,7 +343,6 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const rows = db.prepare(`SELECT v.* FROM compliance_obligation_versions v WHERE brokerageId=? AND entityId=?
       AND revision=(SELECT max(n.revision) FROM compliance_obligation_versions n WHERE n.brokerageId=v.brokerageId AND n.entityId=v.entityId AND n.id=v.id)
       ORDER BY id LIMIT 51 OFFSET ?`).all(tenant, data.entityId, data.offset);
-    let currentSources: StateBasis[] | undefined;
     return { kind: "obligationRegistry", notice: obligationPlanningNotice, more: rows.length > 50, offset: data.offset,
       owners: roster.filter(member => member.status === "Active" && member.role === "Admin")
         .map(({ email, name }) => ({ email, name: name || email })),
@@ -335,7 +351,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
         const owner = active(draft.ownerEmail);
         return { id: row.id, revision: row.revision, draft, reviewer: row.reviewer, reviewedAt: row.reviewedAt,
           ...(stateBasis ? { stateBasis: describeStateBasis(stateBasis),
-            stateBasisChanged: !(currentSources ??= stateSources()).some(source => matchesStateBasis(source, stateBasis)) } : {}),
+            stateBasisChanged: !currentStateBasis(stateBasis) } : {}),
           ownerAvailable: Boolean(owner && (owner.accessRevision ?? 0) === row.ownerRevision) };
       }) };
   }
@@ -410,7 +426,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     .get(tenant, data.entityId, data.id, data.period);
   if (existing) return record({ kind: "obligationOccurrence", occurrence: existing, reused: true, notice: obligationPlanningNotice });
   const partial = draft.effectiveFrom > period.from || Boolean(draft.effectiveThrough && draft.effectiveThrough < period.through);
-  const stateBasisChanged = Boolean(stateBasis && !stateSources().some(source => matchesStateBasis(source, stateBasis)));
+  const stateBasisChanged = Boolean(stateBasis && !currentStateBasis(stateBasis));
   const reportingBasis = obligationReportingBasis(stateBasis?.sourceKey, draft.cadence, draft.annualStartMonth, period);
   const lateTarget = Boolean(reportingBasis?.nominalDueOn && period.internalTarget > reportingBasis.nominalDueOn);
   if (reportingBasis && lateTarget) reportingBasis.review += " The internal target falls after the nominal filing date. Review the target.";

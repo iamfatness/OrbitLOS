@@ -29,3 +29,8 @@ export function stateScopeBasisChanges(saved: { sourceHash?: unknown; entitySnap
     licenseBasisMissing: typeof saved.licenseSnapshots !== "string",
   };
 }
+
+export function sameStateScopeFacts(saved: Record<string, unknown>, current: Record<string, unknown>) {
+  return typeof saved.licenseSnapshots === "string" && saved.licenseSnapshots === current.licenseSnapshots &&
+    saved.entitySnapshot === current.entitySnapshot && saved.facts === current.facts;
+}

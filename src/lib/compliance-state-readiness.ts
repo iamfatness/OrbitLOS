@@ -18,9 +18,11 @@ export function initializeStateReadiness(db: Store) {
 
 const unavailable = { error: "Choose a saved brokerage scope and one of its specific requirements." };
 const changed = { error: "The requirement review changed. Refresh before saving." };
-type EvidenceRow = { sourceKey: string; revision: number; facts: string; actor: string; savedAt: string };
+type EvidenceRow = { sourceKey: string; revision: number; facts: string; actor: string; savedAt: string; request: string };
 function evidence(row: EvidenceRow) {
-  return { revision: Number(row.revision), facts: JSON.parse(row.facts) as StateReadinessFacts, actor: row.actor, savedAt: row.savedAt };
+  const { carriedFromScope, carriedFromRevision } = JSON.parse(row.request) as { carriedFromScope?: number; carriedFromRevision?: number };
+  return { revision: Number(row.revision), facts: JSON.parse(row.facts) as StateReadinessFacts, actor: row.actor, savedAt: row.savedAt,
+    ...(carriedFromScope ? { carriedFromScope, carriedFromRevision } : {}) };
 }
 
 /** Runs in the authenticated compliance transaction. An entry records the admin's external evidence reference. */
@@ -39,11 +41,11 @@ export function complianceStateReadinessWork(db: Store, data: StateReadinessRequ
     .filter(item => item.key.startsWith(`REQ-${jurisdiction}-`));
   if (sourceKey && !authorities.some(item => item.key === sourceKey)) return unavailable;
   const args = [tenant, entityId, jurisdiction, scopeRevision] as const;
-  const latest = (key: string) => db.prepare(`SELECT sourceKey,revision,facts,actor,savedAt FROM compliance_state_readiness_versions
+  const latest = (key: string) => db.prepare(`SELECT sourceKey,revision FROM compliance_state_readiness_versions
     WHERE brokerageId=? AND entityId=? AND jurisdiction=? AND scopeRevision=? AND sourceKey=? ORDER BY revision DESC LIMIT 1`)
     .get(...args, key) as EvidenceRow | undefined;
   if (data.operation === "read") {
-    const rows = db.prepare(`SELECT v.sourceKey,v.revision,v.facts,v.actor,v.savedAt FROM compliance_state_readiness_versions v
+    const rows = db.prepare(`SELECT v.sourceKey,v.revision,v.facts,v.actor,v.savedAt,v.request FROM compliance_state_readiness_versions v
       WHERE v.brokerageId=? AND v.entityId=? AND v.jurisdiction=? AND v.scopeRevision=? AND v.revision=(
         SELECT max(n.revision) FROM compliance_state_readiness_versions n WHERE n.brokerageId=v.brokerageId AND n.entityId=v.entityId
           AND n.jurisdiction=v.jurisdiction AND n.scopeRevision=v.scopeRevision AND n.sourceKey=v.sourceKey)`)
@@ -51,7 +53,7 @@ export function complianceStateReadinessWork(db: Store, data: StateReadinessRequ
     const byKey = new Map(rows.map(row => [row.sourceKey, evidence(row)]));
     const items = authorities.map(({ key, title, sourceUrl, counselQuestion, evidence: evidenceNeeded }) =>
       ({ key, title, sourceUrl, counselQuestion, evidenceNeeded, recorded: byKey.get(key) ?? null }));
-    const history = sourceKey ? (db.prepare(`SELECT sourceKey,revision,facts,actor,savedAt FROM compliance_state_readiness_versions
+    const history = sourceKey ? (db.prepare(`SELECT sourceKey,revision,facts,actor,savedAt,request FROM compliance_state_readiness_versions
       WHERE brokerageId=? AND entityId=? AND jurisdiction=? AND scopeRevision=? AND sourceKey=? ORDER BY revision DESC LIMIT 21`)
       .all(...args, sourceKey) as EvidenceRow[]) : [];
     return { kind: "stateReadiness" as const, entityId, jurisdiction, scopeRevision, readOnly, historical, scopeChanged, licenseBasisMissing,

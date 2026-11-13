@@ -144,6 +144,9 @@ export function ComplianceStateReadiness({ brokerageId, entityId, jurisdiction, 
         <p>{selected.evidenceNeeded}</p>
         {selected.counselQuestion && <p>{selected.counselQuestion}</p>}
         <p><a className="underline" href={selected.sourceUrl} target="_blank" rel="noreferrer">Authority saved with this scope</a></p>
+        {selected.recorded?.carriedFromScope && <p className="muted">
+          Counsel decision carried forward from scope version {selected.recorded.carriedFromScope}. Review control evidence for this version.
+        </p>}
         {data?.readOnly ? <p>{savedFacts.counsel} · {savedFacts.control}</p> :
           <form className="record-form" onSubmit={save}>
             {conflicting && <div className="document-item record-form" role="status">
@@ -177,6 +180,7 @@ export function ComplianceStateReadiness({ brokerageId, entityId, jurisdiction, 
               {entry.facts.counselEvidence && <p>Counsel evidence · {entry.facts.counselEvidence}</p>}
               {entry.facts.controlEvidence && <p>Control evidence · {entry.facts.controlEvidence}</p>}
               {entry.facts.nextAction && <p>Next action · {entry.facts.nextAction}</p>}
+              {entry.carriedFromScope && <p>From scope version {entry.carriedFromScope} · Evidence version {entry.carriedFromRevision}</p>}
               <p className="muted">Recorded by {entry.actor}</p></div>
           </li>)}</ul>
           {data.moreHistory && <p>Showing the latest 20 revisions.</p>}

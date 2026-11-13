@@ -63,3 +63,5 @@ In **Compliance → Obligations**, add a source-linked annual obligation for the
 | Illinois IDFPR | Rehearse a request with incomplete education, a timely request awaiting approval, and late renewal through the last day of February. Verify approval before resuming origination following late renewal. [IDFPR renewal FAQs](https://idfpr.illinois.gov/banks/resfin/mlo/mlo-renewals-faqs.html) |
 
 The planning service was tested with fictional scopes and calendar periods. These additions await hosted acceptance and entity-specific owner and lawyer review.
+
+When only the research catalog changes, Orbit carries a recorded counsel disposition and its reference forward for each identical source. Control evidence stays on the earlier scope version for review. An existing obligation and its planned period keep their original basis through a catalog-only refresh when the authority, company, licenses and business facts still match. New or changed requirements need their own review.
