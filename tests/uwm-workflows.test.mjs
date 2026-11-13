@@ -13,9 +13,9 @@ const staff={name:"Test officer",email:"officer@example.test",brokerage:{id:brok
 const env={UWM_BROKERAGE_ID:brokerageId,UWM_USER_ENVIRONMENT:"stage",ORBIT_DEPLOYMENT:"stage",UWM_USER_CLIENT_ID:"fixture",UWM_USER_CLIENT_SECRET:"fixture",UWM_TOKEN_ENCRYPTION_KEY:"a".repeat(64),UWM_STORAGE_ORIGIN:"https://fixture.blob.core.windows.net",UWM_DOCUMENT_STORAGE_ORIGIN:"https://fixture.blob.core.windows.net"};
 const base=()=>({id:crypto.randomUUID(),loanId,applicationRevision:1,confirmed:true});
 const prepare=()=>({...base(),action:"prepare-import",xml:'<MESSAGE xmlns="http://www.mismo.org/residential/2009/schemas"></MESSAGE>',scan:{entityId:"1",contactId:"2"}});
-function importReceipt(db, {environment="stage",transactionId="tx-fixture",state="Completed",loanNumber="1234567890",hour="00"}={}) {
+function importReceipt(db, {environment="stage",transactionId="tx-fixture",state="Completed",loanNumber="1234567890",hour="00",message}={}) {
   const receipt = saveUwmWebhook(db, parseUwmWebhook(environment, "import", JSON.stringify({
-    TransactionId: transactionId, LoanNumber: loanNumber, LoanStatus: state, LogDateTime: `2026-11-11T${hour}:00:00Z`,
+    TransactionId: transactionId, LoanNumber: loanNumber, LoanStatus: state, Message: message, LogDateTime: `2026-11-11T${hour}:00:00Z`,
   })));
   return Number(receipt.receiptId);
 }
@@ -118,7 +118,8 @@ test("an import callback received during the HTTP call remains authoritative on 
     await runUwmWorkflow(db, env, staff, input, api);
     const original = api.commitTransaction;
     const expected = state === "Completed" ? "Completed" : "Failed";
-    const receipt = importReceipt(db, { state, loanNumber: state === "Completed" ? "1234567890" : null });
+    const receipt = importReceipt(db, { state, loanNumber: state === "Completed" ? "1234567890" : null,
+      message: state === "NotCompleted" ? "  Correct the sample property ZIP.  " : "Success" });
     api.commitTransaction = async () => {
       const response = await original();
       assert.equal(reconcileUwmImportReceipt(db, receipt), expected);
@@ -131,6 +132,15 @@ test("an import callback received during the HTTP call remains authoritative on 
     assert.equal(result.result.outcome, expected);
     assert.equal(result.result.receiptId, receipt);
     assert.equal(db.prepare("SELECT state FROM uwm_operations").get().state, expected);
+    const view = await readUwmFile(db, env, staff, { loanId, view: "activity" });
+    assert.equal(view.imports[0].applicationRevision, 1);
+    assert.equal(view.imports[0].transactionId, "tx-fixture");
+    assert.equal(view.imports[0].failureReason, state === "NotCompleted" ? "Correct the sample property ZIP." : null);
+    if (state === "NotCompleted") {
+      const duplicate = importReceipt(db, { state, loanNumber: null, hour: "01", message: "Different wording" });
+      assert.equal(reconcileUwmImportReceipt(db, duplicate), "Duplicate outcome");
+      assert.equal((await readUwmFile(db, env, staff, { loanId, view: "activity" })).imports[0].failureReason, "Correct the sample property ZIP.");
+    }
     assert.deepEqual(await runUwmWorkflow(db, env, staff, commit, api), result);
     assert.equal(writes(), 4);
   });

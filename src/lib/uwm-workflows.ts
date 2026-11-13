@@ -320,10 +320,15 @@ export async function readUwmFile(db: Store, env: UwmEnvironment, staff: Workspa
     uploads: { xml: Boolean(env.UWM_STORAGE_ORIGIN), documents: Boolean(env.UWM_DOCUMENT_STORAGE_ORIGIN) },
     imports: db.prepare(`SELECT op.id,op.actor,op.applicationRevision,
       CASE WHEN op.state='Prepared' AND checks.committed=0 AND op.applicationRevision < app.revision THEN 'Superseded'
-        ELSE op.state END AS state,op.transactionId,op.lenderLoanNumber,checks.scan,checks.ready,checks.committed
+      ELSE op.state END AS state,op.transactionId,op.lenderLoanNumber,checks.scan,checks.ready,checks.committed,
+      CASE WHEN ? AND op.state='Failed' THEN substr(trim(json_extract(receipt.body,'$.Message')),1,500) END AS failureReason
       FROM uwm_operations op LEFT JOIN uwm_import_checks checks ON checks.operationId=op.id
       LEFT JOIN applications app ON app.loanId=op.loanId
-      WHERE op.loanId=? AND op.environment=? AND op.kind='import' ORDER BY op.startedAt DESC LIMIT 20`).all(input.loanId, environment),
+      LEFT JOIN uwm_webhook_receipts receipt ON receipt.id=op.receiptId AND receipt.kind='import' AND receipt.heldImport=0
+        AND receipt.environment=op.environment AND receipt.transactionId=op.transactionId
+        AND json_extract(receipt.body,'$.LoanStatus')='NotCompleted'
+      WHERE op.loanId=? AND op.environment=? AND op.kind='import' ORDER BY op.startedAt DESC,op.rowid DESC LIMIT 20`)
+      .all(staff.brokerage.role !== "Processor" ? 1 : 0, input.loanId, environment),
     requests: db.prepare("SELECT id,action,state,createdAt,updatedAt FROM uwm_live_requests WHERE loanId=? AND environment=? ORDER BY createdAt DESC LIMIT 50").all(input.loanId, environment),
   };
   const number = linkedLoan(db, input.loanId, environment), api = uwmPublicClient(db, env, staff);

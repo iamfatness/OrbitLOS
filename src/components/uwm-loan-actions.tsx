@@ -9,7 +9,7 @@ import { UwmAccount } from "./uwm-account";
 import { Button } from "./ui/button";
 
 type Account = { configured: boolean; connectedAt: string | null; environment: string; message: string };
-type Import = { id: string; actor: string; state: string; applicationRevision: number; lenderLoanNumber: string | null; scan: string | null; ready: number; committed: number };
+type Import = { id: string; actor: string; state: string; applicationRevision: number; transactionId: string | null; lenderLoanNumber: string | null; scan: string | null; ready: number; committed: number; failureReason: string | null };
 type Activity = { uploads: {xml:boolean;documents:boolean}; imports: Import[]; requests: {id:string;action:string;state:string;createdAt:string}[] };
 type Branch = {entityId:number;name:string|null;contacts:{contactId:number;firstName:string|null;lastName:string|null}[]};
 type Attachment = {attachmentId:number;revisionId:string;documentType:string;comments:string;SubmittedDateTime:string|null;files:{documentId:number}[];conditions:string[]};
@@ -41,6 +41,8 @@ export function UwmLoanActions({loanId,staff,application,view}:{loanId:string;st
   const reviewed=!!application?.submittedAt && !!application.reviewedAt && !application.correctionNote;
   const linked=activity?.imports.find(item=>item.state==="Completed" && item.lenderLoanNumber);
   const importReview=activity?.imports.find(item=>item.state==="Prepared" && !item.committed && item.scan);
+  const latestImport=activity?.imports[0];
+  const importPending=activity?.imports.some(item=>["Acknowledged","Dispatching","Unknown"].includes(item.state));
   const unresolved=activity?.requests.some(item=>["Unknown","Dispatching"].includes(item.state));
   const connected=!!account?.configured && !!account.connectedAt;
   const canWrite=connected && reviewed && !unresolved && !uncertain && !busy;
@@ -62,7 +64,10 @@ export function UwmLoanActions({loanId,staff,application,view}:{loanId:string;st
     try {
       setAccount(await json<Account>(accountUrl));
       const next=await json(readUrl,{loanId,view:"activity"}) as Activity;setActivity(next);
-      if(uncertain && next.requests.some(item=>item.id===uncertain && !["Dispatching","Unknown"].includes(item.state)))setUncertain(null);
+      if(uncertain && next.requests.some(item=>item.id===uncertain && !["Dispatching","Unknown"].includes(item.state))) {
+        setUncertain(null);
+        setPending(current=>current?.id===uncertain?null:current);
+      }
     } catch(failure){setError(failure instanceof Error?failure.message:"Status could not be refreshed.");}
     finally{setBusy(false);}
   }
@@ -136,6 +141,13 @@ export function UwmLoanActions({loanId,staff,application,view}:{loanId:string;st
       <Button variant="outline" size="sm" disabled={busy||loading} onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh</Button></div>
     {loading?<p role="status">Checking your UWM connection…</p>:<>
       <p className="uwm-loan-status"><ShieldCheck size={16}/>{account?.environment==="production"?"Production":"Test environment"} · {linked?`UWM loan ${linked.lenderLoanNumber}`:connected?"Account connected · no completed import":"Account connection needed"}</p>
+      {view==="import" && !processor && !pending && latestImport?.state==="Failed" &&
+        <section className="uwm-import-review document-item break-words" aria-label="Rejected UWM import">
+          <h4 className="font-semibold">UWM rejected 1003 revision {latestImport.applicationRevision}</h4>
+          {latestImport.transactionId && <p className="muted">Transaction {latestImport.transactionId}</p>}
+          <p>{latestImport.failureReason || "UWM did not include a reason. Check this transaction in UWM for details."}</p>
+          {!linked && !importPending && !unresolved && <p>Resolve the issue, then prepare a new submission check using the current reviewed 1003.</p>}
+        </section>}
       {!connected && <UwmAccount brokerageId={staff.brokerage.id} onConnectionChange={()=>void refresh()}/>}
       {connected && !reviewed && <p className="uwm-feedback">Submit and mark the current 1003 reviewed before sending lender requests.</p>}
       {(unresolved||uncertain) && <p className="uwm-feedback">An earlier request needs verification. Refresh its status and check the lender file before sending again.</p>}
@@ -147,16 +159,23 @@ export function UwmLoanActions({loanId,staff,application,view}:{loanId:string;st
         <div className="loan-application-actions"><Button disabled={busy} onClick={()=>void send()}>{uncertain===pending.id?"Check original request":`Confirm ${uwmActionLabels[pending.action].toLowerCase().replace(/uwm/g,"UWM")}`}</Button><Button variant="outline" disabled={busy||uncertain===pending.id} onClick={()=>setPending(null)}>Back to editing</Button></div></div>}
       <div hidden={!!pending}>
       {view==="import" && !processor && <>
+        {!!activity?.imports.slice(1).some(item=>item.state==="Failed") && <details className="uwm-loan-history">
+          <summary>Earlier import rejections</summary>
+          <ul>{activity.imports.slice(1).filter(item=>item.state==="Failed").map(item=><li key={item.id} className="break-words">
+            <strong>1003 revision {item.applicationRevision}{item.transactionId && ` · Transaction ${item.transactionId}`}</strong>
+            <p>{item.failureReason || "UWM did not include a reason."}</p>
+          </li>)}</ul>
+        </details>}
         {linked?<p>UWM confirmed this import. Open Conditions for document delivery or Pricing &amp; credit for rate requests.</p>:importReview?<ImportReview key={importReview.id+importReview.scan} item={importReview} editable={canWrite && importReview.actor===staff.email && importReview.applicationRevision===application?.revision} review={review}/>:<>
           {activity && !activity.uploads.xml && <p className="uwm-feedback">Submission controls are ready. Orbit still needs UWM’s approved upload address before files can be sent.</p>}
           <Button variant="outline" disabled={!connected||busy} onClick={()=>void brokerAccess()}>Load my UWM branches</Button>
-          <form className="uwm-loan-form" onSubmit={event=>void prepareImport(event)}><fieldset disabled={!canWrite||!activity?.uploads.xml}>
+          <form className="uwm-loan-form" onSubmit={event=>void prepareImport(event)}><fieldset disabled={!canWrite||importPending||!activity?.uploads.xml}>
             <label className="field"><span>UWM branch</span><select name="entityId" required value={branch} onChange={event=>setBranch(event.target.value)}><option value="">Choose a branch</option>{branches.map(item=><option key={item.entityId} value={item.entityId}>{item.name||`Branch ${item.entityId}`}</option>)}</select></label>
             <label className="field"><span>UWM loan officer</span><select name="contactId" key={branch} required defaultValue=""><option value="">Choose a loan officer</option>{branches.find(item=>String(item.entityId)===branch)?.contacts.map(item=><option key={item.contactId} value={item.contactId}>{[item.firstName,item.lastName].filter(Boolean).join(" ")||`Contact ${item.contactId}`}</option>)}</select></label>
             <label className="field"><span>Reviewed MISMO XML</span><input name="xml" type="file" accept=".xml,application/xml,text/xml" required/></label>
             <label className="uwm-check"><input type="checkbox" required/>I reviewed this XML against the current borrower application.</label>
             <Button type="submit">Review submission check</Button></fieldset></form>
-          {activity?.imports.some(item=>["Acknowledged","Dispatching","Unknown"].includes(item.state))&&<p>Import sent or awaiting confirmation. Refresh for UWM’s completion notification.</p>}
+          {importPending&&<p>Import sent or awaiting confirmation. Refresh for UWM’s completion notification.</p>}
         </>}
       </>}
       {view==="documents" && <>
