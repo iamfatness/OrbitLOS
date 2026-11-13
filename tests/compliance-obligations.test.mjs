@@ -683,3 +683,44 @@ test("external filing confirms one exact recorded quarter and preserves receipt 
   assert.equal(archive({ confirmation: record.confirmation }).items[0].matched.hasReceiptReference, true);
   assert.equal(f.sql.prepare("SELECT count(*) AS count FROM compliance_program_items").get().count, 0);
 });
+
+test("New York employment reporting preserves separate prompt notices and quarterly mailing evidence", t => {
+  const f = fixture(t);
+  const jurisdiction = "NY";
+  const scope = complianceCaseWork(f.db, { type: "stateScope", input: { operation: "save", entityId: f.entityId,
+    jurisdiction, expectedRevision: 0, requestId: crypto.randomUUID(),
+    facts: { activity: "Brokerage", lienScope: "First lien", companyEvidence: "Fictional DFS registration", officeEvidence: "",
+      originatorEvidence: "", products: "", responsibility: "", reportingBasis: "", counselPacketReference: "" } } },
+    f.staff, f.staff.brokerage.id, [f.actor], "2026-11-11T12:00:00Z");
+  const stateReference = { jurisdiction, revision: scope.revision, sourceKey: "REQ-NY-REPORTING-QRES" };
+  assert.equal(f.run(f.save({ stateReference, draft: { ...f.draft, cadence: "Quarterly" } })).revision, 1);
+  const period = "2026-07";
+  assert.equal(f.run(f.generate({ period })).kind, "obligationOccurrence");
+  const target = { entityId: f.entityId, id: f.id, period };
+  const separation = { originatorNmls: "12345", kind: "Resignation", event: { on: "2026-09-30", reference: "Fictional separation record" } };
+  const evidence = { rosterReference: "Fictional roster reconciliation", temporaryAuthorityReference: "Fictional Temporary Authority review",
+    activity: "Reportable activity", separations: [separation] };
+  const first = { ...target, operation: "saveNewYorkEmployment", expected: 0, requestId: crypto.randomUUID(), evidence };
+  assert.ok(f.run(first, f.staff, []).error);
+  assert.ok(f.run({ ...first, evidence: { ...evidence, activity: "No reportable activity" } }).error);
+  const initial = f.run(first);
+  assert.equal(initial.finding.dueOn, "2026-10-30");
+  assert.equal(initial.finding.entityNoticesMissing, 1);
+  assert.equal(initial.finding.individualNoticesMissing, 1);
+  assert.deepEqual(f.run(first), initial);
+  const request = { ...first, expected: 1, correction: "Fictional evidence update", requestId: crypto.randomUUID() };
+  const mailed = { on: "2026-10-30", reference: "Fictional mailing receipt" };
+  assert.ok(f.run({ ...request, evidence: { ...evidence, mailed } }).error);
+  const complete = { ...evidence, mailed, notarizedReport: { on: "2026-10-28", reference: "Fictional notarized report" },
+    separations: [{ ...separation, entityNotice: { on: "2026-10-01", reference: "Fictional DFS entity notice" } }] };
+  assert.ok(f.run({ ...request, evidence: { ...complete, separations: [{ ...separation, event: { ...separation.event, on: "2026-10-01" } }] } }).error);
+  const filed = f.run({ ...request, evidence: complete });
+  assert.equal(filed.finding.filingStatus, "Mailing recorded by nominal date");
+  assert.equal(filed.finding.entityNoticesMissing, 0);
+  assert.equal(filed.finding.individualNoticesMissing, 1);
+  assert.equal(filed.finding.verifyNoticeTiming, true);
+  const history = f.run({ ...target, operation: "newYorkEmploymentHistory" });
+  assert.equal(history.versions.length, 2);
+  assert.deepEqual(history.versions[1].finding, initial.finding);
+  assert.ok(f.run({ ...target, id: crypto.randomUUID(), operation: "newYorkEmploymentHistory" }).error);
+});
