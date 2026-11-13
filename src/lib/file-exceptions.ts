@@ -123,10 +123,11 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
       return [email, member ? [member.role, member.accessRevision ?? 0] : null];
     }) ?? [];
     const unavailable = checked.length ? "unavailable.id IS NOT NULL AND package.version IS NOT NULL" : "0";
-    const accessCte = checked.length ? `WITH current_packages AS MATERIALIZED (
+    const currentPackagesCte = `WITH current_packages AS MATERIALIZED (
       SELECT package.loanId, package.version, package.revision FROM disclosure_packages package
       WHERE ${currentSignedClosingPackageSql}
-    ), unavailable_reviews AS MATERIALIZED (
+    )`;
+    const accessCte = checked.length ? `${currentPackagesCte}, unavailable_reviews AS MATERIALIZED (
       SELECT review.id FROM loan_reviews review JOIN loans loan ON loan.id = review.loanId ${loanJoins}
       JOIN json_each(?) member ON json_extract(member.value, '$[0]') = review.reviewerEmail
       WHERE ${activePipeline} AND review.category = '${closingPackageReviewCategory}' AND review.status = 'Requested'
@@ -135,7 +136,7 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
           OR review.reviewerEmail = review.requesterEmail
           OR (review.reviewerRole = 'LO' AND loan.officerEmail IS NOT review.reviewerEmail)
           OR (review.reviewerRole = 'Processor' AND processing.processorEmail IS NOT review.reviewerEmail))
-    )` : "";
+    )` : currentPackagesCte;
     add(closingPackageException, `${loanColumns}, 'Sample closing review' AS title,
       CASE WHEN review.status = 'Changes requested' THEN 'Returned for corrections' WHEN ${packageChanged} THEN 'Package outdated'
         WHEN (${unavailable}) THEN 'Reviewer unavailable'
@@ -152,19 +153,19 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
         SELECT candidate.sequence FROM loan_review_events candidate
         WHERE candidate.reviewId = review.id AND candidate.action IN ('Requested', 'Resubmitted') ORDER BY candidate.sequence DESC LIMIT 1
       ) JOIN loan_review_closing_packages pinned ON pinned.eventId = event.id
-      LEFT JOIN ${checked.length ? "current_packages" : "disclosure_packages"} package
+      LEFT JOIN current_packages package
         ON package.loanId = loan.id AND package.version = pinned.version AND package.revision = pinned.revision
-        ${checked.length ? "" : `AND ${currentSignedClosingPackageSql}`}
       WHERE ${activePipeline} AND review.category = '${closingPackageReviewCategory}' AND review.status IN ('Requested', 'Changes requested')
         AND (review.dueOn < ? OR review.escalatedAt IS NOT NULL OR ${packageRequesterActs} OR (${unavailable}))`,
     "review.dueOn", "loan.id", "review.id", [...(checked.length ? [JSON.stringify(checked)] : []), today, today], "NULL", accessCte);
-    if (currentClosingGatePolicy(db).rules.changedPackageReviewer) {
+    const routeEnabled = !!currentClosingGatePolicy(db).rules.changedPackageReviewer;
+    if (routeEnabled) {
       add(closingPackageException, `${loanColumns}, 'Sample closing review' AS title, 'Reviewer needed' AS status,
         route.dueOn, NULL AS reopenedAt, 'Brokerage owner' AS nextParty, NULL AS ownerName, NULL AS ownerEmail,
         NULL AS reviewerRole, NULL AS reviewerAccessRevision, 0 AS escalated, route.version, 0 AS changed, route.reason AS requestStatus
         FROM closing_review_routing_blocks route JOIN loans loan ON loan.id = route.loanId ${loanJoins}
-        JOIN disclosure_packages package ON package.loanId = loan.id AND package.version = route.version AND package.revision = route.revision
-        WHERE ${activePipeline} AND ${currentSignedClosingPackageSql}`, "route.dueOn", "loan.id", "loan.id");
+        JOIN current_packages package ON package.loanId = loan.id AND package.version = route.version AND package.revision = route.revision
+        WHERE ${activePipeline}`, "route.dueOn", "loan.id", "loan.id", [], "NULL", currentPackagesCte);
     }
     add("Disclosure reviews", `${loanColumns}, 'Sample disclosure v' || package.version AS title, coalesce(package.reviewReason,task.title) AS status,
       NULL AS dueOn, NULL AS reopenedAt, NULL AS nextParty, loan.officer AS ownerName, loan.officerEmail AS ownerEmail,
@@ -177,9 +178,10 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
       WHERE ${activePipeline} AND task.completedAt IS NULL AND package.supersededAt IS NULL
       ${filter === "All file exceptions" ? `AND NOT EXISTS (SELECT 1 FROM loan_reviews assigned
         WHERE assigned.loanId = loan.id AND assigned.category = '${closingPackageReviewCategory}' AND assigned.status IN ('Requested', 'Changes requested'))
-        ${currentClosingGatePolicy(db).rules.changedPackageReviewer ? `AND NOT EXISTS (SELECT 1 FROM closing_review_routing_blocks route
-          WHERE route.loanId = loan.id AND route.version = package.version AND route.revision = package.revision AND ${currentSignedClosingPackageSql})` : ""}` : ""}`,
-    "task.dueAt", "loan.id", "task.id");
+        ${routeEnabled ? `AND NOT EXISTS (SELECT 1 FROM closing_review_routing_blocks route JOIN current_packages current
+          ON current.loanId = route.loanId AND current.version = route.version AND current.revision = route.revision
+          WHERE route.loanId = loan.id AND route.version = package.version AND route.revision = package.revision)` : ""}` : ""}`,
+    "task.dueAt", "loan.id", "task.id", [], "NULL", routeEnabled && filter === "All file exceptions" ? currentPackagesCte : "");
   }
 
   if (fictionalUwmWorkspace(staff)) {
