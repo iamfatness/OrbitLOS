@@ -723,4 +723,27 @@ test("New York employment reporting preserves separate prompt notices and quarte
   assert.equal(history.versions.length, 2);
   assert.deepEqual(history.versions[1].finding, initial.finding);
   assert.ok(f.run({ ...target, id: crypto.randomUUID(), operation: "newYorkEmploymentHistory" }).error);
+  const workpaper = version => f.run({ ...target, operation: "newYorkEmploymentWorkpaper", version });
+  assert.match(workpaper(2).gaps.join(" "), /reconcile the quarter's filing rows/);
+  const hire = { legalName: "Fictional Hire", originatorNmls: "67890", hiredOn: "2026-08-01", temporaryAuthority: false,
+    evidenceReference: "Fictional hire record" };
+  const departure = { legalName: "Fictional Departing Officer", originatorNmls: "12345", departedOn: "2026-09-30",
+    dismissalForCause: "No", departureReason: "Fictional voluntary resignation", temporaryAuthority: false,
+    evidenceReference: "Fictional separation record" };
+  const temporary = { legalName: "Fictional Temporary Authority Officer", originatorNmls: "98765", temporaryAuthority: true,
+    evidenceReference: "Fictional Temporary Authority record" };
+  const update = { ...request, expected: 2, requestId: crypto.randomUUID() };
+  assert.ok(f.run({ ...update, evidence: { ...complete, workpaperRows: [hire, hire] } }).error);
+  assert.ok(f.run({ ...update, evidence: { ...complete, workpaperRows: [{ ...hire, hiredOn: "2026-10-01" }] } }).error);
+  assert.equal(f.run({ ...update, evidence: { ...complete, workpaperRows: [hire, departure, temporary] } }).version, 3);
+  const exported = workpaper(3);
+  assert.equal(exported.kind, "newYorkEmploymentWorkpaper");
+  assert.equal(exported.entity.id, f.entityId);
+  assert.equal(exported.dueOn, "2026-10-30");
+  assert.deepEqual(exported.rows, [hire, departure, temporary]);
+  assert.deepEqual(exported.gaps, ["Verify the originating entity's legal name and NMLS ID."]);
+  assert.equal(workpaper(2).rows.length, 0);
+  assert.ok(workpaper(4).error);
+  assert.ok(f.run({ ...target, operation: "newYorkEmploymentWorkpaper", version: 3 }, f.staff, []).error);
+
 });

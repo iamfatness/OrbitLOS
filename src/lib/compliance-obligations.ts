@@ -7,7 +7,7 @@ import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-mo
 import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
   supportsFilingReceipts, type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
-import { reviewNewYorkEmployment, type NewYorkEmploymentEvidence } from "./new-york-employment-model";
+import { prepareNewYorkEmploymentWorkpaper, reviewNewYorkEmployment, type NewYorkEmploymentEvidence } from "./new-york-employment-model";
 import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
@@ -272,7 +272,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       .run(tenant, data.requestId, data.entityId, staff.email, now, request, JSON.stringify(result));
     return result;
   }
-  if (data.operation === "newYorkEmploymentHistory" || data.operation === "saveNewYorkEmployment") {
+  if (data.operation === "newYorkEmploymentHistory" || data.operation === "newYorkEmploymentWorkpaper" || data.operation === "saveNewYorkEmployment") {
     const target = [tenant, data.entityId, data.id, data.period] as const;
     const occurrence = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences
       WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...target);
@@ -281,6 +281,22 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     if (snapshot?.stateBasis?.sourceKey !== "REQ-NY-REPORTING-QRES" || !dueOn || snapshot.draft.applicability === "Not applicable") return unavailable;
     const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
     const scopeChanged = !currentStateBasis(snapshot.stateBasis);
+    if (data.operation === "newYorkEmploymentWorkpaper") {
+      const row = db.prepare(`SELECT evidence FROM new_york_employment_versions
+        WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND version=?`).get(...target, data.version);
+      if (!row) return unavailable;
+      const evidence = JSON.parse(String(row.evidence)) as NewYorkEmploymentEvidence;
+      const workpaper = prepareNewYorkEmploymentWorkpaper(evidence, snapshot.period);
+      const gaps = [...workpaper.gaps];
+      const scope = db.prepare(`SELECT entitySnapshot FROM compliance_state_scope_versions
+        WHERE brokerageId=? AND entityId=? AND jurisdiction=? AND revision=?`)
+        .get(tenant, data.entityId, snapshot.stateBasis.jurisdiction, snapshot.stateBasis.revision);
+      const recordedEntity = scope ? JSON.parse(String(scope.entitySnapshot)) as { id: string; name: string; nmls: string } : null;
+      if (!recordedEntity?.name || !recordedEntity.nmls) gaps.push("Verify the originating entity's legal name and NMLS ID.");
+      if (scopeChanged) gaps.push("Review the changed source or entity scope.");
+      return { kind: "newYorkEmploymentWorkpaper", version: data.version, entity: recordedEntity && { id: recordedEntity.id, name: recordedEntity.name, nmls: recordedEntity.nmls }, dueOn, ...workpaper, gaps,
+        source: "https://www.dfs.ny.gov/system/files/documents/2025/05/quarterly-report-employment-status-2025-fill.pdf" };
+    }
     if (data.operation === "newYorkEmploymentHistory") {
       const before = data.before ?? null;
       const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM new_york_employment_versions
@@ -303,7 +319,13 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const { from, through } = snapshot.period;
     if (evidence.separations.some(item => item.event.on < from || item.event.on > through))
       return { error: "Record separations from the selected reporting quarter." };
-    const events = [evidence.notarizedReport?.on, evidence.mailed?.on,
+    const rowDates = evidence.workpaperRows?.flatMap(row => [row.hiredOn, row.departedOn]) ?? [];
+    if (rowDates.some(on => on && (on < from || on > through)))
+      return { error: "Record hire and departure dates from the selected reporting quarter." };
+    const rowKeys = evidence.workpaperRows?.map(row => JSON.stringify([row.originatorNmls, row.hiredOn, row.departedOn])) ?? [];
+    if (new Set(rowKeys).size !== rowKeys.length)
+      return { error: "Reconcile duplicate employment workpaper rows." };
+    const events = [...rowDates, evidence.notarizedReport?.on, evidence.mailed?.on,
       ...evidence.separations.flatMap(item => [item.event.on, item.entityNotice?.on, item.individualNotice?.on])];
     if (events.some(on => on && on > asOf)) return { error: "Record events that have already occurred." };
     if (evidence.notarizedReport && evidence.notarizedReport.on < through)

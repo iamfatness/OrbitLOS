@@ -5,6 +5,7 @@ import { z } from "zod";
 import { accessComplianceCases } from "@/app/actions";
 import { newYorkEmploymentEvidence } from "@/lib/new-york-employment-model";
 import type { ObligationRequest } from "@/lib/compliance-obligations-model";
+import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
 const finding = z.object({ asOf: z.iso.date(), dueOn: z.iso.date(), filingStatus: z.string(),
@@ -27,8 +28,8 @@ async function employmentAction(input: ObligationRequest, brokerageId: string) {
   return response.result;
 }
 
-function Field({ name, label, value, date }: { name: string; label: string; value?: string; date?: boolean }) {
-  return <label className="field min-w-0">{label}<input name={name} type={date ? "date" : "text"} required
+function Field({ name, label, value, date, optional }: { name: string; label: string; value?: string; date?: boolean; optional?: boolean }) {
+  return <label className="field min-w-0">{label}<input name={name} type={date ? "date" : "text"} required={!optional}
     defaultValue={value} minLength={date ? undefined : 4} maxLength={date ? undefined : 240} /></label>;
 }
 
@@ -48,6 +49,43 @@ function OptionalEvent({ prefix, label, value }: Parameters<typeof EventFields>[
       onChange={event => setOpen(event.target.checked)} />Record {label.toLowerCase()}</label>
     {open && <EventFields prefix={prefix} label={label} value={value} />}
   </>;
+}
+
+type WorkpaperRow = NonNullable<Version["evidence"]["workpaperRows"]>[number];
+
+function WorkpaperFields({ savedRows }: { savedRows?: WorkpaperRow[] }) {
+  const [rows, setRows] = useState<{ key: number; row?: WorkpaperRow }[]>(() => (savedRows ?? []).map((row, key) => ({ key, row })));
+  const next = useRef(rows.length);
+  const add = useRef<HTMLButtonElement>(null);
+  return <div className="record-form">
+    <h4 className="font-semibold">Quarterly filing workpaper</h4>
+    {rows.map(({ key, row }, index) => <fieldset className="record-form min-w-0 rounded-lg border p-3" key={key}>
+      <legend>Originator {index + 1}</legend>
+      <input type="hidden" name="workpaperRow" value={key} />
+      <div className="form-grid">
+        <Field name={"w" + key + "name"} label="NMLS legal name" value={row?.legalName} />
+        <label className="field">Individual NMLS ID<input id={"ny-workpaper-id-" + key} name={"w" + key + "id"} required
+          inputMode="numeric" pattern="[1-9][0-9]{0,11}" defaultValue={row?.originatorNmls} /></label>
+        <Field name={"w" + key + "hire"} label="Hire date (optional)" value={row?.hiredOn} date optional />
+        <Field name={"w" + key + "departure"} label="Departure date (optional)" value={row?.departedOn} date optional />
+        <label className="field">Dismissal for cause<select name={"w" + key + "cause"} defaultValue={row?.dismissalForCause ?? ""}>
+          <option value="">Select if departed</option><option>Yes</option><option>No</option><option>Needs review</option>
+        </select></label>
+        <Field name={"w" + key + "reason"} label="Reason for departure (optional)" value={row?.departureReason} optional />
+        <Field name={"w" + key + "evidence"} label="Workpaper row evidence reference" value={row?.evidenceReference} />
+      </div>
+      <label className="flex min-h-11 items-center gap-2"><input type="checkbox" name={"w" + key + "temporary"}
+        defaultChecked={row?.temporaryAuthority} />Worked under Temporary Authority</label>
+      <div><Button className="min-h-11" type="button" variant="outline" aria-label={"Remove originator " + (index + 1)} onClick={() => {
+        setRows(items => items.filter(item => item.key !== key)); requestAnimationFrame(() => add.current?.focus());
+      }}>Remove originator</Button></div>
+    </fieldset>)}
+    <div><Button ref={add} className="min-h-11" type="button" variant="outline" disabled={rows.length >= 100} onClick={() => {
+      const key = next.current++;
+      setRows(items => [...items, { key }]);
+      requestAnimationFrame(() => document.getElementById("ny-workpaper-id-" + key)?.focus());
+    }}>Add workpaper originator</Button></div>
+  </div>;
 }
 
 function EmploymentForm({ latest, busy, conflict, submit, cancel }: {
@@ -90,6 +128,7 @@ function EmploymentForm({ latest, busy, conflict, submit, cancel }: {
           setRows(items => [...items, { key, entry: undefined }]);
           requestAnimationFrame(() => document.getElementById("ny-employment-id-" + key)?.focus());
         }}>Add departure</Button></div>
+      <WorkpaperFields savedRows={evidence?.workpaperRows} />
       <h4 className="font-semibold">Quarterly filing</h4>
       <OptionalEvent prefix="report" label="Notarized report" value={evidence?.notarizedReport} />
       <OptionalEvent prefix="mail" label="Mailing" value={evidence?.mailed} />
@@ -118,6 +157,7 @@ function EmploymentSummary({ entry, review = entry.finding }: { entry: Version; 
     <p><strong>{review.filingStatus}</strong> · Version {entry.version} · Reviewed <time dateTime={review.asOf}>{review.asOf}</time></p>
     <dl className="form-grid">{rows.filter(([, value]) => value).map(([label, value]) =>
       <div key={label}><dt className="font-semibold">{label}</dt><dd>{value}</dd></div>)}</dl>
+    {evidence.workpaperRows && <p>Workpaper originators · {evidence.workpaperRows.length}</p>}
     {review.verifyNoActivity && <p>Confirm DFS filing instructions for a quarter with no reportable activity.</p>}
     {evidence.separations.length > 0 && <>
       <h4 className="font-semibold">Departures and prompt notices</h4>
@@ -188,6 +228,13 @@ export function NewYorkEmploymentEvidence({ brokerageId, entityId, obligationId,
       separations: form.getAll("row").map(key => ({ originatorNmls: get(key + "id"), kind: get(key + "kind"),
         event: dated(key + "event"), entityNotice: optional(key + "entity"), individualNotice: optional(key + "individual") })),
       notarizedReport: optional("report"), mailed: optional("mail"),
+      workpaperRows: form.getAll("workpaperRow").map(key => {
+        const prefix = "w" + key;
+        return { legalName: get(prefix + "name"), originatorNmls: get(prefix + "id"),
+          hiredOn: get(prefix + "hire") || undefined, departedOn: get(prefix + "departure") || undefined,
+          dismissalForCause: get(prefix + "cause") || undefined, departureReason: get(prefix + "reason") || undefined,
+          temporaryAuthority: form.has(prefix + "temporary"), evidenceReference: get(prefix + "evidence") };
+      }),
     });
     if (!evidence.success) {
       const issue = evidence.error.issues[0];
@@ -212,10 +259,23 @@ export function NewYorkEmploymentEvidence({ brokerageId, entityId, obligationId,
         setConflict(true);
         setFeedback({ text: error.message, error: true });
       } else {
-        const message = error instanceof Error && /already occurred|reporting quarter|quarter end/i.test(error.message) ? error.message :
+        const message = error instanceof Error && /already occurred|reporting quarter|quarter end|duplicate employment/i.test(error.message) ? error.message :
           "Could not confirm the save. Retry with the same evidence.";
         setFeedback({ text: message, error: true });
       }
+    } finally { setBusy(false); }
+  }
+
+  async function download(version: number) {
+    setBusy(true);
+    setFeedback(undefined);
+    try {
+      const result = z.object({ kind: z.literal("newYorkEmploymentWorkpaper") }).passthrough()
+        .parse(await employmentAction({ operation: "newYorkEmploymentWorkpaper", entityId, id: obligationId, period, version }, brokerageId));
+      downloadSampleFile(JSON.stringify(result, null, 2), `ny-employment-workpaper-${period}-v${version}.json`, "application/json");
+      setFeedback({ text: "Workpaper downloaded for review." });
+    } catch {
+      setFeedback({ text: "Could not download the workpaper. Try again.", error: true });
     } finally { setBusy(false); }
   }
 
@@ -235,10 +295,15 @@ export function NewYorkEmploymentEvidence({ brokerageId, entityId, obligationId,
     </> : <>
       {latest ? <EmploymentSummary entry={latest} review={data.currentFinding ?? latest.finding} /> :
         <p>No employment evidence recorded.</p>}
-      <div><Button ref={editButton} className="min-h-11" onClick={() => { setFeedback(undefined); setEdit(true); }}>
-        {latest ? "Update employment evidence" : "Record employment evidence"}</Button></div>
+      <div className="loan-application-actions"><Button ref={editButton} disabled={busy} className="min-h-11" onClick={() => { setFeedback(undefined); setEdit(true); }}>
+        {latest ? "Update employment evidence" : "Record employment evidence"}</Button>
+        {latest && <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => void download(latest.version)}>Download draft workpaper</Button>}
+      </div>
       {data.versions.slice(1).map(entry => <details key={entry.version}><summary className="min-h-11 cursor-pointer">
-        Version {entry.version} · {entry.finding.filingStatus}</summary><EmploymentSummary entry={entry} /></details>)}
+        Version {entry.version} · {entry.finding.filingStatus}</summary><EmploymentSummary entry={entry} />
+        <Button className="min-h-11" variant="outline" disabled={busy} onClick={() => void download(entry.version)}>
+          Download workpaper version {entry.version}</Button>
+      </details>)}
       {data.next && <div><Button className="min-h-11" variant="outline" disabled={busy} onClick={() => void loadEarlier()}>Load earlier versions</Button></div>}
     </>}
   </section>;
