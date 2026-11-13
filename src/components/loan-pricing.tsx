@@ -220,8 +220,9 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       <Button size="sm" variant={lenderHandoff.blocker ? "outline" : "default"} disabled={busy}
         onClick={() => lenderHandoff.proceed({ runId: saved.id, offerId: selected.id })}>{lenderHandoff.label}</Button>
     </>;
-  const publishedNeedsReprice = !!published && (!application?.submittedAt || !isCurrent(publishedRun) ||
-    !!published.presentation?.alternatives.some((item) => !isCurrent(runs.find((run) => run.id === item.runId))));
+  const sharedRuns = published ? [publishedRun, ...(published.presentation?.alternatives ?? [])
+    .map((item) => runs.find((run) => run.id === item.runId))] : [];
+  const publishedNeedsReprice = !!published && (!application?.submittedAt || sharedRuns.some(run => !isCurrent(run)));
   const formOutdated = formRevision !== (application?.revision ?? null);
   const canUse1003Amount = !formOutdated && requestedAmount !== null && Number(form.loanAmount) !== requestedAmount;
   const useIncomeRevision = form.program === "Conventional" ? incomeRevision : undefined;
@@ -331,10 +332,12 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       <label className="field"><span>Internal quote review note</span><textarea rows={2} maxLength={500} value={review.key === reviewKey ? review.note : ""}
         onChange={(event) => setReview({ key: reviewKey, note: event.target.value })} /></label>
       <div className="pricing-actions">
-        <Button size="sm" variant="outline" disabled={busy || !reviewNote} onClick={() => void save({
+        {!publishedNeedsReprice && <Button size="sm" variant="outline" disabled={busy || !reviewNote} onClick={() => void save({
           type: "keepSharedQuote", loanId: loan.id, publishedAt: published.publishedAt, reviewRevision: published.reviewRevision, reviewNote,
-        })}>Keep shared version</Button>
-        {saved && selected && <Button size="sm" variant="outline" onClick={() => {
+        })}>Keep shared version</Button>}
+        {publishedNeedsReprice && openIncome && sharedRuns.some(run => run?.incomeReviewCurrent === false) &&
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => openIncome()}>Open current income worksheet</Button>}
+        {saved && selected && !savedNeedsReprice && <Button size="sm" variant="outline" onClick={() => {
           setPreview(true);
           savedQuoteSection.current?.focus();
         }}>Open saved quote preview</Button>}
@@ -515,7 +518,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       rate={state.mockUwmRates.find((item) => item.loanId === loan.id)} saved={saved} offer={selected} needsReprice={savedNeedsReprice}
       amountIssue={rateAmountIssue} use1003Amount={canUse1003Amount && !quoteAmountIssue ? use1003Amount : undefined} busy={busy} save={save} />}
     {published && <section className="quote-saved" aria-label="Shared borrower quote">
-      <div className="section-heading"><h3>Shared with borrower</h3>
+      <div className="section-heading"><h3>{publishedNeedsReprice ? "Previously shared with borrower" : "Shared with borrower"}</h3>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "withdrawQuote", loanId: loan.id, publishedAt: published.publishedAt })}>Remove shared quote</Button></div>
       <p>{published.product} · {percentage(published.rate)} · {cash(published.principalAndInterest)} monthly P&amp;I</p>
       <p className="muted timestamp">Sample quote · Shared {dateTime(published.publishedAt)} ET</p>

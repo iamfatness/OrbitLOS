@@ -96,9 +96,29 @@ test("approval attaches to accepted evidence and prevents reuse of a stale prici
     { type: "sendApplication", revision, quote: choice }]) {
     assert.match((await send(request)).error, /reviewed income/i);
   }
+  const revisedSource = { ...source, start: "2026-06-01", evidence: [{ id: documentId, revision: 4 }] };
+  const revise = mutate("save", approve.revision, { sources: [revisedSource] });
+  assert.equal(work(revise).page.record.stage, "Draft");
+  assert.equal(work(revise).page.record.revision, approve.revision + 1);
+  const shared = db.prepare("SELECT publishedAt, reviewRevision, reviewReason FROM published_quotes WHERE loanId = ?").get(loanId);
+  assert.equal(shared.reviewReason, "Income worksheet changed");
+  assert.equal(db.prepare("SELECT count(*) AS total FROM tasks WHERE loanId = ? AND title = 'Review shared sample quote' AND completedAt IS NULL").get(loanId).total, 1);
+  assert.match((await send({ type: "keepSharedQuote", publishedAt: shared.publishedAt, reviewRevision: shared.reviewRevision,
+    reviewNote: "Keep the original sample quote." })).error, /reviewed income/i);
+  const submittedAgain = work(mutate("submit", approve.revision + 1)).page.record;
+  const approvedAgain = work(mutate("approve", submittedAgain.revision, { note: "Reviewed the replacement evidence." })).page.record;
+  assert.equal(db.prepare("SELECT reviewRevision FROM published_quotes WHERE loanId = ?").get(loanId).reviewRevision, shared.reviewRevision);
+  const next = (await send({ ...price, incomeReviewRevision: approvedAgain.revision })).state.pricingRuns[0];
+  const nextChoice = { runId: next.id, offerId: next.offers[0].id };
+  assert.ok((await send({ type: "selectOffer", ...nextChoice })).message);
+  const flagged = db.prepare("SELECT publishedAt, reviewRevision FROM published_quotes WHERE loanId = ?").get(loanId);
+  assert.ok((await send({ type: "publishDatedQuote", ...nextChoice, feeRevision: 0, alternatives: [], expiresOn: easternDate(),
+    previousPublishedAt: flagged.publishedAt, reviewRevision: flagged.reviewRevision, reviewNote: "Repriced the approved worksheet." })).message);
+  assert.ok(borrowerStatus().quote);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM tasks WHERE loanId = ? AND title = 'Review shared sample quote' AND completedAt IS NULL").get(loanId).total, 0);
   const manual = (await send({ ...price, incomeReviewRevision: undefined })).state;
   assert.equal(manual.pricingRuns.find(({ id }) => id === run.id).incomeReviewCurrent, false);
-  assert.equal(manual.pricingRuns.find(({ id }) => id !== run.id).incomeReviewRevision, null);
+  assert.equal(manual.pricingRuns.find(({ id }) => id !== run.id && id !== next.id).incomeReviewRevision, null);
 });
 
 test("income verification approval pins the borrower and return through an older mock quote", async (t) => {

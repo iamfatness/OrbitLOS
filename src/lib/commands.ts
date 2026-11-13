@@ -71,7 +71,7 @@ import { carryLeadDocuments } from "./lead-documents";
 import { carryLeadConversation } from "./conversations";
 import { updateProcessingInput } from "./processing-model";
 import { updateProcessing } from "./loan-processing";
-import { quoteSelection, saveAllocatedFeeWorksheetInput, saveFeeWorksheetInput, type QuoteOption } from "./quote-worksheet";
+import { quoteSelection, saveAllocatedFeeWorksheetInput, saveFeeWorksheetInput, type QuoteOption, type QuotePresentation } from "./quote-worksheet";
 import { archiveSharedQuote, finishSharedQuoteReview, flagSharedQuoteReview, quoteSnapshot, saveFeeWorksheet } from "./quote-worksheet-store";
 import { isSharedQuoteReview, sharedQuoteExpiry } from "./shared-quote-model";
 import { confirmClosingDisclosure, disclosureCommand, disclosureTask } from "./disclosure-model";
@@ -1894,6 +1894,18 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "keepSharedQuote": {
+          const shared = db.prepare(`SELECT runId, presentation FROM published_quotes WHERE loanId = ? AND publishedAt = ?
+            AND reviewRevision = ? AND reviewReason IS NOT NULL`).get(data.loanId, data.publishedAt, data.reviewRevision);
+          if (!shared) throw new WorkspaceError("The shared quote review changed. Refresh pricing before recording your decision.");
+          const alternatives = shared.presentation ? (JSON.parse(String(shared.presentation)) as QuotePresentation).alternatives : [];
+          const application = getApplication(db, data.loanId);
+          const readRun = db.prepare("SELECT applicationRevision, incomeReviewRevision FROM pricing_runs WHERE loanId = ? AND id = ?");
+          for (const runId of new Set([shared.runId, ...alternatives.map(option => option.runId)])) {
+            const run = readRun.get(data.loanId, runId);
+            if (!run) throw new WorkspaceError("A pricing option is unavailable. Replace or remove this shared quote.");
+            const issue = pricingInputError(db, data.loanId, { applicationRevision: run.applicationRevision, incomeReviewRevision: run.incomeReviewRevision }, application);
+            if (issue) throw new WorkspaceError(issue);
+          }
           const kept = db.prepare(`UPDATE published_quotes SET reviewReason = NULL WHERE loanId = ? AND publishedAt = ?
             AND reviewRevision = ? AND reviewReason IS NOT NULL RETURNING loanId`)
             .get(data.loanId, data.publishedAt, data.reviewRevision);

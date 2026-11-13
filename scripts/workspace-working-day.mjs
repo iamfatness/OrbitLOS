@@ -3635,6 +3635,13 @@ try {
     await post(path, change("save", 3, { sources: [{ ...source, rationale: "Recheck fictional payroll details." }] }), processor);
     assert.equal((await file(competingOfficer, loanId)).pricingRuns.find(({ id }) => id === run.id).incomeReviewCurrent, false);
     assert.equal((await borrower(token, { type: "status" })).loanStatus.quote, null);
+    const stale = await file(competingOfficer, loanId);
+    const shared = stale.publishedQuotes[0];
+    assert.equal(shared.reviewReason, "Income worksheet changed");
+    assert.ok(stale.tasks.some(task => task.title === "Review shared sample quote" && !task.completedAt));
+    const keep = { type: "keepSharedQuote", loanId, publishedAt: shared.publishedAt, reviewRevision: shared.reviewRevision,
+      reviewNote: "Fictional attempt to keep the prior quote." };
+    assert.match((await action(competingOfficer, "mutate", keep)).error, /reviewed income/i);
     assert.match((await action(competingOfficer, "mutate", { type: "runPricing", loanId, ...pricing })).error, /reviewed income/i);
     assert.match((await action(competingOfficer, "mutate", { type: "publishQuote", loanId, ...selection })).error, /reviewed income/i);
     assert.equal((await post(path, query, competingOfficer)).page.history[0].note, "Reconciled the fictional pay stub.");

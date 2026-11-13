@@ -105,6 +105,16 @@ export function flagSharedQuoteReview(db: Store, loanId: string, reason: string,
   addApplicationActivity(db, loanId, `Shared sample quote needs review · ${reason}.`, now);
 }
 
+export function flagIncomeQuoteReview(db: Store, loanId: string, now: string) {
+  const reason = "Income worksheet changed";
+  const affected = db.prepare(`SELECT 1 FROM published_quotes quote JOIN pricing_runs run ON run.loanId = quote.loanId
+    WHERE quote.loanId = ? AND (quote.reviewReason IS NULL OR quote.reviewReason <> ?) AND run.incomeReviewRevision IS NOT NULL
+      AND (run.id = quote.runId OR EXISTS (
+        SELECT 1 FROM json_each(quote.presentation, '$.alternatives') option WHERE json_extract(option.value, '$.runId') = run.id
+      )) LIMIT 1`).get(loanId, reason);
+  if (affected) flagSharedQuoteReview(db, loanId, reason, now);
+}
+
 export function finishSharedQuoteReview(db: Store, loanId: string, now: string) {
   db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ? AND completedAt IS NULL").run(now, sharedQuoteReviewId(loanId));
 }
