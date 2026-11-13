@@ -267,7 +267,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
             <p className="muted" id="compliance-review-status-help">{readyToComplete
               ? "Once the review is finished, choose Completed and record the evidence and outcome below."
               : selected?.status === "Completed"
-                ? "This review is complete. Choose a different status to reopen it."
+                ? "You can correct the internal target and keep this review complete. Choose a different status to change the evidence or owner."
                 : "When the work is ready for review, choose Awaiting review and save."}</p></>}
           <div className="form-grid"><label className="field">Accountable admin<select name="ownerEmail" required defaultValue={selected?.ownerAvailable ? selected.ownerEmail : ""}>
             <option value="">Select an active admin</option>{current?.owners.map(o => <option key={o.email} value={o.email}>{o.name}</option>)}</select></label>

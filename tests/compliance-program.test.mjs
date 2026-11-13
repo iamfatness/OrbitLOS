@@ -60,6 +60,15 @@ test("internal targets, review state and evidence do not claim regulatory comple
  m=f.run(f.update(e.id,m.items[0]));assert.equal(m.items[0].status,"Awaiting review");
  assert.match(f.run(f.update(e.id,m.items[0],{status:"Completed",evidence:""})).error,/evidence/);
  m=f.run(f.update(e.id,m.items[0],{status:"Completed"}));assert.equal(m.counts.open,0);assert.equal(m.counts.overdue,0);
+ const target = {status:"Completed",internalTarget:"2026-11-22"};
+ assert.match(f.run(f.update(e.id,m.items[0],{...target,evidence:"Changed evidence"})).error,/Submit/);
+ assert.match(f.run(f.update(e.id,m.items[0],{...target,ownerEmail:f.backup.email})).error,/Submit/);
+ const corrected=f.run(f.update(e.id,m.items[0],target));
+ assert.equal(corrected.items[0].status,"Completed");
+ assert.equal(corrected.items[0].internalTarget,target.internalTarget);
+ assert.equal(corrected.items[0].evidence,m.items[0].evidence);
+ assert.equal(corrected.history[0].action,"Corrected internal target");
+ assert.equal(corrected.history[1].action,"Reviewed internal work");
 });
 test("save replay is exact and stale revisions cannot overwrite work",t=>{
  const f=fixture(t),e=f.entity(),first=f.run(f.schedule(e.id)),req=f.update(e.id,first.items[0]);

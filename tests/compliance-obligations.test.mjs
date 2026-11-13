@@ -103,7 +103,8 @@ test("HMDA annual and quarterly evidence stays with the reporting entity and exa
   assert.equal(monthly().status,"Completed");
   assert.equal(monthly().filingProgress.reviewedDueOn,dueOn);
   assert.deepEqual(monthly().filingProgress.gaps,["The internal target falls after the reviewed filing deadline."]);
-  assert.equal(update(3,"Awaiting review",dueOn).kind,"programMonth");
+  assert.equal(update(3,"Completed",dueOn).kind,"programMonth");
+  assert.equal(monthly().status,"Completed");
   assert.deepEqual(monthly().filingProgress.gaps,[]);
   assert.ok(f.run({...history,entityId:crypto.randomUUID()}).error);
  }

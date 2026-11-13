@@ -346,7 +346,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   const ownerChoices = new Map(owners.map(member => [member.email, { email: member.email, name: member.name, accessRevision: member.accessRevision ?? 0 }]));
   const stateReviews = db.prepare(`SELECT r.workId,r.jurisdiction,r.scopeRevision,r.source,s.facts,s.entitySnapshot,
     (SELECT e.note FROM compliance_program_events e WHERE e.brokerageId=i.brokerageId AND e.entityId=i.entityId
-      AND e.month=i.month AND e.id=i.id AND e.action IN ('Updated internal work','Reviewed internal work')
+      AND e.month=i.month AND e.id=i.id AND e.action IN ('Updated internal work','Reviewed internal work','Corrected internal target')
       ORDER BY e.at DESC,e.rowid DESC LIMIT 1) AS latestNote
     FROM compliance_scope_reviews r
     JOIN compliance_program_items i ON i.brokerageId=r.brokerageId AND i.id=r.workId
@@ -577,10 +577,14 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
     .get(tenant, entity.id, data.month, data.id);
   if (!item) return unavailable;
   if (item.revision !== data.expectedRevision) return changed;
-  if (data.status === "Completed" && (item.status !== "Awaiting review" || data.evidence.length < 5))
+  const targetCorrection = item.status === "Completed" && data.status === "Completed" &&
+    data.internalTarget !== item.internalTarget && data.evidence === item.evidence &&
+    owner.email === item.ownerEmail && (owner.accessRevision ?? 0) === item.ownerRevision;
+  if (data.status === "Completed" && !targetCorrection && (item.status !== "Awaiting review" || data.evidence.length < 5))
     return { error: "Submit the work for review and record an evidence reference before completing it." };
   db.prepare("UPDATE compliance_program_items SET status=?,ownerEmail=?,ownerRevision=?,internalTarget=?,evidence=?,revision=revision+1,updatedAt=? WHERE brokerageId=? AND id=?")
     .run(data.status, owner.email, owner.accessRevision ?? 0, data.internalTarget, data.evidence, now, tenant, data.id);
-  event(entity.id, data.month, data.id, data.status === "Completed" ? "Reviewed internal work" : "Updated internal work", data.note);
+  event(entity.id, data.month, data.id, targetCorrection ? "Corrected internal target" :
+    data.status === "Completed" ? "Reviewed internal work" : "Updated internal work", data.note);
   return read();
 }
