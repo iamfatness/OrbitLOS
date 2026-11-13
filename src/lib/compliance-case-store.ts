@@ -1,4 +1,5 @@
 import { initializeComplianceProgram } from "./compliance-program";
+import { initializeFloridaAmendments } from "./florida-amendment";
 import { initializeStateScope } from "./compliance-state-scope";
 import { initializeStateReadiness } from "./compliance-state-readiness";
 import { initializeScopeReviews } from "./compliance-scope-review";
@@ -25,6 +26,7 @@ export function initializeComplianceCases(db: Store) {
   initializeStateScope(db);
   initializeStateReadiness(db);
   initializeScopeReviews(db);
+  initializeFloridaAmendments(db);
   initializeComplianceObligations(db);
   initializeComplianceLearning(db);
   db.exec(`

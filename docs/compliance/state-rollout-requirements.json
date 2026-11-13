@@ -2378,7 +2378,7 @@
     "id": "LENDER",
     "title": "Mortgage lender and servicing endorsement authority",
     "authority": "Fla. Stat. §§494.00611 and 494.0067(8)",
-    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0067",
+    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/494.0067",
     "summary": "Florida distinguishes lender authority from broker authority. Section 494.0067 limits servicing beyond six months to lenders with a servicing endorsement and sets net worth conditions.",
     "evidence": "Lender license, branch and remote arrangements, servicing endorsement, servicing dates and net worth evidence.",
     "counsel": "Confirm the planned lender or servicer role, the servicing duration and any exemption or endorsement.",
@@ -2397,13 +2397,13 @@
     "title": "License changes and event-driven notices",
     "authority": "Fla. Stat. §§494.004 and 494.0067 and Fla. Admin. Code R. 69V-40.099",
     "sourceUrl": "https://flrules.org/gateway/ruleno.asp?Section=0&id=69V-40.099",
-    "summary": "Florida requires reporting of covered changes to application information and separate review of changes involving principal originators, control persons or organization. Broker and lender notice clocks can differ for bankruptcy and legal events.",
+    "summary": "Rule 69V-40.099 provides a 30-day post-change amendment route and separate control-person timing: 30 days before the effective date or within two business days after first notice. Principal originator eligibility and regulator designation are separate checks. Broker and lender clocks can differ for bankruptcy and legal events.",
     "evidence": "License and event type, trigger date, regulator-specific calendar and form, amendment and receipt.",
     "counsel": "Confirm which event and entity provisions apply, any prior authorization, calendar or business days, route and deadline.",
     "checkedOn": "2026-11-12",
     "relatedSources": [
-      { "label": "Broker notices", "url": "https://www.flsenate.gov/Laws/Statutes/2026/0494.004" },
-      { "label": "Lender notices", "url": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0067" }
+      { "label": "Broker notices", "url": "https://www.flsenate.gov/Laws/Statutes/2026/494.004" },
+      { "label": "Lender notices", "url": "https://www.flsenate.gov/Laws/Statutes/2026/494.0067" }
     ]
   },
   {

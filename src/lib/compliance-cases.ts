@@ -18,6 +18,8 @@ import { complianceObligationsWork } from "./compliance-obligations";
 import { learningRequest } from "./compliance-learning-model";
 import { complianceLearningWork } from "./compliance-learning";
 import { complianceProgramWork } from "./compliance-program";
+import { floridaAmendmentRequest } from "./florida-amendment-model";
+import { floridaAmendmentWork } from "./florida-amendment";
 import { stateScopeRequest } from "./compliance-state-scope-model";
 import { complianceStateScopeWork } from "./compliance-state-scope";
 import { scopeReviewRequest } from "./compliance-scope-review-model";
@@ -49,6 +51,7 @@ const decisionFields = {
 const cursor = z.object({ id: z.uuid(), openedAt: z.iso.datetime(), cohort: z.string().max(800), snapshot: z.number().int().nonnegative() });
 const dailyCursor = z.strictObject({ id: z.uuid(), openedAt: z.iso.datetime(), snapshot: z.string().max(500) });
 const request = z.discriminatedUnion("type", [
+  floridaAmendmentRequest,
   z.strictObject({ type: z.literal("stateScope"), input: stateScopeRequest }),
   z.strictObject({ type: z.literal("scopeReview"), input: scopeReviewRequest }),
   z.strictObject({ type: z.literal("stateReadiness"), input: stateReadinessRequest }),
@@ -375,6 +378,7 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
     if (data.type === "stateScope") return complianceStateScopeWork(db, data.input, staff, roster, now);
     if (data.type === "scopeReview") return complianceScopeReviewWork(db, data.input, staff, roster, now);
     if (data.type === "stateReadiness") return complianceStateReadinessWork(db, data.input, staff, roster, now);
+    if (data.type === "floridaAmendment") return floridaAmendmentWork(db, data, staff, now);
     if (data.type === "trid") return { kind: "trid" as const, result: tridEvidenceWork(db, data.input, staff, now) };
     if (data.type === "stateBrokerAgreement") return stateBrokerAgreementWork(db, data.input, staff, now);
     if (data.type === "stateRefinanceBenefit") return stateRefinanceBenefitWork(db, data.input, staff, now);

@@ -578,3 +578,42 @@ test("audit-write failure rolls back case and metadata changes", (t) => {
   assert.equal(row.item.followUpOn, null);
   assert.equal(row.history.length, 1);
 });
+
+test("Florida amendments preserve distinct clocks and versioned evidence through the authenticated service", t => {
+  const f = fixture(t);
+  const call = (type, input, entityId, actor = f.owner) => complianceCaseWork(f.db,
+    { type, entityId, input }, f.staff(actor), f.tenant, f.roster, now);
+  const entityId = complianceCaseWork(f.db, { type: "program", input: {
+    operation: "createEntity", requestId: crypto.randomUUID(), name: "Fictional Florida broker", nmls: "", scopeNote: "Fictional amendment review",
+  } }, f.staff(), f.tenant, f.roster, now).entities[0].id;
+  const work = (input, actor) => call("floridaAmendment", input, entityId, actor);
+  const effective = { on: "2026-10-02", reference: "Fictional change effective date" };
+  const base = { authority: "Mortgage broker", zone: "America/New_York", licenseReference: "Fictional Florida authority", effective };
+  const save = (change, extra = {}) => ({ operation: "save", noticeId: crypto.randomUUID(), requestId: crypto.randomUUID(),
+    expected: 0, facts: { ...base, change, ...extra } });
+  const principal = save({ kind: "Principal loan originator", designationReference: "Fictional designation" });
+  assert.ok(work(principal, f.lo).error);
+  assert.ok(call("floridaAmendment", principal, crypto.randomUUID()).error);
+  const initial = work(principal).versions[0];
+  assert.equal(initial.finding.dueOn, "2026-11-01");
+  assert.equal(initial.finding.designationReview, true);
+  assert.equal(initial.finding.timingStatus, "Nominal date passed without filing evidence");
+  assert.deepEqual(work(principal).versions, [initial]);
+  assert.ok(work({ ...principal, requestId: crypto.randomUUID() }).error);
+  const updated = { ...principal, requestId: crypto.randomUUID(), expected: 1, correction: "Fictional receipt added",
+    facts: { ...principal.facts, filed: { on: "2026-11-03", reference: "Fictional Registry receipt" } } };
+  const history = work(updated).versions;
+  assert.equal(history[0].finding.timingStatus, "Filed after nominal date");
+  assert.equal(history[0].finding.regulatorStatus, "No regulator status recorded");
+  assert.deepEqual(history[1], initial);
+  assert.equal(work({ operation: "history", noticeId: principal.noticeId, before: 2 }).versions.length, 1);
+  assert.equal(work(save({ kind: "Control person", timing: { route: "Advance filing" } })).versions[0].finding.dueOn, "2026-09-02");
+  const firstNotice = { on: "2026-09-04", reference: "Fictional first notice" };
+  const control = (calendar) => save({ kind: "Control person", timing: { route: "First notice", firstNotice, calendar } });
+  assert.equal(work(control()).versions[0].finding.timingStatus, "Verify business-day calendar");
+  const calendar = { through: "2026-09-09", holidays: ["2026-09-07"], reference: "Fictional reviewed calendar" };
+  assert.equal(work(control(calendar)).versions[0].finding.dueOn, "2026-09-09");
+  assert.ok(work({ ...updated, requestId: crypto.randomUUID(), expected: 2, facts: { ...updated.facts,
+    status: { on: "2026-11-02", reference: "Fictional status", outcome: "Acknowledged" } } }).error);
+  assert.equal(work({ operation: "list" }).items.length, 4);
+});
