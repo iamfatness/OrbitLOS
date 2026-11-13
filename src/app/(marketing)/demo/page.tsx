@@ -49,6 +49,7 @@ export default function DemoPage() {
           <li>Open a denied New York application and export its file inventory, retrieval evidence, and reviewed retention planning date.</li>
           <li>Record and resolve a New York complaint, then export complaint and regulator correspondence histories by company.</li>
           <li>Assign a records review in Florida, Texas, or New York and track the next action and evidence in State rollout.</li>
+          <li>Track Texas custody notices separately for the company transferring the records and the company receiving them.</li>
           <li>In fictional pilots, review Midwest brokerage agreement timing and record refinance benefit evidence for Minnesota and Nebraska.</li>
           <li>Compare itemized charges on the original Loan Estimate and Closing Disclosure, and see which differences need review.</li>
           <li>Review the affected charges and timing on a revised Loan Estimate while keeping the original comparison available.</li>

@@ -4475,6 +4475,30 @@
     "checkedOn": "2026-11-13"
   },
   {
+    "jurisdiction": "TX",
+    "area": "RECORDS",
+    "id": "CEASE-NOTICE",
+    "title": "Texas terminating entity records-location notice",
+    "authority": "7 TAC §§56.204(b)(4), 57.204(b)(4)",
+    "sourceUrl": "https://www.fc.texas.gov/sites/default/files/2024-10/10252024-FC-Packet.pdf",
+    "summary": "When a covered mortgage company or banker terminates operations, that entity must provide written notice to SML within ten days after termination identifying where required records will be kept.",
+    "evidence": "Record the entity and authority, cessation date, records location, written notice and proof of delivery. Verify the deadline with the reviewer.",
+    "counsel": "Confirm which event constitutes termination, the counting and delivery rules, and the required contents of the notice.",
+    "checkedOn": "2026-11-13"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "RECORDS",
+    "id": "TRANSFER-NOTICE",
+    "title": "Texas receiving entity records-transfer notice",
+    "authority": "7 TAC §§56.204(b)(4), 57.204(b)(4)",
+    "sourceUrl": "https://www.fc.texas.gov/sites/default/files/2024-10/10252024-FC-Packet.pdf",
+    "summary": "The covered transferee must give SML written notice within ten days after receiving the required records. The company rule addresses a transferee licensed by SML, and the banker rule addresses a transferee registered with SML.",
+    "evidence": "Record the transferee and its authority, the records received, documented receipt date, written notice and proof of delivery. Verify the deadline independently of the terminating entity's notice.",
+    "counsel": "Confirm covered transfer and transferee status, how to handle staged deliveries, and the deadline and notice method.",
+    "checkedOn": "2026-11-13"
+  },
+  {
     "jurisdiction": "NY",
     "area": "RECORDS",
     "id": "APP-LOG",
