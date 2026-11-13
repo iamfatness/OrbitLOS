@@ -740,6 +740,9 @@ test("Colorado records preserve Board deadlines, granted extensions and prior pr
      ('outside','borrower','LO','',1,'Purchase','Processing','2026-11-04');`);
  const addApp=db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES (?,?, '2027-01-01',?, '2026-11-12')");
  for(const [id,state] of [["co","CO"],["outside","MI"]]) addApp.run(id,id,JSON.stringify({propertyLocation:{state}}));
+ db.exec("ALTER TABLE loan_retention_reviews DROP COLUMN coloradoReview");
+ initializeStore(db,false);
+ db.exec("UPDATE loans SET disposition='Withdrawn',dispositionDate='2024-03-04' WHERE id='co'");
  const before=capture();
  const work=(input,at=now,actor=staff)=>loanRetentionWork(db,input,actor,scope,at);
  const save=(facts,expected=0,loanId="co")=>({type:"saveColoradoRecordkeeping",loanId,facts,expected,requestId:crypto.randomUUID(),
@@ -754,12 +757,19 @@ test("Colorado records preserve Board deadlines, granted extensions and prior pr
  assert.match(work(save(facts),now,{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
  assert.match(work(save({...facts,entityId:crypto.randomUUID()})).error,/legal entity/);
  assert.match(work(save({...facts,archive:{...facts.archive,retrieval:event("2026-11-13")}})).error,/occurred/);
+ const policy={type:"saveDispositionPolicy",id:crypto.randomUUID(),expected:0,fundedDays:30,closedDays:30,reference:"Fictional policy"};
+ assert.equal(work(policy).kind,"disposition");
+ const row=(at=now)=>work({type:"dispositionQueue",offset:0},at).rows.find(item=>item.id==="co");
+ const decide=(item,options={})=>({type:"saveDispositionReview",id:crypto.randomUUID(),loanId:item.id,policyVersion:1,
+  basis:item.basis,previous:item.decision?.id??null,outcome:"Recommend disposition",reference:"Fictional recommendation",offset:0,...options});
+ assert.match(work(decide(row())).error,/Colorado borrower-file evidence/);
  const initial=save(facts);
  const first=work(initial);
  assert.equal(first.currentFinding.stateReviewDate,"2028-02-29");
  assert.equal(first.currentFinding.responseStatus,"Awaiting response");
  assert.equal(first.currentFinding.dueOn,"2026-11-12");
  assert.equal(work(initial).versions.length,1);
+ assert.match(work(decide(row())).error,/open Colorado Board notice/);
  const read={type:"coloradoRecordkeepingHistory",loanId:"co"};
  assert.equal(work(read,"2026-11-13T08:00:00Z").currentFinding.responseStatus,"Overdue");
  const investigation={...facts.investigation,extension:{...facts.investigation.extension,approval:{...event("2026-11-11"),dueOn:"2026-11-16"}},
@@ -778,6 +788,31 @@ test("Colorado records preserve Board deadlines, granted extensions and prior pr
  const manifest=JSON.parse(strFromU8(unzipSync(new Uint8Array(await archive.arrayBuffer()))["manifest.json"]));
  assert.equal(manifest.coloradoRecordkeeping[0].entity.nmls,"002341");
  assert.equal(manifest.coloradoRecordkeeping[1].finding.dueOn,"2026-11-12");
+ const {coloradoDocuments}=await import("../src/lib/colorado-recordkeeping-model.ts");
+ const complete={...facts,documents:Object.fromEntries(Object.keys(coloradoDocuments).map(key=>[key,{status:"On file",reference:"Fictional file evidence"}])),
+  retentionBasis:event("2022-11-12"),archive:{...facts.archive,retrieval:event("2026-11-10")},
+  investigation:{...investigation,dueOn:"2026-11-12",extension:undefined,
+   response:{...event("2026-11-12"),allegations:"Fictional complete answer",questions:"Fictional notice response",documents:"Fictional production inventory"}}};
+ assert.equal(work(save(complete,2)).versions[0].version,3);
+ assert.match(work(decide(row())).error,/same-day response/);
+ const confirmed={...complete,investigation:{...complete.investigation,dueAt:"2026-11-12T17:00:00-07:00",
+  response:{...complete.investigation.response,at:"2026-11-12T23:59:00Z"}}};
+ const old=row();
+ assert.equal(work(save(confirmed,3)).versions[0].version,4);
+ assert.match(work(decide(old)).error,/changed/);
+ assert.equal(row().retainColoradoThroughToday,true);
+ assert.match(work(decide(row())).error,/Colorado review date of 2026-11-12/);
+ const tomorrow="2026-11-13T08:00:00Z";
+ assert.match(work(decide(row(tomorrow)),tomorrow).error,/Record counsel/);
+ const counsel={retainThrough:"2026-11-12",reference:"Fictional counsel retention and investigation review"};
+ const review=decide(row(tomorrow),{counsel});
+ assert.equal(work(review,tomorrow).kind,"disposition");
+ assert.equal(work(review,tomorrow).kind,"disposition");
+ const auditDecision=JSON.parse(work({type:"exportRetentionAudit",policyVersion:1},tomorrow).json).decisions[0];
+ assert.equal(auditDecision.coloradoReview.evidence.version,4);
+ assert.equal(auditDecision.coloradoReview.evidence.responseStatus,"Responded on time");
+ assert.deepEqual(auditDecision.coloradoReview.counsel,counsel);
+ assert.equal(db.prepare("SELECT count(*) AS n FROM loans WHERE id='co'").get().n,1);
  assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
 });
 

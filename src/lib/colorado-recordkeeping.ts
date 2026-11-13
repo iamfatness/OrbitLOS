@@ -42,6 +42,29 @@ function reviewFile(facts: ColoradoRecordkeepingFacts, loan: Loan, now: string) 
   ] };
 }
 
+export function coloradoDispositionEvidence(db: Store, brokerageId: string, loan: Loan & { id: string }, now: string) {
+  const row = db.prepare(`SELECT version,facts,entity FROM colorado_recordkeeping_reviews
+    WHERE brokerageId=? AND loanId=? ORDER BY version DESC LIMIT 1`).get(brokerageId, loan.id);
+  if (!row && loan.propertyState !== "CO" && loan.reportState !== "CO") return null;
+  const facts = row ? JSON.parse(String(row.facts)) as ColoradoRecordkeepingFacts : null;
+  const review = facts ? reviewFile(facts, loan, now) : null;
+  const investigation = facts?.investigation ?? null;
+  const unresolved = review?.findings.find(item => !["responseTiming", "extension"].includes(item.key));
+  const gap = !review ? "Record Colorado borrower-file evidence for this loan." :
+    investigation && !investigation.response ? "Record the response to the open Colorado Board notice." : unresolved?.message ?? null;
+  return {
+    version: row ? Number(row.version) : null,
+    entity: row ? JSON.parse(String(row.entity)) as Version["entity"] : null,
+    propertyState: loan.propertyState, reportState: loan.reportState,
+    scopeReference: facts?.scopeReference ?? null, retentionBasis: facts?.retentionBasis ?? null,
+    stateReviewDate: review?.stateReviewDate ?? null, gap, source: coloradoRecordsSources.rule,
+    investigation, dueOn: review?.dueOn ?? null, dueAt: review?.dueAt ?? null,
+    responseStatus: review?.responseStatus ?? null, findings: review?.findings ?? [],
+  };
+}
+
+export type ColoradoDispositionEvidence = NonNullable<ReturnType<typeof coloradoDispositionEvidence>>;
+
 // The enclosing loan retention transaction authorizes current pilot owners.
 export function coloradoRecordkeepingWork(db: Store, command: ColoradoRecordkeepingRequest, staff: WorkspaceStaff, now: string): ColoradoRecordkeepingResult {
   const { loanId } = command;

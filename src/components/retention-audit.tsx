@@ -127,6 +127,11 @@ export function RetentionAudit({ brokerageId, onBack, openLoan }:{
           <p className="muted">Policy version {decision.policyVersion} · {dateTime(decision.at)} ET · {decision.actor}</p>
           {decision.eventDate && <p className="muted">{decision.category} <time className="whitespace-nowrap" dateTime={decision.eventDate}>{decision.eventDate}</time>
             {decision.reviewOn && <>{" · "}<span className="whitespace-nowrap">Review due <time dateTime={decision.reviewOn}>{decision.reviewOn}</time></span></>}</p>}
+          {decision.coloradoReview && <div>
+            <p><strong>Colorado evidence</strong> · {decision.coloradoReview.evidence.gap ?? decision.coloradoReview.evidence.stateReviewDate}
+              {decision.coloradoReview.evidence.responseStatus && <> · {decision.coloradoReview.evidence.responseStatus}</>}</p>
+            {decision.coloradoReview.counsel && <p>Reviewed retain-through date {decision.coloradoReview.counsel.retainThrough} · {decision.coloradoReview.counsel.reference}</p>}
+          </div>}
           {!decision.currentBorrower && <p className="muted">Loan reference {decision.loanId}</p>}
           <div className="loan-application-actions">
             <Button type="button" variant="outline" disabled={exporting} onClick={()=>choose("policies",decision.policyVersion)}>View policy</Button>
