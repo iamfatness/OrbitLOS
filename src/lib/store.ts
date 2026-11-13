@@ -94,7 +94,7 @@ const serviceOrderColumns = `
   status TEXT NOT NULL DEFAULT 'Ordered' CHECK(status IN ('Ordered', 'Received', 'Completed', 'Cancelled')),
   dueOn TEXT NOT NULL, originalDueOn TEXT NOT NULL, createdAt TEXT NOT NULL, createdBy TEXT NOT NULL, note TEXT NOT NULL,
   returns TEXT NOT NULL DEFAULT '[]', revision INTEGER NOT NULL DEFAULT 0, cancellation TEXT, lastCommand TEXT,
-  recipient TEXT CHECK (recipient IN ('Primary borrower', 'Co-borrower'))
+  recipient TEXT CHECK (recipient IN ('Primary borrower', 'Co-borrower')), applicationRevision INTEGER
 `;
 
 const closingServiceEvidenceColumns = (orderTable: "service_orders" | "service_orders_next") => `
@@ -910,10 +910,12 @@ export function initializeStore(db: Store, seedDemo = true) {
   db.transaction(() => {
     initializeSettlementSummaries(db);
     const serviceSchema = String(db.prepare("SELECT sql FROM sqlite_schema WHERE name = 'service_orders'").get()?.sql ?? "");
+    const hasServiceApplicationRevision = db.prepare("PRAGMA table_info(service_orders)").all().some(({ name }) => name === "applicationRevision");
     db.exec(`CREATE TABLE IF NOT EXISTS closing_service_evidence (${closingServiceEvidenceColumns("service_orders")});`);
     if (!serviceSchema.includes("recipient TEXT") || serviceOrderKinds.some((kind) => !serviceSchema.includes(`'${kind}'`))) {
       const columns = "id, loanId, kind, status, dueOn, originalDueOn, createdAt, createdBy, note, returns, revision, cancellation, lastCommand";
-      const orderColumns = serviceSchema.includes("recipient TEXT") ? columns + ", recipient" : columns;
+      const orderColumns = columns + (serviceSchema.includes("recipient TEXT") ? ", recipient" : "") +
+        (hasServiceApplicationRevision ? ", applicationRevision" : "");
       db.exec(`CREATE TABLE service_orders_next (${serviceOrderColumns});
         INSERT INTO service_orders_next (${orderColumns}) SELECT ${orderColumns} FROM service_orders;
         CREATE TABLE closing_service_evidence_next (${closingServiceEvidenceColumns("service_orders_next")});
@@ -922,7 +924,7 @@ export function initializeStore(db: Store, seedDemo = true) {
         DROP TABLE service_orders;
         ALTER TABLE service_orders_next RENAME TO service_orders;
         ALTER TABLE closing_service_evidence_next RENAME TO closing_service_evidence;`);
-    }
+    } else if (!hasServiceApplicationRevision) db.exec("ALTER TABLE service_orders ADD COLUMN applicationRevision INTEGER");
     db.exec(`CREATE INDEX IF NOT EXISTS service_orders_by_loan ON service_orders(loanId);
       CREATE UNIQUE INDEX IF NOT EXISTS open_service_orders_by_kind ON service_orders(loanId, kind, coalesce(recipient, ''))
         WHERE status IN ('Ordered', 'Received');

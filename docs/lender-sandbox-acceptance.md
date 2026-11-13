@@ -54,3 +54,9 @@ For a lost Orbit acknowledgement, replay the lookup ID with the same original or
 ## Saved UWM reconciliation receipts
 
 The fictional working day matched an existing condition receipt after the exact import was confirmed. An inbox-only admin was denied. A lost response after the destination stored the receipt returned a retryable failure. Concurrent retries left one destination copy and kept the source entry marked Matched. The local browser repeated the flow for a ULAD receipt and reopened the destination. Partner stage acceptance still needs original condition and ULAD deliveries correlated to a partner-confirmed loan number. Capture receipt identifiers and outcomes without exporting borrower payloads.
+
+## Employment and income verification
+
+In the simulated income workflow, an order stores the 1003 revision at creation and keeps it through replacement returns and staff review. The current worksheet requires a completed order, the correct borrower and application revision, and the exact accepted receipt and order revision. A corrected 1003 requires fresh verification evidence for the new worksheet. Historical worksheets retain the evidence they cited. Orders created before submission or before this revision was captured have unknown 1003 scope.
+
+For sandbox acceptance, obtain the provider's borrower and order identifiers, authorization and supported evidence types, pending and terminal response examples, and receipt lookup and replacement rules. Run two borrowers on the same loan, delay one receipt until after a corrected 1003, and retry the original request after a lost response. Verify that the provider creates one order per accepted request and that Orbit preserves the older receipt without using it for the corrected worksheet. Verify that a new order for the corrected 1003 can be accepted and used for pricing after the LO's review.

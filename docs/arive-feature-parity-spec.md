@@ -88,7 +88,7 @@ An assigned processor can prepare a sample worksheet for the primary or separate
 
 The demonstrated methods cover staff-entered monthly amounts, totals over a specified number of months, and gross amounts per pay period. Underwriting eligibility, calculation policies, additional borrower structures, and live pricing still need qualified review and provider validation.
 
-Accepted mock employment and income verification returns can be cited by borrower, order revision, and return receipt. The worksheet keeps the original review attribution and sample PDF. The amount and source periods are entered by staff and approved before pricing. A saved quote can reopen the exact worksheet even after a later version requires repricing. [Hosted quote evidence rehearsal](demo-rehearsal-log.md#hosted-income-verification-behind-a-mock-quote)
+Accepted mock employment and income verification returns can be cited by borrower, order revision, and return receipt. Eligibility also requires that the order was opened against the worksheet's exact submitted 1003 revision. Orders opened without a submitted 1003 and older orders without a recorded revision remain in Service orders and require a fresh order for use on a worksheet. Staff can cancel an open order before starting a replacement for the same service and borrower. The worksheet keeps the original review attribution and sample PDF. Staff enter the amount and source periods for approval before pricing. A saved quote can reopen the exact worksheet even after a later version requires repricing. [Hosted quote evidence rehearsal](demo-rehearsal-log.md#hosted-income-verification-behind-a-mock-quote)
 
 ### F03 — Lender submission and updates
 
