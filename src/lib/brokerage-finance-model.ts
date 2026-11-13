@@ -58,6 +58,7 @@ export const financeInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("settlementFeed"), ...record }),
   z.object({ type: z.literal("pullSettlementFeed"), ...record, fundingDate: date }),
   z.object({ type: z.literal("reviewSettlementFeed"), ...record, evidenceId: evidenceIdentity, note: note.min(5) }),
+  z.object({ type: z.literal("matchSettlementFeed"), ...record, fundingDate: date, evidenceId: evidenceIdentity, note: note.min(5) }),
   z.object({ type: z.literal("estimate"), ...write, expectedCents: cents.nullable(), commissionCents: cents.nullable(), expenseReviewed: z.boolean() }),
   z.object({ type: z.literal("post"), ...write, kind: z.enum(["Receipt", "Expense"]), amountCents: cents.min(1), occurredOn: date,
     reference: z.string().trim().min(1).max(120), note }),
@@ -71,7 +72,8 @@ export type SettlementEvidenceInput = Extract<FinanceInput, { type: "settlementE
 export type SettlementEvidencePreview = { kind: "settlementEvidencePreview"; amountCents: number; alreadyRecorded: boolean; revision: number };
 export type SettlementFeedRow = {
   evidenceId: string; fundingReference: string; kind: SettlementEvidence["kind"];
-  amountCents: number; status: "Imported" | "Already recorded" | "Needs review" | "Reviewed";
+  amountCents: number; status: "Imported" | "Already recorded" | "Needs review" | "Reviewed" | "Matched by owner";
+  canMatch?: boolean;
   detail: string; reviewNote: string | null; reviewedBy: string | null; reviewedAt: string | null;
 };
 export type SettlementFeed = { kind: "settlementFeed"; checkedFundingDate: string | null; rows: SettlementFeedRow[] };

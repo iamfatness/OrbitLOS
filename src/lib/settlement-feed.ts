@@ -4,7 +4,7 @@ import { importSettlementEvidence } from "./settlement-reconciliation";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 
-type FeedInput = Extract<FinanceInput, { type: "settlementFeed" | "pullSettlementFeed" | "reviewSettlementFeed" }>;
+type FeedInput = Extract<FinanceInput, { type: "settlementFeed" | "pullSettlementFeed" | "reviewSettlementFeed" | "matchSettlementFeed" }>;
 type ProviderEvidence = { fundingReference: string; evidenceId: string; occurredOn: string; reference: string } & (
   { kind: "Purchase advice"; sequence: number; grossCents: number; feesCents: number; adjustmentCents: number } |
   { kind: "Wire receipt"; amountCents: number }
@@ -15,6 +15,8 @@ const source = "orbit-settlement-sandbox";
 const fundingReference = (loan: FinanceLoan) => createHash("sha256").update(JSON.stringify([loan.id, loan.cycle, loan.date])).digest("hex").slice(0, 16);
 const evidenceAmount = (record: ProviderEvidence) => record.kind === "Wire receipt" ?
   record.amountCents : record.grossCents - record.feesCents + record.adjustmentCents;
+const isUnmatchedWire = (record: ProviderEvidence, loan: FinanceLoan) =>
+  record.kind === "Wire receipt" && record.fundingReference !== fundingReference(loan);
 
 function simulatedDeliveries(loan: FinanceLoan): ProviderEvidence[] {
   const key = fundingReference(loan);
@@ -32,7 +34,7 @@ function simulatedDeliveries(loan: FinanceLoan): ProviderEvidence[] {
 export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoan | undefined,
   staff: WorkspaceStaff, at: string, today: string): FinanceResult {
   if (!loan || (input.type !== "settlementFeed" && loan.reversedAt) ||
-      (input.type === "pullSettlementFeed" && input.fundingDate !== loan.date)) {
+      ("fundingDate" in input && input.fundingDate !== loan.date)) {
     return { error: "This funding cycle changed. Reopen it before pulling settlement evidence." };
   }
   const args = [loan.id, loan.cycle] as const;
@@ -74,19 +76,44 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
       }
       checkedFundingDate = loan.date;
     }
-  } else if (input.type === "reviewSettlementFeed") {
-    const row = db.prepare(`SELECT status, reviewNote FROM settlement_feed_receipts WHERE loanId = ? AND cycle = ?
-      AND status IN ('Needs review', 'Reviewed') AND json_extract(payload, '$.evidenceId') = ?`).get(...args, input.evidenceId);
-    if (!row || (row.status === "Reviewed" && row.reviewNote !== input.note)) return { error: "This delivery has changed. Reload the provider results." };
-    if (row.status === "Needs review") db.prepare(`UPDATE settlement_feed_receipts SET status = 'Reviewed', reviewNote = ?, reviewedBy = ?, reviewedAt = ?
-      WHERE loanId = ? AND cycle = ? AND status = 'Needs review' AND json_extract(payload, '$.evidenceId') = ?`)
-      .run(input.note, staff.name, at, ...args, input.evidenceId);
+  } else if (input.type === "reviewSettlementFeed" || input.type === "matchSettlementFeed") {
+    const matching = input.type === "matchSettlementFeed";
+    const decision = matching ? "Matched by owner" : "Reviewed";
+    const rows = db.prepare(`SELECT sequence, payload, status, reviewNote FROM settlement_feed_receipts WHERE loanId = ? AND cycle = ?
+      AND status IN ('Needs review', 'Reviewed', 'Matched by owner') AND json_extract(payload, '$.evidenceId') = ? LIMIT 2`)
+      .all(...args, input.evidenceId);
+    const [row] = rows;
+    if (rows.length !== 1 || (row.status !== "Needs review" && (row.status !== decision || row.reviewNote !== input.note))) {
+      return { error: "This delivery has changed. Reload the provider results." };
+    }
+    if (row.status === "Needs review") {
+      let detail: string | null = null;
+      if (matching) {
+        const { fundingReference: reference, ...fields } = JSON.parse(String(row.payload)) as ProviderEvidence;
+        if (!isUnmatchedWire({ fundingReference: reference, ...fields }, loan) || !checkedFundingDate) {
+          return { error: "Only an unmatched wire from this funding date can be matched here." };
+        }
+        const evidence = settlementEvidence.parse({ ...fields, schemaVersion: 1, source, loanId: loan.id, cycle: loan.cycle, fundingDate: loan.date });
+        const target = { loanId: loan.id, cycle: loan.cycle, evidence };
+        const preview = importSettlementEvidence(db, { ...target, type: "settlementEvidencePreview" }, loan, staff, at, today);
+        if ("error" in preview) return preview;
+        if (preview.kind !== "settlementEvidencePreview") return { error: "Could not check this delivery against the settlement ledger." };
+        const imported = importSettlementEvidence(db, { ...target, type: "settlementEvidenceImport", fundingDate: loan.date,
+          revision: preview.revision, entryId: crypto.randomUUID() }, loan, staff, at, today);
+        if ("error" in imported) return imported;
+        detail = preview.alreadyRecorded ? "The wire was already recorded in this cycle." : "The owner confirmed the wire belongs to this cycle and added it to received proceeds.";
+      }
+      db.prepare(`UPDATE settlement_feed_receipts SET status = ?, detail = coalesce(?, detail), reviewNote = ?, reviewedBy = ?, reviewedAt = ?
+        WHERE loanId = ? AND cycle = ? AND sequence = ?`)
+        .run(decision, detail, input.note, staff.name, at, ...args, row.sequence);
+    }
   }
   const receipts = db.prepare(`SELECT payload, status, detail, reviewNote, reviewedBy, reviewedAt
     FROM settlement_feed_receipts WHERE loanId = ? AND cycle = ? ORDER BY sequence`).all(...args) as unknown as Receipt[];
   return { kind: "settlementFeed", checkedFundingDate, rows: receipts.map(({ payload, ...receipt }) => {
     const record = JSON.parse(payload) as ProviderEvidence;
     return { ...receipt, evidenceId: record.evidenceId, fundingReference: record.fundingReference, kind: record.kind,
-      amountCents: evidenceAmount(record) };
+      amountCents: evidenceAmount(record),
+      ...(receipt.status === "Needs review" && checkedFundingDate === loan.date && isUnmatchedWire(record, loan) ? { canMatch: true } : {}) };
   }) };
 }

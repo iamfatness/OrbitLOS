@@ -43,8 +43,9 @@ export function SettlementFeed({ brokerageId, loan, onImported }: {
       if ("error" in result) setError(result.error);
       else if (result.kind === "settlementFeed") {
         setFeed(result);
-        setMessage(input.type === "pullSettlementFeed" ? "Provider deliveries checked." : "Review recorded.");
-        if (input.type === "pullSettlementFeed") onImported();
+        setMessage(input.type === "pullSettlementFeed" ? "Provider deliveries checked." :
+          input.type === "matchSettlementFeed" ? "Wire matched to this funding cycle." : "Review recorded.");
+        if (input.type === "pullSettlementFeed" || input.type === "matchSettlementFeed") onImported();
       }
     } catch {
       setError("Could not confirm the result. Retry to check the saved deliveries.");
@@ -57,8 +58,11 @@ export function SettlementFeed({ brokerageId, loan, onImported }: {
 
   function review(event: FormEvent<HTMLFormElement>, evidenceId: string) {
     event.preventDefault();
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
     const note = String(new FormData(event.currentTarget).get("note") ?? "");
-    void save({ type: "reviewSettlementFeed", loanId, cycle, evidenceId, note });
+    void save(submitter?.getAttribute("value") === "match"
+      ? { type: "matchSettlementFeed", loanId, cycle, fundingDate: date, evidenceId, note }
+      : { type: "reviewSettlementFeed", loanId, cycle, evidenceId, note });
   }
 
   return <details className="document-form" onToggle={event => setOpen(event.currentTarget.open)}>
@@ -86,8 +90,12 @@ export function SettlementFeed({ brokerageId, loan, onImported }: {
             <p className="muted">Funding reference {row.fundingReference} · Evidence {row.evidenceId}</p>
             {row.reviewedAt && <p>{row.reviewNote} · {row.reviewedBy} · {dateTime(row.reviewedAt)} ET</p>}
             {row.status === "Needs review" && !loan.reversedAt && !earlierFundingDate && <form className="record-form" onSubmit={event => review(event, row.evidenceId)}>
-              <label className="field">Review note<textarea name="note" rows={2} minLength={5} maxLength={280} required disabled={busy} /></label>
-              <div><Button size="sm" type="submit" variant="outline" className="min-h-11" disabled={busy}>Keep out of this cycle</Button></div>
+              {row.canMatch && <p>Confirm the wire belongs to cycle {cycle}, funded {dateLabel(date)}, before adding {financeMoney(row.amountCents)} to received proceeds.</p>}
+              <label className="field">Review note (required)<textarea name="note" rows={2} minLength={5} maxLength={280} required disabled={busy} /></label>
+              <div className="loan-application-actions">
+                <Button size="sm" type="submit" variant="outline" className="min-h-11" disabled={busy}>Keep out of this cycle</Button>
+                {row.canMatch && <Button size="sm" type="submit" value="match" className="min-h-11" disabled={busy}>Match wire to this cycle</Button>}
+              </div>
             </form>}
           </li>)}</ul>}
       </>}

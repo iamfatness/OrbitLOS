@@ -207,6 +207,38 @@ test("simulated settlement feed imports exact matches and records unmatched evid
   assert.equal(detail().receivedCents, 34_875_000);
 });
 
+test("only the owner can match the exact unmatched wire once and retain the source reference", async t => {
+  const { db, admin, officer, loanId, apply, closing, initialFunding, correctedFunding } = fundingFixture(t);
+  const owner = { ...admin, brokerage: { ...admin.brokerage, financeAccess: true } };
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 });
+  await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 });
+  const finance = (input, actor = owner) => brokerageFinanceWork(db, { loanId, cycle: 1, ...input }, actor, owner.brokerage.id);
+  const pull = { type: "pullSettlementFeed", fundingDate: initialFunding };
+  const feed = finance(pull);
+  const wire = feed.rows.find(row => row.canMatch);
+  assert.ok(wire);
+  const match = { type: "matchSettlementFeed", evidenceId: wire.evidenceId, fundingDate: initialFunding, note: "Compared the fictional bank receipt to this funding." };
+  assert.match(finance(match, officer).error, /workspace owner/);
+  assert.match(finance({ ...match, evidenceId: feed.rows[1].evidenceId }).error, /delivery has changed/);
+  assert.match(finance({ ...match, fundingDate: correctedFunding }).error, /cycle changed/);
+  const before = finance({ type: "detail" }).settlement;
+  const matched = finance(match);
+  const saved = matched.rows.find(row => row.evidenceId === wire.evidenceId);
+  assert.equal(saved.status, "Matched by owner");
+  assert.equal(saved.fundingReference, wire.fundingReference);
+  assert.equal(saved.reviewNote, match.note);
+  assert.ok(saved.reviewedAt);
+  assert.equal(saved.canMatch, undefined);
+  assert.deepEqual(finance(match), matched);
+  assert.deepEqual(finance(pull), matched);
+  assert.match(finance({ ...match, note: "A different decision." }).error, /delivery has changed/);
+  assert.match(finance({ ...match, type: "reviewSettlementFeed" }).error, /delivery has changed/);
+  const after = finance({ type: "detail" }).settlement;
+  assert.equal(after.receivedCents, before.receivedCents + wire.amountCents);
+  assert.equal(after.revision, before.revision + 1);
+  assert.equal(after.status, "Difference to review");
+});
+
 test("sample settlement import validates the exact cycle and retains source identity across replay and late evidence", async t => {
   const { db, admin, officer, loanId, apply, closing, initialFunding, day } = fundingFixture(t);
   const owner = { ...admin, brokerage: { ...admin.brokerage, financeAccess: true } };
