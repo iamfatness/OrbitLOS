@@ -6,6 +6,7 @@ import type { DisclosureTemplateBasis, DisclosureTemplateOptions } from "./discl
 import type { DisclosureTermChange } from "./disclosure-change-model";
 
 export const disclosureTarget = "loan-disclosures";
+export const findingDisclosureTarget = (caseId: string) => `${disclosureTarget}-finding-${caseId}`;
 export const disclosureReviewPrefix = "disclosure-review:";
 export const disclosureSigningPrefix = "disclosure-signing:";
 export const disclosureIssuePrefix = "disclosure-revised-issue:";

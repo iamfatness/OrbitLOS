@@ -15,9 +15,9 @@ import { CallReportQuarterReview } from "./call-report-quarter";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 
-export function CallReportWorkbench({ state, brokerageId, period, setPeriod, openLoan, openReadiness }: {
+export function CallReportWorkbench({ state, brokerageId, period, setPeriod, openLoan, openReadiness, showQuarterEvidence }: {
   state: Workspace; brokerageId: string; period: ReportingPeriod; setPeriod: (period: ReportingPeriod) => void;
-  openLoan: (loanId: string) => void; openReadiness: () => void;
+  openLoan: (loanId: string) => void; openReadiness: () => void; showQuarterEvidence?: boolean;
 }) {
   const [today] = useState(() => easternDate());
   const currentYear = Number(today.slice(0, 4));
@@ -60,7 +60,7 @@ export function CallReportWorkbench({ state, brokerageId, period, setPeriod, ope
       </div>
       <ReconciledCallReportExport key={`${year}:${quarter}`} brokerageId={brokerageId} period={period} openReadiness={openReadiness} />
       <CallReportQuarterReview key={`quarter:${year}:${quarter}`} brokerageId={brokerageId} period={period} openLoan={openLoan}
-        openReadiness={openReadiness} openPrior={changePeriod} version={state} />
+        openReadiness={openReadiness} openPrior={changePeriod} initiallyOpen={showQuarterEvidence} version={state} />
       <div className="loan-application-actions">
         {callReportGroups.map((label) => {
           const items = filtered.filter((item) => item.groups.includes(label));

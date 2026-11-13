@@ -137,10 +137,55 @@ test("integrated learning and obligations retain authentication and atomic audit
  assert.equal(call("learning",{operation:"list"}).result.items.length,0);
 });
 
-test("restore protects obligation versions and learning evidence",async()=>{
+test("enabled operational workspaces support manual obligations and staff policy acknowledgments", t => {
+  const f = fixture(t), entity = f.entity();
+  const operational = actor => {
+    const staff = f.staff(actor);
+    return { ...staff, brokerage: { ...staff.brokerage, pilot: false, features: { uwm: false, compliance: true, revision: 1 } } };
+  };
+  const call = (type, input, actor = f.owner) =>
+    complianceCaseWork(f.db, { type, input }, operational(actor), f.tenant, f.roster, now);
+  const save = (type, operation, fields, actor) => call(type, { operation, requestId: crypto.randomUUID(), ...fields }, actor);
+  const id = crypto.randomUUID(), draft = {
+    title: "Fictional quarterly owner review", sourceUrl: "https://example.test/report", authority: "Fictional reference",
+    basis: "Review the internal report", applicability: "Needs review", applicabilityReason: "Reviewer confirmation pending",
+    reviewerEvidence: "", effectiveFrom: "2025-01-01", effectiveThrough: "", cadence: "Quarterly", internalTargetDay: 28,
+    ownerEmail: f.owner.email, preparation: "Mortgage Call Report",
+  };
+  const scope = { entityId: entity.id, id, period: "2026-07" };
+  assert.equal(save("obligations", "save", { entityId: entity.id, id, draft, expectedRevision: 0 }).result.kind, "obligationSaved");
+  assert.equal(save("obligations", "generate", { ...scope, expectedRevision: 1 }).result.kind, "obligationOccurrence");
+  assert.equal(save("obligations", "planWork", scope).result.kind, "obligationWorkPlanned");
+  assert.equal(save("obligations", "recordFilingReceipt", { ...scope, expectedVersion: 0, status: "Submitted",
+    confirmation: "FICTIONAL-321", confirmedOn: "2026-10-09", documentReference: "", note: "" }).result.items[0].version, 1);
+  const filingArchive = { operation: "filingArchive", filters: { entityId: "", year: "2026", confirmation: "" }, offset: 0 };
+  assert.equal(call("obligations", filingArchive).result.items.length, 1);
+  assert.ok(call("obligations", filingArchive, f.lo).error);
+  assert.ok(call("daily", { view: "mine" }, f.lo).error);
+  assert.ok(call("list", {}).error);
+
+  const version = save("learning", "createVersion", { contentId: crypto.randomUUID(), previousVersionId: null, kind: "Policy",
+    title: "Fictional operational policy", body: "Fictional policy body", sourceReferences: "Fictional policy source", questions: [], passPercent: 100 }).result;
+  const { versionId } = version;
+  assert.equal(save("learning", "review", { versionId, note: "Fictional owner review",
+    lawyerReviewReference: "Fictional review evidence", rightsConfirmed: true, userReviewed: true }).result.state, "Owner reviewed");
+  assert.equal(save("learning", "publish", { versionId }).result.state, "Internally published");
+  const assignment = save("learning", "assign", { versionId, employeeEmail: f.lo.email, dueAt: "2026-12-01T23:59:59.000Z" }).result;
+  const followUp = { operation: "policyFollowUp", filter: "All outstanding", offset: 0 };
+  assert.equal(call("learning", followUp).result.total, 1);
+  assert.ok(call("learning", followUp, f.lo).result.error);
+  assert.deepEqual(call("learning", { operation: "myAssignments" }, f.lo).result.items.map(item => item.id), [assignment.assignmentId]);
+  assert.equal(save("learning", "acknowledge", { assignmentId: assignment.assignmentId, versionId, acknowledged: true }, f.lo).result.completed, true);
+  assert.equal(call("learning", followUp).result.total, 0);
+  const staff = operational(f.lo);
+  const disabled = { ...staff, brokerage: { ...staff.brokerage, features: { uwm: false, compliance: false, revision: 2 } } };
+  assert.ok(complianceCaseWork(f.db, { type: "learning", input: { operation: "myAssignments" } }, disabled, f.tenant, f.roster, now).error);
+});
+
+test("restore protects obligation versions, filing records, learning and Michigan loan evidence",async()=>{
  const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
- for(const name of ["compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_program_licenses","compliance_state_scope_versions",
-   "compliance_state_readiness_versions","compliance_learning_versions","compliance_learning_assignments","compliance_learning_events"]){
+ for(const name of ["compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts","compliance_filing_receipt_references","compliance_program_licenses","compliance_state_scope_versions",
+   "compliance_state_readiness_versions","compliance_learning_versions","compliance_learning_assignments","compliance_learning_events","compliance_michigan_loan_practices_versions"]){
    const before={schema:"same",tables:[{name,digest:"old",rows:1}],impact:{},files:{items:[]}};
    assert.equal(restoreBlockers(before,before).length,0);
    assert.ok(restoreBlockers(before,{...before,tables:[{name,digest:"new",rows:2}]}).some(x=>x.includes("Compliance program records changed")));
@@ -427,4 +472,54 @@ test("assignment license check includes the intake branch and current officer me
   assert.ok(f.run({...request,assignment:{...request.assignment,leadId:crypto.randomUUID()}}).error);
   f.db.prepare("UPDATE referral_leads SET resolvedAt=? WHERE id=?").run(now,leadId);
   assert.ok(f.run(request).error);
+});
+
+
+test("Compliance home keeps branch renewals, company review work, and tenant access distinct", t => {
+  const f = fixture(t);
+  const home = (branchId, actor = f.owner, roster = f.roster) => f.run({ operation: "ownerHome", branchId }, actor, roster);
+  const blank = home();
+  assert.equal(blank.kind, "ownerHome");
+  assert.equal(blank.entityCount, 0);
+  assert.deepEqual(blank.branches, []);
+  assert.ok(home(undefined, f.lo).error);
+
+  const entity = f.entity();
+  const north = crypto.randomUUID(), south = crypto.randomUUID();
+  for (const [id, name] of [[north, "North Office"], [south, "South Office"]]) {
+    assert.ok(updateBranch(f.db, { type: "saveBranch", id, revision: 0, name, staffEmails: [], ownerEmail: null },
+      f.staff(), f.tenant, f.roster).message);
+  }
+  function license(licenseNumber, expiresOn, holder) {
+    const id = crypto.randomUUID();
+    const result = f.run({ operation: "saveLicense", entityId: entity.id, id, requestId: crypto.randomUUID(), revision: 0,
+      jurisdiction: "MI", licenseType: "Fictional license", licenseNumber, status: "Active", effectiveOn: null, expiresOn, evidence: "",
+      holder, renewalOwner: { email: f.owner.email, accessRevision: f.owner.accessRevision } });
+    assert.ok(result.licenses?.some(item => item.id === id), result.error);
+    return id;
+  }
+  const northLicense = license("NORTH-01", "2026-11-18", { kind: "Branch", id: north });
+  license("COMPANY-01", "2026-11-13", { kind: "Company" });
+  const review = f.run(f.schedule(entity.id, { month: "2026-10", internalTarget: "2026-10-31" })).items[0];
+  f.run(f.schedule(entity.id, { title: "Outside the attention window", internalTarget: "2027-01-01" }));
+  const scoped = home(north);
+  assert.equal(scoped.companyLicenseCount, 1);
+  assert.deepEqual(scoped.branches.map(branch => [branch.name, branch.licenseCount]), [["North Office", 1], ["South Office", 0]]);
+  assert.equal(scoped.branchId, north);
+  assert.deepEqual(scoped.renewals.items.map(item => [item.licenseId, item.branchId, item.renewalOwner.name]), [[northLicense, north, f.owner.name]]);
+  assert.deepEqual(scoped.reviews.items.map(item => [item.id, item.month, item.ownerName]), [[review.id, "2026-10", f.owner.name]]);
+  assert.equal(home(south).renewals.total, 0);
+  assert.deepEqual(home(south).reviews, scoped.reviews);
+  assert.equal(home(crypto.randomUUID()).renewals.total, 2);
+  const renewedAccess = f.roster.map(member => member.email === f.owner.email ? { ...member, accessRevision: 2 } : member);
+  assert.equal(home(north, renewedAccess[0], renewedAccess).renewals.items[0].renewalOwner.available, false);
+  assert.equal(home(north, renewedAccess[0], renewedAccess).reviews.items[0].ownerName, null);
+  const staff = f.staff(f.owner, crypto.randomUUID());
+  const foreign = complianceCaseWork(f.db, { type: "program", input: { operation: "ownerHome" } }, staff, staff.brokerage.id, f.roster, now);
+  assert.equal(foreign.entityCount, 0);
+  assert.equal(foreign.renewals.total, 0);
+  assert.equal(foreign.reviews.total, 0);
+  const operational = f.staff();
+  operational.brokerage = { ...operational.brokerage, pilot: false, features: { compliance: true, uwm: false, revision: 1 } };
+  assert.equal(complianceCaseWork(f.db, { type: "program", input: { operation: "ownerHome" } }, operational, f.tenant, f.roster, now).fileFindings, undefined);
 });

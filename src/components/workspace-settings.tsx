@@ -16,7 +16,7 @@ export function WorkspaceFeatures({ workspace, connection, busy, save }: {
 }) {
   const features = workspaceFeatures(workspace);
   const admin = workspace.role === "Admin";
-  const compliance = !features.compliance ? "Off" : workspace.pilot ? "Pilot tools" : "Internal planning";
+  const compliance = !features.compliance ? "Off" : workspace.pilot ? "Internal workflows and sample files" : "Internal workflows";
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
@@ -35,7 +35,7 @@ export function WorkspaceFeatures({ workspace, connection, busy, save }: {
       <label className="demo-confirm"><input type="checkbox" name="compliance" defaultChecked={features.compliance} disabled={busy} /> Enable Compliance</label>
       <p className="muted">{workspace.pilot
         ? "Pilot lender actions use sample data. Compliance includes sample file reviews."
-        : "UWM services require separate account or brokerage access. Compliance opens internal research and monthly review."}</p>
+        : "UWM services require separate account or brokerage access. Compliance opens licensing, reporting preparation, filing history, and internal policies."}</p>
       <Button type="submit" size="sm" className="min-h-10" disabled={busy}>Save workspace features</Button>
     </form>}
   </div>;

@@ -37,6 +37,48 @@
   },
   {
     "jurisdiction": "MI",
+    "area": "LICENSING",
+    "id": "FIRST-RENEW",
+    "title": "First mortgage company renewal",
+    "authority": "Michigan DIFS first mortgage renewal guidance and MCL 445.1657(1)",
+    "sourceUrl": "https://www.michigan.gov/difs/News-and-Outreach/faq/consumer-finance/1st-mortgage",
+    "summary": "DIFS directs first mortgage company licensees and registrants to request renewal and pay through NMLS by December 15. The authority expires December 31 unless renewed.",
+    "evidence": "Exact company license or registration, current renewal instructions, applicable surety bond, NMLS request and fee receipt, and renewed authority status.",
+    "counsel": "Verify the applicable renewal-year instructions, financial responsibility evidence and treatment of pending or late renewal.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "LICENSING",
+    "id": "SECOND-RENEW",
+    "title": "Secondary mortgage company renewal",
+    "authority": "Michigan DIFS secondary mortgage renewal guidance and MCL 493.56a(1)",
+    "sourceUrl": "https://www.michigan.gov/difs/News-and-Outreach/faq/consumer-finance/2nd-mortgage",
+    "summary": "DIFS directs secondary mortgage company licensees and registrants to request renewal and pay through NMLS by December 15. The authority expires December 31 unless renewed.",
+    "evidence": "Exact company license or registration, current renewal instructions, applicable surety bond, NMLS request and fee receipt, and renewed authority status.",
+    "counsel": "Confirm separate or coordinated renewal treatment when both authorities are held, current instructions and pending or late renewal consequences.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "LICENSING",
+    "id": "MLO-RENEW",
+    "title": "Individual MLO renewal and continuing education",
+    "authority": "Michigan DIFS MLO renewal guidance",
+    "sourceUrl": "https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/mortgage-loan-originator",
+    "summary": "DIFS lists separate individual renewal requirements, including education before the request unless an exception applies. Its May 2026 FAQ and an older renewal checklist show different submission dates.",
+    "evidence": "Individual authority and sponsor, current-year NMLS instructions, education or exception evidence, bond and renewed status.",
+    "counsel": "Reconcile the current renewal-year instructions, older checklist, education exception and treatment of pending renewal before assigning individual dates.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DIFS MLO renewal checklist",
+        "url": "https://www.michigan.gov/difs/-/media/Project/Websites/difs/CF/Renewal_Checklist/Money_Loan_Originator.pdf?hash=D23FACB0ADBE138A300BABC6B42DBD4E&rev=23943ed3d0f8471db59b45c7b4059516"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "MI",
     "area": "REPORTING",
     "id": "RMLA",
     "title": "Quarterly mortgage activity report",
@@ -100,9 +142,9 @@
     "area": "RECORDS",
     "id": "SECOND",
     "title": "Secondary mortgage records",
-    "authority": "MCL 493.67 and DIFS Mortgage Compliance FAQ",
+    "authority": "MCL 493.67–493.68 and DIFS Mortgage Compliance FAQ",
     "sourceUrl": "https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/mortgage-compliance2",
-    "summary": "Review record preservation and availability under the Secondary Mortgage Loan Act for any in-scope secondary activity.",
+    "summary": "Review examination availability and the distinct retention triggers for general closed files, specified transferred copies, rejected applications and other business records under the Secondary Mortgage Loan Act.",
     "evidence": "Document type, role, retention trigger, custody and location, hold evidence, and exam delivery procedure.",
     "counsel": "Confirm applicable retention periods and overlaps before enabling a schedule.",
     "checkedOn": "2026-11-12"
@@ -1001,6 +1043,30 @@
   },
   {
     "jurisdiction": "NY",
+    "area": "LICENSING",
+    "id": "BANKER",
+    "title": "Mortgage banker license and branch authority",
+    "authority": "N.Y. Banking Law §590 and DFS mortgage industry guidance",
+    "sourceUrl": "https://www.nysenate.gov/legislation/laws/BNK/590",
+    "summary": "New York requires separate authority for covered mortgage banker activity.",
+    "evidence": "Company license, branch authority, product and activity evidence and any exemption.",
+    "counsel": "Confirm banker activity, authority and branch scope and the treatment of any affiliated broker or servicer.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "LICENSING",
+    "id": "SERVICER",
+    "title": "Mortgage servicer registration and exemption scope",
+    "authority": "N.Y. Banking Law §590(2)(b-1) and DFS Part 419 guidance",
+    "sourceUrl": "https://www.dfs.ny.gov/apps_and_licensing/mortgage_companies/mls_business_conduct_rules_faqs",
+    "summary": "Servicing business conduct coverage and registration or exemption status are distinct. Some exempt organizations regulated by DFS also have reporting duties.",
+    "evidence": "Servicing role, servicing rights or delegated functions, registration or exemption evidence and the regulating authority.",
+    "counsel": "Confirm registration, exemption or notice treatment, Part 419 reporting applicability and covered portfolios.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
     "area": "REPORTING",
     "id": "VOOR",
     "title": "Registered mortgage broker Volume of Operations Report",
@@ -1027,6 +1093,93 @@
     "summary": "The statute directs originating entities to submit NMLS reports of condition in the form and with the information NMLS requires.",
     "evidence": "Originating entity classification, relevant report period, FV7 reconciliation and receipt.",
     "counsel": "Confirm originating entity scope, current reporting schedules and whether any additional New York reporting applies.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "QRES",
+    "title": "Quarterly report of employment status",
+    "authority": "New York DFS Quarterly Report of Employment Status",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2025/05/quarterly-report-employment-status-2025-fill.pdf",
+    "summary": "DFS instructs originating entities to mail the notarized employment status report within 30 days after each calendar quarter.",
+    "evidence": "Originating entity NMLS identifier, reportable MLO employment events, Temporary Authority roster, signed report and mailing evidence.",
+    "counsel": "Reconcile the form and DFS website instructions for separations, confirm no-change and amendment treatment, and verify the current form.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "BANKER-VOOR",
+    "title": "Licensed mortgage banker Volume of Operations Report",
+    "authority": "N.Y. Banking Law §597 and DFS banker instructions",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2026/04/2025-Licensed-Mortgage-Banker-VOOR-Instructions.pdf",
+    "summary": "DFS published a distinct 2025 calendar-year banker return, due June 22, 2026, online or by mail with a notarized affidavit.",
+    "evidence": "Banker license, report-year banker schedules, application reconciliation, signed attestation or affidavit and submission receipt.",
+    "counsel": "Confirm applicable report-year deadline, current schedules, attestation and inactive or surrendered license treatment.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "BANKER-QFS",
+    "title": "Mortgage banker fiscal-quarter financial report",
+    "authority": "3 NYCRR §410.7(m) and DFS commitment-data guidance",
+    "sourceUrl": "https://www.dfs.ny.gov/industry_guidance/industry_letters/il20140916_elimination_manual_submission",
+    "summary": "DFS requires unaudited financial statements within 45 days after fiscal quarter-end. The NMLS MCR can replace manual submission of quarterly commitment data.",
+    "evidence": "Banker license, fiscal quarter, financial schedules, any MCR receipt used for commitment data and DFS submission evidence.",
+    "counsel": "Confirm the current form and submission channel, fiscal quarter dates and which data the MCR replaces.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "BANKER-AUDIT",
+    "title": "Mortgage banker annual audited financial statement",
+    "authority": "3 NYCRR §410.7(b)",
+    "sourceUrl": "https://govt.westlaw.com/nycrr/Document/I4e77f867cd1711dda432a117e6e0f345?transitionType=Default",
+    "summary": "A mortgage banker files an audited statement with the department within 90 days of fiscal year-end.",
+    "evidence": "Banker license, fiscal year-end, independent audit and DFS submission evidence.",
+    "counsel": "Confirm filing scope, current channel and applicable audit requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "VOSR",
+    "title": "Volume of Servicing Report",
+    "authority": "3 NYCRR §419.8 and DFS VOSR filing guidance",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2022/07/bf419_text.pdf",
+    "summary": "Part 419 provides for a servicing volume report within 30 days after each calendar quarter for covered servicers when required by the Superintendent.",
+    "evidence": "Servicing role and coverage, quarter and schedules, reconciliation, authorized attestation and VOSR receipt.",
+    "counsel": "Confirm the covered entity, current instructions, portfolio and zero-activity treatment.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "DFS mortgage filings and VOSR portal", "url": "https://www.dfs.ny.gov/apps_and_licensing/mortgage_companies" }
+    ]
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "SERVICER-QFS",
+    "title": "Servicer fiscal-quarter financial report and net worth",
+    "authority": "3 NYCRR §419.9(e)",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2022/07/bf419_text.pdf",
+    "summary": "Covered servicers submit financial reporting and net worth certification within 45 days after fiscal quarter-end.",
+    "evidence": "Applicable registration or exemption, fiscal quarter, financial schedules, net worth certification and DFS submission evidence.",
+    "counsel": "Confirm applicable scope, quarter and current format and submission channel.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "SERVICER-AUD",
+    "title": "Servicer annual audited financial statement",
+    "authority": "3 NYCRR §419.9(f)",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2022/07/bf419_text.pdf",
+    "summary": "Covered servicers submit audited financial statements within 90 days after fiscal year-end unless the Superintendent approves substitute financial information.",
+    "evidence": "Servicing authority, fiscal year-end, independent audit or written approval of substitute information and DFS submission evidence.",
+    "counsel": "Confirm applicability, current channel and whether DFS approved any substitution.",
     "checkedOn": "2026-11-12"
   },
   {
@@ -1183,6 +1336,298 @@
     "summary": "The statute requires licensees to file through NMLS under oath or affirmation for the reporting period and date established by NMLS.",
     "evidence": "Applicable license, prescribed period and form, West Virginia activity, certification and receipt.",
     "counsel": "Confirm the relationship to any current state annual and statistical reports, exact form instructions and no-activity treatment.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "PA",
+    "area": "LOAN",
+    "id": "DISCLOSURE",
+    "title": "Application disclosures and discontinued Pennsylvania form",
+    "authority": "10 Pa. Code §46.2(b)–(f); DoBS January 16, 2014 letter",
+    "sourceUrl": "https://www.pacodeandbulletin.gov/secure/pacode/data/010/chapter46/s46.2.html",
+    "summary": "The department discontinued the separate Pennsylvania one-page mortgage disclosure and identified federal disclosures as its replacement. The codified rule still describes a department-prescribed form and related procedures.",
+    "evidence": "Application date, applicable federal forms, version and delivery evidence, broker and lender roles, and historical form evidence when relevant.",
+    "counsel": "Resolve the interaction between the rule text and agency letter for this product and transaction date, including lender election and acknowledgment treatment.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DoBS letter discontinuing the state form",
+        "url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dobs/documents/secretary-letters/mortgage/one%20page%20mortgage%20disclosure%20discontinued%20011614.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "PA",
+    "area": "OUTREACH",
+    "id": "ADVERTISING",
+    "title": "Mortgage advertising accuracy",
+    "authority": "10 Pa. Code §46.2(a)",
+    "sourceUrl": "https://www.pacodeandbulletin.gov/secure/pacode/data/010/chapter46/s46.2.html",
+    "summary": "The rule prohibits false or misleading mortgage loan advertising.",
+    "evidence": "Published creative and dates, substantiation for claims, terms and rates, and approval evidence.",
+    "counsel": "Confirm which entities and channels the provision covers and what other state and federal disclosures apply.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "PA",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Examination access and borrower file requests",
+    "authority": "7 Pa.C.S. §6138(a)(1); 10 Pa. Code §46.2(l)",
+    "sourceUrl": "https://www.legis.state.pa.us/WU01/LI/LI/CT/HTM/07/00.061.038.000..HTM",
+    "summary": "The department has examination access. The administrative rule also addresses borrower requests for records the borrower paid for or signed, subject to legal restrictions.",
+    "evidence": "Examination request, scoped file inventory, retrieval log, borrower request and response, and any documented restriction.",
+    "counsel": "Confirm records and retention rules for the license, delivery scope and exceptions for borrower requests.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Mortgage lending regulations",
+        "url": "https://www.pacodeandbulletin.gov/secure/pacode/data/010/chapter46/s46.2.html"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "LOAN",
+    "id": "SPECIAL-FEE",
+    "title": "Mortgage broker pre-application and fee disclosures",
+    "authority": "3 NYCRR §38.3; DFS special fee disclosure guidance",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2020/03/ilmb091215.pdf",
+    "summary": "DFS guidance identifies a separate broker disclosure for covered fees and discusses timing in relation to applications and fees. Review it alongside the applicable pre-application requirements.",
+    "evidence": "Application channel, fee type and recipient, operative form, dated delivery evidence and any consent or fee event.",
+    "counsel": "Confirm the current form and trigger for the fee, the channel-specific procedure, and overlap with federal disclosure and fee timing.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "OUTREACH",
+    "id": "BROKER-ROLE",
+    "title": "Broker role in advertising",
+    "authority": "3 NYCRR §38.2(d)",
+    "sourceUrl": "https://www.dfs.ny.gov/industry_guidance/enforcement_discipline/ea20210407_freedom_one_funding_inc",
+    "summary": "DFS enforces the distinction between arranging loans through third parties and implying that a broker makes or funds loans itself.",
+    "evidence": "Published ad or website, dated broker-role disclosure, legal and approved names, and approval evidence.",
+    "counsel": "Confirm current wording, channel coverage and any separate name, domain and identifier requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Broker transaction and examination records",
+    "authority": "3 NYCRR §410.7; DFS Mortgage Broker Guidebook",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2021/04/mortgage_broker_guidebook.pdf",
+    "summary": "The DFS broker guide describes state books and records and a three-year minimum, alongside potentially longer federal retention for certain records.",
+    "evidence": "Application register, sample loan files and disclosures, status and retention dates, and retrieval evidence.",
+    "counsel": "Confirm the current Part 410 text, retention start for each record, electronic storage and any longer applicable requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NJ",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Broker services agreement and fee disclosures",
+    "authority": "N.J.A.C. 3:21; DOBI application disclosure form",
+    "sourceUrl": "https://www.nj.gov/dobi/division_banking/ocf/NJ_Application_Disclosure_Form_20170927.pdf",
+    "summary": "The DOBI form distinguishes the broker's separate services agreement from the application disclosure and describes fee categories by role.",
+    "evidence": "Borrower and lender roles, signed services agreement, fee ledger, current form version and delivery evidence.",
+    "counsel": "Confirm current broker agreement wording and timing, the lender's separate form responsibility, fee allocation and the applicable form revision.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DOBI recodification to 3:21",
+        "url": "https://www.nj.gov/dobi/proposed/re220118njac3_21.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NJ",
+    "area": "OUTREACH",
+    "id": "ADVERTISING",
+    "title": "Residential mortgage advertising",
+    "authority": "N.J.A.C. 3:21, subch. 8",
+    "sourceUrl": "https://www.nj.gov/dobi/proposed/re220118njac3_21.pdf",
+    "summary": "DOBI recodified the residential mortgage advertising requirements in Subchapter 8 of Chapter 21.",
+    "evidence": "Published creative, channel, company and trade names, originator and license identifiers where applicable, and substantiation.",
+    "counsel": "Confirm the current subchapter text and any changes since recodification, and specify which identifiers and disclosures apply to each channel.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NJ",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Licensed brokerage records and examination production",
+    "authority": "N.J.A.C. 3:21, subch. 6",
+    "sourceUrl": "https://www.nj.gov/dobi/proposed/re220118njac3_21.pdf",
+    "summary": "The recodified subchapter covers books and records, examinations and annual reports, including production of records stored electronically.",
+    "evidence": "Broker file inventory, electronic storage and access references, examination request and sample production evidence.",
+    "counsel": "Confirm current record-level retention, approved storage, production format and deadlines for the license.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "DE",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Separate written mortgage broker agreement",
+    "authority": "5 Del. Admin. C. 2104 §§1–2",
+    "sourceUrl": "https://archive.regulations.delaware.gov/AdminCode/title5/2100/2104.shtml",
+    "summary": "The regulation specifies a separate signed agreement and its contents, disclosure of terms before nonrefundable fees other than a credit report fee, an applicant copy at signing and a lender copy.",
+    "evidence": "Agreement version and terms, signatures, fee classification and collection evidence, and dated applicant and lender copy evidence.",
+    "counsel": "Confirm current rule text, product and party scope, the fee exception and acceptable timing and evidence for each copy.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "DE",
+    "area": "OUTREACH",
+    "id": "AD-ARCHIVE",
+    "title": "Mortgage brokerage advertising archive",
+    "authority": "5 Del. Admin. C. 2102; 5 Del. Admin. C. 101",
+    "sourceUrl": "https://archive.regulations.delaware.gov/AdminCode/title5/2100/2102.shtml",
+    "summary": "Delaware's broker recordkeeping and retention regulations identify advertising as a category for examination evidence.",
+    "evidence": "Published ads by channel, publication dates, associated approvals and an examination retrieval sample.",
+    "counsel": "Confirm the applicable version, archive period and start date, and additional rules on content and identifiers.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Retention schedule",
+        "url": "https://archive.regulations.delaware.gov/AdminCode/title5/100/101.shtml"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "DE",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Brokered and unsuccessful application files",
+    "authority": "5 Del. Admin. C. 2102; 5 Del. Admin. C. 101",
+    "sourceUrl": "https://archive.regulations.delaware.gov/AdminCode/title5/2100/2102.shtml",
+    "summary": "The rules address broker transaction records, including unsuccessful applications, and the applicable retention schedule.",
+    "evidence": "Application and disposition, agreement, fee and supporting documents, retention classification and retrieval evidence.",
+    "counsel": "Confirm the record categories for each disposition, retention start events and any longer federal period.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Retention schedule",
+        "url": "https://archive.regulations.delaware.gov/AdminCode/title5/100/101.shtml"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "MD",
+    "area": "LOAN",
+    "id": "DISCLOSURE",
+    "title": "Delivery and receipt of Maryland mortgage disclosures",
+    "authority": "COMAR 09.03.06.03",
+    "sourceUrl": "https://regs.maryland.gov/us/md/exec/comar/09.03.06.03",
+    "summary": "The rule describes delivery and receipt for certain Maryland disclosures and agreements tied to a completed application. It refers to the underlying Commercial Law provisions for applicability.",
+    "evidence": "Product and statutory basis, completed application date, dated delivery and receipt evidence, and the specific form or agreement.",
+    "counsel": "Confirm which underlying statute applies, the deadline and delivery method, and the interaction with federal requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MD",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Advertising identity and social profile exception",
+    "authority": "COMAR 09.03.06.06",
+    "sourceUrl": "https://regs.maryland.gov/us/md/exec/comar/09.03.06.06",
+    "summary": "The rule addresses misleading claims, approved names and addresses, and the licensee NMLS identifier, including a prominent profile-display exception for social statements.",
+    "evidence": "Published creative and profile capture, licensee and trade names, company identifier, and any approval or exception evidence.",
+    "counsel": "Confirm exact profile and trade-name conditions, employee advertising and additional individual originator requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MD",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Mortgage Call Report and renewal evidence",
+    "authority": "Md. Code, Fin. Inst. §11-513.1",
+    "sourceUrl": "https://mgaleg.maryland.gov/2026RS/Statute_Web/gfi/11-513.1.pdf",
+    "summary": "The statute requires a quarterly NMLS call report in the form and on the date NMLS specifies. It also addresses exempt mortgage lenders filing for their licensed originators. Applicable components depend on the activity and current instructions.",
+    "evidence": "Maryland license, prescribed form and period, state activity, applicable financial condition evidence, and NMLS receipt.",
+    "counsel": "Confirm current entity instructions, components, no-activity handling, and any separate financial statement or state supplement.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "NMLS MCR policy",
+        "url": "https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/pubs/policyGuide/reference/policyGuide/maps/topics/nmlsPG_MCR_subsection-1.html"
+      },
+      {
+        "label": "Historical Maryland renewal guidance on MCR use",
+        "url": "https://labor.maryland.gov/finance/advisories/advisory-licenserenewalfirstalert.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "VA",
+    "area": "LOAN",
+    "id": "COMPENSATION",
+    "title": "Written borrower-paid broker compensation",
+    "authority": "Va. Code §6.2-1616(B)",
+    "sourceUrl": "https://law.lis.virginia.gov/vacode/title6.2/chapter16/section6.2-1616/",
+    "summary": "Virginia requires a signed written agreement for borrower-paid broker compensation and limits receipt before a written lender commitment, subject to documented cost exceptions. The section also addresses certain dual compensation arrangements.",
+    "evidence": "Signed agreement, lender commitment, charge and receipt dates, cost documentation, and any dual-role disclosure.",
+    "counsel": "Confirm covered compensation, permitted costs and exceptions, dual-role disclosure timing and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "VA",
+    "area": "OUTREACH",
+    "id": "ADVERTISING",
+    "title": "Advertising identity and mortgage claims",
+    "authority": "10VAC5-160-60",
+    "sourceUrl": "https://law.lis.virginia.gov/admincode/title10/agency5/chapter160/section60/",
+    "summary": "The rule requires conspicuous license information and covers preapproval, current noteholder references, and refinance payment claims.",
+    "evidence": "Published ad, license details, disclosures and prominence evidence, and claim and data-source substantiation.",
+    "counsel": "Confirm the required content for each channel, the source notice for mortgage information, and applicable federal disclosure rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "VA",
+    "area": "RECORDS",
+    "id": "COMPENSATION",
+    "title": "Broker compensation and settlement records",
+    "authority": "Va. Code §§6.2-1609(A), (C), 6.2-1611",
+    "sourceUrl": "https://law.lis.virginia.gov/vacode/title6.2/chapter16/section6.2-1609/",
+    "summary": "A licensed broker retains specified compensation and settlement records for at least three years after the mortgage is made and maintains required books separately from other businesses.",
+    "evidence": "Loan date, original compensation contract, settlement statement, fee account, records separation and exam retrieval.",
+    "counsel": "Confirm additional required records and rules for unclosed files, electronic records and overlapping longer retention.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WV",
+    "area": "LOAN",
+    "id": "FEES",
+    "title": "Broker charges and fee evidence",
+    "authority": "W. Va. Code §31-17-12",
+    "sourceUrl": "https://code.wvlegislature.gov/31-17-12/",
+    "summary": "The statute governs fees and charges in covered transactions. Review the proposed charge, the party imposing it and any required disclosure or support.",
+    "evidence": "Itemized fee, recipient, documented services and third-party invoice, and the relevant written disclosure.",
+    "counsel": "Confirm each permitted charge and calculation, the responsible party, fee disclosure timing and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WV",
+    "area": "OUTREACH",
+    "id": "AD-ARCHIVE",
+    "title": "Advertising archive and team names",
+    "authority": "106 CSR 5 §8, effective May 1, 2026",
+    "sourceUrl": "https://apps.sos.wv.gov/adlaw/csr/readfile.aspx?DocId=58849&Format=PDF",
+    "summary": "The rule addresses retaining three years of ads, including web and social use. It also sets registration and prominence conditions for team names in advertising.",
+    "evidence": "Published creative or permitted equivalent, publication dates, trade-name and NMLS evidence, and prominence and retrieval samples.",
+    "counsel": "Confirm which rule version applies to historical ads and whether the specific medium and team name meet the rule.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WV",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Closed and unclosed broker file retention",
+    "authority": "106 CSR 5 §§2.3, 6–7, effective May 1, 2026",
+    "sourceUrl": "https://apps.sos.wv.gov/adlaw/csr/readfile.aspx?DocId=58849&Format=PDF",
+    "summary": "The rule uses 36 months from closing for a closed brokered loan. For an unclosed file it uses the latest applicable application, credit document, required disclosure or consumer termination request.",
+    "evidence": "Disposition, close date or dated unclosed-file events, broker file inventory, records location and sample retrieval.",
+    "counsel": "Confirm historical transition, which events count, regulator access and longer applicable retention.",
     "checkedOn": "2026-11-12"
   },
   {
@@ -1390,6 +1835,288 @@
     "checkedOn": "2026-11-12"
   },
   {
+    "jurisdiction": "CT",
+    "area": "LOAN",
+    "id": "FEE-DISCLOSURE",
+    "title": "Fee disclosure and signed borrower acknowledgment",
+    "authority": "Conn. Gen. Stat. §§36a-493(a)(6), 36a-494(a)(1)(B)",
+    "sourceUrl": "https://prdext2.cga.ct.gov/current/pub/chap_668.htm",
+    "summary": "Transaction records must include a signed borrower acknowledgment of disclosure of the full fee, commission or consideration paid for origination and settlement services.",
+    "evidence": "Dated signed acknowledgment, fee disclosure, settlement and fee ledger, and transaction roles.",
+    "counsel": "Confirm form, timing, signer, amounts and whether settlement disclosures and acknowledgment satisfy the requirement.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CT",
+    "area": "LOAN",
+    "id": "REFI-BENEFIT",
+    "title": "Tangible net benefit for nonprime refinancing",
+    "authority": "Conn. Gen. Stat. §36a-760g(b)",
+    "sourceUrl": "https://www.cga.ct.gov/CURRENT/PUB/chap_669.htm#sec_36a-760g",
+    "summary": "A broker may offer a covered nonprime refinance only when it provides or is expected to provide a tangible net benefit.",
+    "evidence": "Nonprime classification, existing and proposed terms and costs, borrower circumstances and dated benefit assessment.",
+    "counsel": "Confirm the current nonprime definition, evidence standard, offer event and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CT",
+    "area": "OUTREACH",
+    "id": "BROKER-ROLE",
+    "title": "Broker-only advertising statement and offer claims",
+    "authority": "Conn. Gen. Stat. §36a-497(a)",
+    "sourceUrl": "https://prdext2.cga.ct.gov/current/pub/chap_668.htm",
+    "summary": "Connecticut prescribes a conspicuous statement for covered broker-only ads and restricts simulated checks, certain comparisons, qualification claims and government-like mailings.",
+    "evidence": "Published creative and envelope, broker-role statement, channel, claim support and identifiers.",
+    "counsel": "Confirm exact wording, separate identifier rules and required qualification or comparison disclosures by medium.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CT",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Residential transaction file and examination response",
+    "authority": "Conn. Gen. Stat. §36a-493(a), (c)",
+    "sourceUrl": "https://prdext2.cga.ct.gov/current/pub/chap_668.htm",
+    "summary": "The statute specifies transaction records and a five-business-day response to the commissioner, subject to extension. A two-year minimum generally applies to nonserviced transaction records, with longer obligations in some cases.",
+    "evidence": "Initial and final application, disclosures, evaluation material, role, closing records, request and production dates and extension.",
+    "counsel": "Confirm retention scope by role, unclosed files, delivery method and longer periods.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "RI",
+    "area": "LOAN",
+    "id": "PRE-CLOSE-ESCROW",
+    "title": "Preclosing fee escrow and documented offsets",
+    "authority": "R.I. Gen. Laws §19-14.1-8",
+    "sourceUrl": "https://webserver.rilegislature.gov/Statutes/TITLE19/19-14.1/19-14.1-8.htm",
+    "summary": "Covered preclosing fees paid to a lender or broker go into a qualifying escrow account. The statute governs offsets, records and segregation.",
+    "evidence": "Fee type and receipt, escrow ledger and bank records, dated offsets, invoices, reconciliation and disposition.",
+    "counsel": "Confirm covered receipts, timing and refund duties, federal collection restrictions and the permitted offset basis.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "RI",
+    "area": "OUTREACH",
+    "id": "LICENSE-STATUS",
+    "title": "Rhode Island license designation in advertisements",
+    "authority": "230-RICR-40-10-2 §2.5(J)",
+    "sourceUrl": "https://rules.sos.ri.gov/regulations/part/230-40-10-2",
+    "summary": "Licensees use words substantially similar to the applicable Rhode Island license designation in advertisements disseminated primarily in the state.",
+    "evidence": "Published creative, distribution targeting and dates, designation and identifiers, and approval.",
+    "counsel": "Confirm campaigns primarily disseminated in Rhode Island and applicable company and originator identifiers.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "RI",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Broker contact history, application log and records",
+    "authority": "230-RICR-40-10-2 §2.9",
+    "sourceUrl": "https://rules.sos.ri.gov/regulations/part/230-40-10-2",
+    "summary": "The rule covers activity from initial contact through final disposition and requires a loan log. For loan brokers it specifies a three-year minimum from application for listed records.",
+    "evidence": "Initial contact, application, Regulation B completeness date, disposition, log, source records and exam retrieval.",
+    "counsel": "Confirm treatment of contacts without applications, longer federal periods and production instructions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MA",
+    "area": "LOAN",
+    "id": "RATE-LOCK",
+    "title": "Broker rate-lock representations and fee transmittal",
+    "authority": "209 CMR 42.11A and 42.12A(3)",
+    "sourceUrl": "https://www.mass.gov/doc/209-cmr-4200-the-licensing-of-mortgage-lenders-and-mortgage-brokers-2/download",
+    "summary": "A broker may convey a qualifying lender commitment and transmit a fee payable to that lender under stated conditions. The rule distinguishes requests from commitments and prohibits broker issuance and misleading lock representations.",
+    "evidence": "Request and script, lender commitment, consumer delivery, payee, dated fee and transmittal evidence.",
+    "counsel": "Confirm commitment version and legal effect, exact request wording, fee and federal timing.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MA",
+    "area": "LOAN",
+    "id": "LICENSE-DISC",
+    "title": "Written license identifier disclosure",
+    "authority": "209 CMR 42.14",
+    "sourceUrl": "https://www.mass.gov/doc/209-cmr-4200-the-licensing-of-mortgage-lenders-and-mortgage-brokers-2/download",
+    "summary": "The October 2025 final text requires written disclosure of the licensee NMLS identifier when a fee is paid or a mortgage application is provided or presented for signature. The earlier published regulation includes a broker agreement form.",
+    "evidence": "Application and fee timeline, dated written identifier disclosure and historical agreement where applicable.",
+    "counsel": "Confirm the governing version, treatment of overlapping events and any independently applicable agreement obligation.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Final amendments effective notice",
+        "url": "https://www.mass.gov/doc/fourth-quarter-2025-enforcement-bulletin/download"
+      },
+      {
+        "label": "Earlier rate-lock and agreement text",
+        "url": "https://www.mass.gov/regulations/209-CMR-42-rate-lock-regulations"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "MA",
+    "area": "OUTREACH",
+    "id": "BROKER-ROLE",
+    "title": "License identification and advertised rates or terms",
+    "authority": "209 CMR 42.09(4), 42.12A(4), (12)–(13), 42.14",
+    "sourceUrl": "https://www.mass.gov/doc/209-cmr-4200-the-licensing-of-mortgage-lenders-and-mortgage-brokers-2/download",
+    "summary": "The rule requires license identification and a broker-role statement when specified rates or terms appear, restricts funding and rate guarantee claims, and prescribes a three-year ad archive.",
+    "evidence": "Published creative or script, publication date, trigger terms, license identification, role statement and archive.",
+    "counsel": "Confirm statement, advertising triggers, employee and originator identification and reused creative handling.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MA",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Closed and unclosed mortgage broker records",
+    "authority": "209 CMR 42.09(1)(b)–(c); 209 CMR 48.00",
+    "sourceUrl": "https://www.mass.gov/doc/209-cmr-4200-the-licensing-of-mortgage-lenders-and-mortgage-brokers-2/download",
+    "summary": "The final rule lists records for brokered loans and a three-year minimum from when the loan is made. For unclosed applications it measures from the later of application and the licensee's credit decision.",
+    "evidence": "Application and credit decision dates, disposition, disclosures, electronic correspondence and retrieval.",
+    "counsel": "Confirm how brokers record lender decisions, files without a decision and longer periods or storage conditions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "VT",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Approved mortgage broker agreement and timing",
+    "authority": "8 V.S.A. §2219; Banking Regulation B-2014-02",
+    "sourceUrl": "https://legislature.vermont.gov/statutes/section/08/073/02219",
+    "summary": "The statute specifies a commissioner-approved agreement signed by broker and borrower, tied to signed application or collecting fees or charges. It provides a limited exception for certain independent processors and underwriters.",
+    "evidence": "Approved form, signed application, agreement signatures and fee events, disclosures and exception evidence.",
+    "counsel": "Confirm approved version, which event controls, and whether the independent contractor exception applies.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DFR mortgage broker regulation",
+        "url": "https://dfr.vermont.gov/reg-bul-ord/mortgage-brokers"
+      },
+      {
+        "label": "DFR model agreement",
+        "url": "https://dfr.vermont.gov/sites/finreg/files/doc_library/dfr-banking-broker-agreement-model-form.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "VT",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Broker and originator identifiers on forms and advertising",
+    "authority": "8 V.S.A. §2244",
+    "sourceUrl": "https://legislature.vermont.gov/statutes/section/08/073/02244",
+    "summary": "Vermont requires clear display of applicable originator and company NMLS identifiers on covered applications, solicitations and ads, including business cards and websites.",
+    "evidence": "Published materials, application and solicitation samples, identifiers, channel and approval.",
+    "counsel": "Confirm identifiers by role and placement and guidance for social and other channels.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "VT",
+    "area": "RECORDS",
+    "id": "FINAL-ENTRY",
+    "title": "Secure records and final-entry retention",
+    "authority": "8 V.S.A. §2119",
+    "sourceUrl": "https://legislature.vermont.gov/statutes/section/08/072/02119",
+    "summary": "The statute requires secure preservation for at least seven years after the final entry on a recorded loan, access for the commissioner and lawful disposal.",
+    "evidence": "Final entry and status, inventory, custody, examination retrieval and disposal evidence.",
+    "counsel": "Confirm final-entry treatment for unclosed files, record categories and longer holds.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NH",
+    "area": "LOAN",
+    "id": "ADVANCE-FEES",
+    "title": "Written explanation of preclosing fees",
+    "authority": "N.H. RSA 397-A:16(I)",
+    "sourceUrl": "https://gc.nh.gov/rsa/html/XXXV/397-A/397-A-16.htm",
+    "summary": "A broker collecting a fee before closing must give the borrower a written explanation of its purpose and disposition. The section addresses application processing and third-party costs.",
+    "evidence": "Fee ledger and invoice, dated explanation and delivery, collection and disposition.",
+    "counsel": "Confirm explanation timing, permitted fee types and refunds, and federal fee restrictions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NH",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Mortgage advertising claims and originator identifiers",
+    "authority": "N.H. RSA 397-A:14-a",
+    "sourceUrl": "https://gc.nh.gov/rsa/html/XXXV/397-A/397-A-14-a.htm",
+    "summary": "The statute restricts misleading rate, term and condition claims and requires the relevant originator NMLS identifier on covered applications, solicitations and ads.",
+    "evidence": "Published material, claims support, application sample, originator identifier and approval.",
+    "counsel": "Confirm role and channel requirements, when a company ID is also required and prequalification statements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NH",
+    "area": "RECORDS",
+    "id": "FINAL-ACTIVITY",
+    "title": "Loan and application records from the final transaction",
+    "authority": "N.H. RSA 397-A:11(I)",
+    "sourceUrl": "https://gc.nh.gov/rsa/html/XXXV/397-A/397-A-11.htm",
+    "summary": "Transaction records must be readily accessible for examination for at least three years after the licensee's final transaction on a loan or application file.",
+    "evidence": "Closed and unclosed files, dated final transaction, storage and examination retrieval.",
+    "counsel": "Confirm what counts as the final transaction for each disposition, required records and overlapping retention.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ME",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Written, dated and signed broker agreement",
+    "authority": "9-A M.R.S. §10-302",
+    "sourceUrl": "https://legis.maine.gov/statutes/9-A/title9-Asec10-302.html",
+    "summary": "Maine specifies a written agreement dated and signed by the consumer, with service, payment and refund terms and a prescribed notice.",
+    "evidence": "Version, signatures, services and payment terms, notice and copy evidence.",
+    "counsel": "Confirm roles, transaction scope, prescribed wording, consumer copy evidence and exemptions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ME",
+    "area": "LOAN",
+    "id": "EARLY-DISCLOSURE",
+    "title": "Written consumer protections before agreement or payment",
+    "authority": "9-A M.R.S. §10-303",
+    "sourceUrl": "https://legis.maine.gov/statutes/9-A/title9-Asec10-303.html",
+    "summary": "The broker gives the written consumer-protections disclosure before either agreement or consumer payment, whichever occurs first.",
+    "evidence": "Disclosure version and contents, delivery, agreement and first payment or documented absence.",
+    "counsel": "Confirm triggering events, bond and escrow content, third-party fees and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ME",
+    "area": "OUTREACH",
+    "id": "PRINT-AD",
+    "title": "Print license number and advertising accuracy",
+    "authority": "9-A M.R.S. §10-304",
+    "sourceUrl": "https://legis.maine.gov/statutes/9-A/title9-Asec10-304.html",
+    "summary": "Maine prohibits false or misleading broker service terms and requires the broker license number in print advertising in the state.",
+    "evidence": "Published print material and dates, license number, substantiation and approval.",
+    "counsel": "Confirm print classification and separate rules for electronic or originator advertising.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ME",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Examination production and out-of-state records access",
+    "authority": "9-A M.R.S. §§6-106, 13-115",
+    "sourceUrl": "https://web.legis.maine.gov/statutes/9-A/title9-Asec6-106.html",
+    "summary": "The administrator may examine and request records and choose how out-of-state records are made accessible. The Bureau uses the State Examination System for NMLS-licensed entities.",
+    "evidence": "Examination notice, loan and client file inventory, records location and secure production and acknowledgment.",
+    "counsel": "Confirm applicable sections, exact file categories, retention and request deadlines.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Mortgage examination statute",
+        "url": "https://web.legis.maine.gov/statutes/9-A/title9-Asec13-115.html"
+      },
+      {
+        "label": "Bureau examination FAQ",
+        "url": "https://www.maine.gov/pfr/consumercredit/industry/examinations/faq.html"
+      }
+    ]
+  },
+  {
     "jurisdiction": "KY",
     "area": "LICENSING",
     "id": "COMPANY",
@@ -1589,15 +2316,112 @@
   },
   {
     "jurisdiction": "FL",
+    "area": "LICENSING",
+    "id": "LENDER",
+    "title": "Mortgage lender and servicing endorsement authority",
+    "authority": "Fla. Stat. §§494.00611 and 494.0067(8)",
+    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0067",
+    "summary": "Florida distinguishes lender authority from broker authority. Section 494.0067 limits servicing beyond six months to lenders with a servicing endorsement and sets net worth conditions.",
+    "evidence": "Lender license, branch and remote arrangements, servicing endorsement, servicing dates and net worth evidence.",
+    "counsel": "Confirm the planned lender or servicer role, the servicing duration and any exemption or endorsement.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Florida OFR Mortgage Lender and Branches",
+        "url": "https://flofr.gov/divisions-offices/division-of-consumer-finance/mortgage-lender-and-branches"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "LICENSING",
+    "id": "AMENDMENTS",
+    "title": "License changes and event-driven notices",
+    "authority": "Fla. Stat. §§494.004 and 494.0067 and Fla. Admin. Code R. 69V-40.099",
+    "sourceUrl": "https://flrules.org/gateway/ruleno.asp?Section=0&id=69V-40.099",
+    "summary": "Florida requires reporting of covered changes to application information and separate review of changes involving principal originators, control persons or organization. Broker and lender notice clocks can differ for bankruptcy and legal events.",
+    "evidence": "License and event type, trigger date, regulator-specific calendar and form, amendment and receipt.",
+    "counsel": "Confirm which event and entity provisions apply, any prior authorization, calendar or business days, route and deadline.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "Broker notices", "url": "https://www.flsenate.gov/Laws/Statutes/2026/0494.004" },
+      { "label": "Lender notices", "url": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0067" }
+    ]
+  },
+  {
+    "jurisdiction": "FL",
     "area": "REPORTING",
     "id": "MCR",
-    "title": "Mortgage broker reports of condition",
-    "authority": "Fla. Stat. §494.004(2)",
-    "sourceUrl": "https://www.leg.state.fl.us/Statutes/index.cfm?App_mode=Display_Statute&URL=0400-0499/0494/Sections/0494.004.html",
-    "summary": "Florida requires each mortgage broker to submit reports of condition in the form required by the registry.",
+    "title": "Quarterly mortgage loan activity",
+    "authority": "Fla. Admin. Code R. 69V-40.176(1)",
+    "sourceUrl": "https://flrules.org/gateway/RuleNo.asp?ID=69V-40.176&title=MORTGAGE+BROKERAGE",
+    "summary": "Florida requires brokers and lenders to submit the residential mortgage loan activity component through NMLS within 45 days after each calendar quarter.",
     "evidence": "Exact license, applicable schedule and form, reconciled activity and receipt.",
     "counsel": "Confirm current FV7 sections, state additions and no-activity handling separately from event-driven license notifications.",
     "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "REPORTING",
+    "id": "BROKER-FC",
+    "title": "Broker annual Financial Condition",
+    "authority": "Fla. Admin. Code R. 69V-40.176(2)",
+    "sourceUrl": "https://flrules.org/gateway/RuleNo.asp?ID=69V-40.176&title=MORTGAGE+BROKERAGE",
+    "summary": "Florida mortgage brokers submit the NMLS Financial Condition component within 90 days after each calendar year end.",
+    "evidence": "Broker authority, calendar-year financial workpaper, applicable NMLS form and filing receipt.",
+    "counsel": "Confirm classification for companies with overlapping activities, the current form, transition years and any adjusted dates.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "REPORTING",
+    "id": "LENDER-FC",
+    "title": "Lender quarterly Financial Condition",
+    "authority": "Fla. Admin. Code R. 69V-40.176(3)",
+    "sourceUrl": "https://flrules.org/gateway/RuleNo.asp?ID=69V-40.176&title=MORTGAGE+BROKERAGE",
+    "summary": "Florida mortgage lenders submit the NMLS Financial Condition component within 45 days after each calendar quarter.",
+    "evidence": "Lender authority, quarterly financial workpaper, applicable NMLS form and filing receipt.",
+    "counsel": "Confirm lender applicability, current form and any separate audited financial statement obligations.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "REPORTING",
+    "id": "LENDER-AUDIT",
+    "title": "Florida mortgage lender annual financial audit",
+    "authority": "Fla. Stat. §494.0063",
+    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0063",
+    "summary": "A Florida mortgage lender submits its independent financial audit report to the Office of Financial Regulation within 120 days after its disclosed fiscal year end. A wholly owned subsidiary can use its parent's audit report.",
+    "evidence": "Lender license, disclosed unchanged fiscal year end, signed CPA report, parent ownership evidence if applicable, current OFR filing instructions and receipt.",
+    "counsel": "Confirm the submission channel, subsidiary treatment and deadline for the exact fiscal period. Review a fiscal-year change separately.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "REPORTING",
+    "id": "AUDIT-CHANGE",
+    "title": "Lender financial audit after fiscal-year change",
+    "authority": "Fla. Stat. §494.0063",
+    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0063",
+    "summary": "A lender that changes its fiscal year must file a financial audit report within 18 months after its previously submitted report.",
+    "evidence": "Previous report submission and receipt, approved fiscal-year change, transition financial period and current filing instructions.",
+    "counsel": "Confirm the previous submission date, the 18-month calculation and applicable audit periods and deadline before scheduling the transition report.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "RECORDS",
+    "id": "SERVICING-AUDIT",
+    "title": "Servicing audit or financial guaranty evidence",
+    "authority": "Fla. Stat. §494.0076 and Fla. Admin. Code R. 69V-40.270",
+    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/0494.0076",
+    "summary": "Covered servicers segregate records and deposits and retain an annual servicing audit, or use a qualifying guaranty with monthly servicing workpapers when eligible.",
+    "evidence": "Servicing portfolio and excluded agency loans, segregated records and account, annual audit or guaranty and monthly OFR-494-11 support.",
+    "counsel": "Verify guaranty eligibility, portfolio scope and monthly calculation, record custody and the operative form revision.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "Florida financial guaranty rule", "url": "https://flrules.org/gateway/ruleno.asp?Section=0&id=69V-40.270" }
+    ]
   },
   {
     "jurisdiction": "AL",
@@ -1640,11 +2464,11 @@
     "area": "RECORDS",
     "id": "FILE",
     "title": "Borrower file content and responsibility",
-    "authority": "Mississippi DBCF Title 5 Part 2 mortgage company rules",
+    "authority": "Mississippi DBCF Rules 1.8.1–1.8.2, amended April 23, 2026",
     "sourceUrl": "https://dbcf.ms.gov/wp-content/uploads/2026/05/Final-Amendment.Title-5-Pt.-2.Mortgage-Company-Activities.pdf",
-    "summary": "DBCF's rules specify mortgage borrower file contents and distinguish documents the broker was responsible for issuing or obtaining.",
-    "evidence": "Role-specific document list, loan record, retained versions and controlled access for examination.",
-    "counsel": "Confirm record responsibilities and retention, especially for broker closings and documents received from another party.",
+    "summary": "The rules specify role-specific file contents and require secure, separate storage at the NMLS books and records address for at least five years after final application disposition, subject to any longer period required by the commissioner.",
+    "evidence": "Role-specific file inventory, final disposition and date, retained versions, NMLS books and records address and examination access.",
+    "counsel": "Confirm coverage and historical transition, record responsibilities for broker closings and documents from another party, and any longer retention.",
     "checkedOn": "2026-11-12"
   },
   {
@@ -1696,6 +2520,426 @@
     "checkedOn": "2026-11-12"
   },
   {
+    "jurisdiction": "KY",
+    "area": "LOAN",
+    "id": "FEE-DISCLOSURE",
+    "title": "Advance disclosure of broker compensation",
+    "authority": "KRS 286.8-270(2)",
+    "sourceUrl": "https://apps.legislature.ky.gov/law/statutes/statute.aspx?id=14890",
+    "summary": "The statute conditions covered compensation for broker services on proper disclosure of the fee to the borrower before the services are provided.",
+    "evidence": "Fee and payor, disclosure version and dated delivery, service start, and closing fee recipient.",
+    "counsel": "Confirm coverage, operative timing and disclosure contents, and federal compensation and fee restrictions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "KY",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Unique identifier on solicitations and advertisements",
+    "authority": "KRS 286.8-030(5)",
+    "sourceUrl": "https://apps.legislature.ky.gov/Law/statutes/statute.aspx?id=45376",
+    "summary": "The statute requires the relevant unique identifier in solicitations and ads, including business cards and websites, and specifies application identity evidence.",
+    "evidence": "Published material and application, company and originator roles, identifiers and approval.",
+    "counsel": "Confirm identifiers by role and medium and separate state trigger-lead restrictions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "KY",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Broker record preservation and regulator access",
+    "authority": "KRS 286.8-160, 286.8-170; 808 KAR 14:010",
+    "sourceUrl": "https://apps.legislature.ky.gov/Law/statutes/statute.aspx?id=52852",
+    "summary": "Kentucky requires mortgage records and gives the commissioner authority to prescribe retention. The statute addresses access to out-of-state records and preservation after cessation.",
+    "evidence": "Disposition and dates, role-specific retention schedule, storage location, records custodian and production receipt.",
+    "counsel": "Confirm the retention schedule and longer obligations, request timing and exact custodian requirements.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Kentucky retention regulation",
+        "url": "https://apps.legislature.ky.gov/law/kar/titles/808/014/010/"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "KY",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Standard broker MCR and renewal reconciliation",
+    "authority": "808 KAR 1:170; KRS 286.8-160(4)–(5)",
+    "sourceUrl": "https://apps.legislature.ky.gov/law/kar/titles/808/001/170/",
+    "summary": "Kentucky's renewal rules use timely, accurate MCR volume and address reconciliation of renewal fees. Statute authorizes prescribed financial reports and requires material corrections.",
+    "evidence": "Entity and reporting period, MCR receipt and amendments, volume reconciliation and fee evidence.",
+    "counsel": "Confirm components and the current renewal volume basis, financial reporting directions and interaction with the separate exemption scope.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TN",
+    "area": "LOAN",
+    "id": "FEE-SCHEDULE",
+    "title": "Brokerage fee schedule and changes",
+    "authority": "Tenn. Comp. R. & Regs. 0180-17-.07",
+    "sourceUrl": "https://publications.tnsosfiles.com/rules/0180/0180-17.20101029.pdf",
+    "summary": "A licensee that charges or pays brokerage or finder fees provides a schedule in its filing papers and gives 30 days' prior written notice before changes. The rule addresses evidence of reasonableness.",
+    "evidence": "Filed schedule, dated change and notice, fee basis and reasonableness support.",
+    "counsel": "Confirm which schedule and charges apply, current submission instructions and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TN",
+    "area": "OUTREACH",
+    "id": "AD-CLAIMS",
+    "title": "Availability and accuracy of mortgage advertising claims",
+    "authority": "Tenn. Code Ann. §§45-13-401(3), (8), 45-13-402",
+    "sourceUrl": "https://capitol.tn.gov/Bills/106/Chapter/PC0499.pdf",
+    "summary": "The act addresses availability of advertised rates and terms and prohibits false or misleading claims and bait-and-switch advertising.",
+    "evidence": "Published materials by channel, rate or term availability at publication, supporting evidence and approvals.",
+    "counsel": "Confirm current codified text, permissible claims by medium, and separate company and originator identifier rules.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Tennessee General Assembly summary and legislative history",
+        "url": "https://wapp.capitol.tn.gov/apps/BillInfo/Default?BillNumber=HB2316&ga=106"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "TN",
+    "area": "RECORDS",
+    "id": "FILE-RETENTION",
+    "title": "Preservation of rejected applications and paid loans",
+    "authority": "Tenn. Comp. R. & Regs. 0180-17-.15",
+    "sourceUrl": "https://publications.tnsosfiles.com/rules/0180/0180-17.20101029.pdf",
+    "summary": "The rule requires records available to the commissioner for 25 months on rejected applications and 24 months on paid loans, subject to applicable record requirements.",
+    "evidence": "Application and disposition, record inventory, dates, loan payment status where applicable, storage and retrieval.",
+    "counsel": "Confirm start events by role, other unclosed dispositions, current codification and longer federal periods.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TN",
+    "area": "REPORTING",
+    "id": "ANNUAL",
+    "title": "Annual report associated with renewal",
+    "authority": "Tenn. Code Ann. §45-13-208(b); Tenn. Comp. R. & Regs. 0180-17-.16",
+    "sourceUrl": "https://publications.tnsosfiles.com/rules/0180/0180-17.20101029.pdf",
+    "summary": "The rule ties the prescribed annual report to the renewal application. The act describes preceding-year operations and affirmation.",
+    "evidence": "License, applicable renewal and reporting period, regulator instructions, signed submission and receipt.",
+    "counsel": "Confirm the current form and filing route, whether MCR or renewal data satisfies the requirement, and no-activity handling.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NC",
+    "area": "LOAN",
+    "id": "BORROWER-INTEREST",
+    "title": "Borrower interests and reasonable loan options",
+    "authority": "N.C. Gen. Stat. §53-244.109",
+    "sourceUrl": "https://www.ncleg.gov/EnactedLegislation/Statutes/HTML/BySection/Chapter_53/GS_53-244.109.html",
+    "summary": "Broker duties include reasonable efforts to secure a reasonably advantageous loan and loyalty to the borrower in the course of brokering.",
+    "evidence": "Available terms and costs, considered options, borrower circumstances, selection rationale and material communications.",
+    "counsel": "Confirm duties and exceptions for the exact role, documented comparisons and any conflict disclosure.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NC",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Advertising identifiers and prohibited claims",
+    "authority": "N.C. Gen. Stat. §§53-244.107, 53-244.109(9), 53-244.111(15)",
+    "sourceUrl": "https://www.ncleg.gov/EnactedLegislation/Statutes/HTML/BySection/Chapter_53/GS_53-244.107.html",
+    "summary": "North Carolina requires the specified unique identifier across application, advertising and electronic materials. Broker and lender websites must link to NMLS Consumer Access. Separate provisions address nondiscrimination and deceptive solicitation.",
+    "evidence": "Published material and distribution, identifiers and website link, nondiscrimination evidence and claim substantiation.",
+    "counsel": "Confirm the applicable identifier by role, exact campaign requirements and required notices.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NC",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Broker records location and examination production",
+    "authority": "N.C. Gen. Stat. §53-244.105",
+    "sourceUrl": "https://www.ncleg.gov/EnactedLegislation/Statutes/HTML/BySection/Chapter_53/GS_53-244.105.html",
+    "summary": "Brokers keep records prescribed by the Commissioner and notify the Commissioner of the storage location. The law also addresses access and principal or branch address changes.",
+    "evidence": "File inventory, regulator location notice, address changes, exam request and production record.",
+    "counsel": "Confirm current record rules, retention triggers, electronic production and applicable reporting and response deadlines.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "SC",
+    "area": "LOAN",
+    "id": "FEE-AGREEMENT",
+    "title": "Mortgage broker fee agreement and co-broker notice",
+    "authority": "S.C. Code §40-58-75",
+    "sourceUrl": "https://www.scstatehouse.gov/code/t40c058",
+    "summary": "The statute requires a fee agreement within three business days of application receipt, prescribes signed contents and a borrower copy, and separately addresses notice when a loan is co-brokered.",
+    "evidence": "Application receipt, disclosure and delivery, signed agreement, borrower copy and co-broker decision and notice if applicable.",
+    "counsel": "Confirm state application and business-day definitions, acceptable delivery, co-broker timing and TRID interaction.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "SC",
+    "area": "OUTREACH",
+    "id": "AD-AUTHORITY",
+    "title": "Mortgage advertising and licensed authority",
+    "authority": "S.C. Code §§40-58-30(A), 40-58-60(F)",
+    "sourceUrl": "https://www.scstatehouse.gov/code/t40c058",
+    "summary": "South Carolina limits advertising that implies licensed activity to authorized persons and requires mortgage ads to comply with TILA and the South Carolina Consumer Protection Code.",
+    "evidence": "Published ad and channel, license and role, advertised terms and substantiation, and compliance review.",
+    "counsel": "Confirm exact company and individual identifiers, current state consumer-code requirements and license scope.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "SC",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Broker records and electronic storage approval",
+    "authority": "S.C. Code §40-58-65(A)",
+    "sourceUrl": "https://www.scstatehouse.gov/code/t40c058",
+    "summary": "Mortgage brokers must keep books and records for at least three years and make them available for examination. The statute addresses approval of electronic storage and location notice for consolidation.",
+    "evidence": "Application log and source files, storage approval, office location notices, retention basis and retrieval.",
+    "counsel": "Confirm start events, historical records, approved location and format, and longer overlapping rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "GA",
+    "area": "LOAN",
+    "id": "FEE-DISCLOSURE",
+    "title": "Fee amount disclosure and applicant acknowledgment",
+    "authority": "Ga. Comp. R. & Regs. 80-11-1-.01(2), (3), (6)",
+    "sourceUrl": "https://rules.sos.ga.gov/GAC/80-11-1",
+    "summary": "Georgia requires written disclosure of the fee amount before acceptance and written acknowledgment for covered disclosures. The rule differentiates products and application channels.",
+    "evidence": "Fee and acceptance date, dated disclosure, acknowledgment and copy, product and application channel.",
+    "counsel": "Confirm scope of disclosures and exceptions, acknowledgment and delivery mechanics, and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "GA",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Advertising company identification and temporary authority",
+    "authority": "Ga. Comp. R. & Regs. 80-11-1-.02",
+    "sourceUrl": "https://rules.sos.ga.gov/GAC/80-11-1",
+    "summary": "Covered Georgia ads must carry the licensee or registrant name and unique identifier on record. The rule addresses advertising involving an originator operating under temporary authority.",
+    "evidence": "Published creative, regulator name and identifier, sponsorship and temporary authority status, and required wording evidence.",
+    "counsel": "Confirm channel and role coverage and the exact disclosures for a temporary-authority originator.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "GA",
+    "area": "RECORDS",
+    "id": "DISPOSITION",
+    "title": "Loan file preservation from final disposition",
+    "authority": "Ga. Comp. R. & Regs. 80-11-2-.01 and -.02",
+    "sourceUrl": "https://rules.sos.ga.gov/gac/80-11-2",
+    "summary": "Georgia sets a five-year retention period for specified loan records from final disposition, including denial, cancellation and closing. It addresses principal and offsite locations.",
+    "evidence": "Disposition and date, documents, location, electronic retrieval and regulator request and response.",
+    "counsel": "Confirm record categories, start dates for distinct records, approved production and longer requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "LOAN",
+    "id": "THIRD-PARTY-FEES",
+    "title": "Third-party fees and segregated account",
+    "authority": "Fla. Stat. §494.0038",
+    "sourceUrl": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0400-0499/0494/Sections/0494.0038.html",
+    "summary": "Entrusted third-party fees must be placed immediately in a segregated account at a qualifying financial institution in Florida. The statute specifies related disbursement and fee handling.",
+    "evidence": "Receipt and segregation timestamps, institution, fee ledger, supporting invoices, disposition and refunds.",
+    "counsel": "Confirm covered receipts, disbursement and refund treatment, qualifying institution and federal limitations.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "OUTREACH",
+    "id": "AD-CLAIMS",
+    "title": "Advertising claims and solicitation records",
+    "authority": "Fla. Stat. §494.00165",
+    "sourceUrl": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0400-0499/0494/Sections/0494.00165.html",
+    "summary": "Florida restricts misleading mortgage ads and claims about credit access and rates. Licensees keep advertising samples, including applicable broadcast scripts, for two years after publication or broadcast.",
+    "evidence": "Published and distributed materials, material limitations and support, dates and records sample.",
+    "counsel": "Confirm ad record categories, retention period and additional channel or identifier rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Books, records and examination access",
+    "authority": "Fla. Stat. §494.0016",
+    "sourceUrl": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0400-0499/0494/Sections/0494.0016.html",
+    "summary": "Florida requires necessary books and records and prescribes access and maintenance at the designated principal place of business, subject to applicable instructions.",
+    "evidence": "Loan files and registers, principal office and storage basis, electronic retrieval and examination response.",
+    "counsel": "Confirm record categories, production method and retention for funded and unclosed files.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AL",
+    "area": "LICENSING",
+    "id": "NMLS-MOVE",
+    "title": "Mortgage broker NMLS transition for 2026",
+    "authority": "Alabama State Banking Department 2026 transition instructions",
+    "sourceUrl": "https://banking.alabama.gov/wp-content/uploads/2026/07/NMLS-License-Transition-Communication-banking.alabama.gov_-1.pdf",
+    "summary": "The regulator directs affected mortgage broker licensees to transition through NMLS during September 1 through December 31, 2026. The transition replaces the standard 2027 renewal cycle for affected licensees.",
+    "evidence": "Existing license and company or branch records, transition submission, acceptance and updated expiration.",
+    "counsel": "Confirm the license is in scope, branch requirements, whether already completed and the applicable renewal schedule.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AL",
+    "area": "LOAN",
+    "id": "BROKER-FEES",
+    "title": "Relationship and compensation disclosure before fee collection",
+    "authority": "Ala. Code §5-25-12",
+    "sourceUrl": "https://alison.legislature.state.al.us/code-of-alabama?section=5-25-12",
+    "summary": "Before collecting a broker fee, the licensee provides written disclosure of the relationship and compensation method. The statute also restricts collection before a lender conditional commitment.",
+    "evidence": "Disclosure and delivery, lender conditional commitment, fee category, collection and payee.",
+    "counsel": "Confirm permissible amounts and third-party costs, which events satisfy each trigger, and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AL",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Originator identifier on applications and advertising",
+    "authority": "Ala. Code §5-26-20",
+    "sourceUrl": "https://banking.alabama.gov/wp-content/uploads/2023/08/AL_Secure_Fair_Enf_Mortgage_Lic_Act.pdf",
+    "summary": "Alabama's SAFE Act requires the unique identifier of a person originating a residential mortgage loan on covered application forms, solicitations and ads, including business cards and websites.",
+    "evidence": "Published samples by medium, application, originator ID and sponsor evidence.",
+    "counsel": "Confirm company and individual requirements and whether regulator orders apply.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AL",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Broker record inventory and regulator examination",
+    "authority": "Ala. Code §5-25-9",
+    "sourceUrl": "https://banking.alabama.gov/wp-content/uploads/2023/08/AL_MB_Act_2009.pdf",
+    "summary": "The department may require records at the licensee office or another permitted location and examine broker records for compliance.",
+    "evidence": "Records inventory and storage approval, loan files, regulator request and production evidence.",
+    "counsel": "Confirm current minimum retention and location rules for records by disposition, including electronic storage.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MS",
+    "area": "LOAN",
+    "id": "DUAL-ROLE",
+    "title": "Disclosure of multiple roles at first substantive contact",
+    "authority": "Mississippi DBCF Rule 1.11, amended April 23, 2026",
+    "sourceUrl": "https://dbcf.ms.gov/wp-content/uploads/2026/05/Final-Amendment.Title-5-Pt.-2.Mortgage-Company-Activities.pdf",
+    "summary": "A covered dual-capacity licensee uses Appendix A Form 1 at the first substantive contact. The rule requires borrower and broker or originator signatures and retention in the borrower file.",
+    "evidence": "Role facts, dated first meaningful discussion, form and delivery, signatures and borrower file evidence.",
+    "counsel": "Confirm which simultaneous roles trigger disclosure, the effective rule version and acceptable timing and signature evidence.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MS",
+    "area": "LOAN",
+    "id": "LOCK-FEE",
+    "title": "Lock-in fee for a named lender",
+    "authority": "Mississippi DBCF Rule 1.10, amended April 23, 2026",
+    "sourceUrl": "https://dbcf.ms.gov/wp-content/uploads/2026/05/Final-Amendment.Title-5-Pt.-2.Mortgage-Company-Activities.pdf",
+    "summary": "A broker collects a lock-in fee only for a named lender. A fee payable to the broker goes to escrow pending transfer, and the agreement describes refund method if refundable.",
+    "evidence": "Named lender, fee payee, receipt, escrow and transmittal, lock agreement and refund evidence.",
+    "counsel": "Confirm current rule coverage, disbursement mechanics and federal fee timing.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MS",
+    "area": "OUTREACH",
+    "id": "AD-CHANNELS",
+    "title": "Mortgage advertising across print and electronic channels",
+    "authority": "Miss. Code Ann. §81-18-31; Mississippi DBCF Rule 1.7",
+    "sourceUrl": "https://dbcf.ms.gov/wp-content/uploads/2026/05/Final-Amendment.Title-5-Pt.-2.Mortgage-Company-Activities.pdf",
+    "summary": "The rule applies state mortgage ad requirements to print and electronic material, including websites and business cards. The statute addresses identifiers and quoted rates and payments.",
+    "evidence": "Published material by channel, applicable identifiers, quoted terms and disclosures.",
+    "counsel": "Confirm the operative statute, each channel's identifiers and required rate or payment disclosures.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MS",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Mississippi NMLS reports of condition",
+    "authority": "Miss. Code Ann. §81-18-23",
+    "sourceUrl": "https://dbcf.ms.gov/wp-content/uploads/2021/07/Mississippi-S.A.F.E.-Mortgage-Act.Current-Through-2021-Regular-Legislative-Session.pdf",
+    "summary": "The statute requires mortgage licensees to submit reports of condition through NMLS in the prescribed form and content.",
+    "evidence": "License and reporting period, relevant activity and financial components, submission and amendment receipts.",
+    "counsel": "Confirm the current statute, supplements and no-activity requirements, and distinguish event notices from periodic reporting.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AR",
+    "area": "LOAN",
+    "id": "BORROWER-INTEREST",
+    "title": "Broker disclosure and reasonable loan options",
+    "authority": "Ark. Code §23-39-510(a)",
+    "sourceUrl": "https://securities.arkansas.gov/wp-content/uploads/2025/12/Fair-Mortgage-Lending-Act-2025.pdf",
+    "summary": "Arkansas specifies broker duties to disclose material information, exercise care and make reasonable efforts to find a reasonably advantageous loan among qualifying options with lenders regularly used.",
+    "evidence": "Options and qualification, rates and terms, costs, disclosure and rationale.",
+    "counsel": "Confirm which alternatives and material facts must be documented and how broker compensation affects the review.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AR",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Advertising identity and prohibited claims",
+    "authority": "Ark. Code §§23-39-510, 23-39-513; 23 CAR §301-1201",
+    "sourceUrl": "https://securities.arkansas.gov/wp-content/uploads/2025/04/23-CAR-301-FMLA-Rules-1.pdf",
+    "summary": "Arkansas requires licensee contact details and applicable unique identifiers and identifies specific misleading mortgage advertising practices.",
+    "evidence": "Published and dated creative, contact details and identifier, claims support and channel review.",
+    "counsel": "Confirm applicable company and individual disclosures, medium exclusions and current prohibited claim rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AR",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Application log and broker file records",
+    "authority": "23 CAR §301-1002",
+    "sourceUrl": "https://securities.arkansas.gov/wp-content/uploads/2025/04/23-CAR-301-FMLA-Rules-1.pdf",
+    "summary": "The rule specifies the application or executed fee agreement list and the supporting broker file, including fee and disposition evidence.",
+    "evidence": "Application or agreement list, disposition, fee records, required disclosures, storage and exam sample.",
+    "counsel": "Confirm which records each disposition requires and current retention and production rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "LA",
+    "area": "OUTREACH",
+    "id": "AD-CLAIMS",
+    "title": "Availability and accuracy of advertised mortgage terms",
+    "authority": "La. R.S. 6:1092(D)(5), (9)",
+    "sourceUrl": "https://legis.la.gov/Legis/Law.aspx?d=105694",
+    "summary": "The statute prohibits covered solicitations for unavailable terms, false or deceptive representations about financing terms, and bait-and-switch advertising.",
+    "evidence": "Published terms, availability evidence at the time of dissemination, approval and any correction.",
+    "counsel": "Confirm current subsection and roles, applicable identifiers and additional Louisiana ad rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "LA",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Separate mortgage records and examination access",
+    "authority": "La. R.S. 6:1091(A), (C); 6:1098(A)",
+    "sourceUrl": "https://www.legis.la.gov/legis/LawPrint.aspx?d=105693",
+    "summary": "The statute addresses record separation, electronic format, storage and examination access. The brokerage contract provision separately requires a signed copy in the customer file.",
+    "evidence": "Signed contract, role-specific files, approved storage and examination retrieval, electronic format and any regulator instructions.",
+    "counsel": "Confirm current retention periods, whether offsite arrangements require written approval and the scope of requests.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "LA",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Louisiana NMLS reports of condition",
+    "authority": "La. R.S. 6:1091(D)",
+    "sourceUrl": "https://www.legis.la.gov/legis/LawPrint.aspx?d=105693",
+    "summary": "Louisiana requires licensees to submit reports of condition in the form and with the information NMLS requires.",
+    "evidence": "License, period, activity and financial condition evidence, NMLS receipt and any amendment.",
+    "counsel": "Confirm the license-specific form, no-activity treatment and any separate bond or other reporting.",
+    "checkedOn": "2026-11-12"
+  },
+  {
     "jurisdiction": "TX",
     "area": "LICENSING",
     "id": "COMPANY",
@@ -1706,6 +2950,45 @@
     "evidence": "Exact company authority and activities, locations, sponsored originators and any exemption evidence.",
     "counsel": "Confirm applicable SML or other Texas authority, branches and any role-specific exceptions.",
     "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "LICENSING",
+    "id": "CO-RENEW",
+    "title": "SML residential mortgage company renewal",
+    "authority": "Texas SML mortgage entity renewal guidance",
+    "sourceUrl": "https://www.sml.texas.gov/compact-with-texans/",
+    "summary": "SML lists December 31 as the annual mortgage entity renewal deadline and directs licensees to NMLS.",
+    "evidence": "Company license, applicable renewal year and requirements, NMLS receipt and continued authority.",
+    "counsel": "Confirm the covered company license, renewal-cycle requirements and handling of expiration and reinstatement.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "LICENSING",
+    "id": "BANKER-RENEW",
+    "title": "SML mortgage banker registration renewal",
+    "authority": "Tex. Fin. Code §§157.0061 and 157.0062",
+    "sourceUrl": "https://statutes.capitol.texas.gov/GetStatute.aspx?Code=FI&Value=157",
+    "summary": "Texas requires annual renewal of the mortgage banker registration and provides a separate process after expiration.",
+    "evidence": "Banker registration, qualifying authorization, NMLS renewal request and fee receipt, and current registration status.",
+    "counsel": "Confirm continuing qualification, current renewal instructions and which activities must cease if the registration expires.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "LICENSING",
+    "id": "OCCC-LENDER",
+    "title": "OCCC Chapter 342 regulated lender authority",
+    "authority": "Tex. Fin. Code ch. 342 and OCCC licensing guidance",
+    "sourceUrl": "https://occc.texas.gov/industry/regulated-lenders/",
+    "summary": "OCCC administers Chapter 342 regulated lender authority. Its mortgage originator guidance addresses covered secondary mortgage and other activities separately from the SML licensing path.",
+    "evidence": "Exact legal entity and license, Chapter 342 activities and loan types, applicable NMLS and OCCC identifiers and individual authority.",
+    "counsel": "Confirm Chapter 342 coverage for the products and roles and any interaction with SML licensure and mortgage originator authority.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "OCCC mortgage originator licensing", "url": "https://occc.texas.gov/industry/RMLOs/" }
+    ]
   },
   {
     "jurisdiction": "TX",
@@ -1736,6 +3019,34 @@
     "evidence": "Activity and engagement basis, applicable quarter, processing and underwriting reconciliation, SSSF and receipt.",
     "counsel": "Confirm which contractor and transaction arrangements trigger each field and the treatment of no activity.",
     "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "REPORTING",
+    "id": "FC",
+    "title": "Texas Financial Condition",
+    "authority": "Texas SML mortgage compliance guide, Financial Condition",
+    "sourceUrl": "https://www.sml.texas.gov/wp-content/uploads/2026/02/mortgage-compliance-guide-v12.pdf",
+    "summary": "SML distinguishes the annual calendar-year Financial Condition schedule for brokers and the quarterly schedule for lenders and servicers.",
+    "evidence": "Company activity classification, period, approved financial reconciliation and NMLS receipt.",
+    "counsel": "Confirm which schedule governs entities with overlapping activities and which Financial Condition sections apply.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "REPORTING",
+    "id": "OCCC-ANNUAL",
+    "title": "OCCC Chapter 342 regulated lender annual report",
+    "authority": "7 TAC §83.835 and Texas OCCC annual reporting instructions",
+    "sourceUrl": "https://occc.texas.gov/industry/regulated-lenders/annual_reports/",
+    "summary": "OCCC lists May 1 for regulated lender annual reporting. Its filing guide directs these licensees to the new online reporting system beginning March 1, 2026.",
+    "evidence": "Chapter 342 license and entity identifiers, prior-year schedules, no-activity or partial-year basis if relevant, reconciliation and OCCC receipt.",
+    "counsel": "Confirm the separate OCCC reporting scope, report-year route, applicable schedules and consolidation of licenses within the same legal entity.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "OCCC online annual filing guide", "url": "https://occc.texas.gov/wp-content/uploads/2026/04/ANNUAL-REPORT-FILING-GUIDE-APRIL-2026.pdf" },
+      { "label": "OCCC regulated lender reporting instructions", "url": "https://occc.texas.gov/wp-content/uploads/2026/03/RegulatedLender_ReportingInstructions.pdf" }
+    ]
   },
   {
     "jurisdiction": "OK",
@@ -1810,6 +3121,18 @@
     "checkedOn": "2026-11-12"
   },
   {
+    "jurisdiction": "CO",
+    "area": "REPORTING",
+    "id": "STD-FC",
+    "title": "Standard-section Financial Condition calendar review",
+    "authority": "4 CCR 725-3 rule 8.4(B)",
+    "sourceUrl": "https://www.sos.state.co.us/CCR/GenerateRulePdf.do?fileName=4+CCR+725-3&ruleVersionId=9222",
+    "summary": "Colorado's rule describes a fiscal-year deadline for the standard section. Reconcile this language with the current NMLS calendar for the company's classification.",
+    "evidence": "Company classification, actual fiscal year end, applicable NMLS filing schedule, and confirmation of the controlling deadline.",
+    "counsel": "Resolve the Colorado rule and current NMLS filing calendar before assigning a due date.",
+    "checkedOn": "2026-11-12"
+  },
+  {
     "jurisdiction": "AZ",
     "area": "LICENSING",
     "id": "COMPANY",
@@ -1879,7 +3202,13 @@
     "summary": "Nevada requires a previous-month activity report by the 15th of the following month, including a statement for months with no loans arranged or made. The commissioner can waive the submission in specified circumstances.",
     "evidence": "Company license, applicable month, loans arranged and made or documented no activity, waiver if granted and filing receipt.",
     "counsel": "Confirm the current form, delivery and field definitions and evidence for any waiver.",
-    "checkedOn": "2026-11-12"
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Nevada MLD monthly reporting guidance",
+        "url": "https://www.mld.nv.gov/faqs/mortgage-companies/"
+      }
+    ]
   },
   {
     "jurisdiction": "NV",
@@ -1904,6 +3233,334 @@
     "evidence": "Fiscal year, statement and approval evidence, applicable audit or certification and receipt.",
     "counsel": "Confirm the required statement and trust-account audit basis, exceptions and extension process.",
     "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "LOAN",
+    "id": "APPLICANT-NOTICE",
+    "title": "Texas mortgage company notice to applicants",
+    "authority": "7 TAC §56.200(b)",
+    "sourceUrl": "https://www.sml.texas.gov/download/mortgage-company-required-disclosure-form/",
+    "summary": "SML provides the mortgage company form for the application-stage notice concerning oversight. The company rule and banker rule have separate forms.",
+    "evidence": "Initial application receipt, company authority and sponsorship, dated notice, applicable signature and proof of delivery.",
+    "counsel": "Confirm the operative form and receipt trigger, all recipients, signature and acceptable delivery evidence.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Texas Register rule publication",
+        "url": "https://www.sos.state.tx.us/texreg/pdf/backview/0906/0906is.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "LOAN",
+    "id": "DUAL-ROLE",
+    "title": "Advance written disclosure and consent for dual roles",
+    "authority": "Tex. Fin. Code §157.024(a)(10); SML FAQ",
+    "sourceUrl": "https://www.sml.texas.gov/mortgage-origination/faqs/",
+    "summary": "SML addresses an originator acting as a real estate sales agent in the same transaction. It identifies advance written disclosure and the client's written consent.",
+    "evidence": "Role and compensation facts, disclosure and consent versions and dates, and first services in each role.",
+    "counsel": "Confirm covered roles and timing, applicable federal rules and lender or investor restrictions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Advertising names, NMLS identifiers and website notice",
+    "authority": "7 TAC §§56.200(c), 56.203",
+    "sourceUrl": "https://www.sml.texas.gov/mortgage-origination/faqs/",
+    "summary": "SML identifies the company name, NMLS ID and website address where applicable, additional details for a sponsored originator's ad, and the website complaint notice.",
+    "evidence": "Published material, company and individual identifiers, website and notice capture, approval and exception evidence.",
+    "counsel": "Confirm publication and channel requirements, exceptions for promotional items or social sites and all disclosure content.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Mortgage transaction log and complete broker files",
+    "authority": "7 TAC §56.204; SML Mortgage Compliance Guide",
+    "sourceUrl": "https://www.sml.texas.gov/wp-content/uploads/2026/02/mortgage-compliance-guide-v12.pdf",
+    "summary": "SML identifies a current transaction log, applicable disclosures and their delivery evidence, advertising, compensation agreements, vendor contracts and complete loan files.",
+    "evidence": "Transaction log and file by disposition, disclosures and transmission evidence, compensation and advertising records, and exam retrieval.",
+    "counsel": "Confirm record categories, dates and longer retention, acceptable storage, and the separate processing and underwriting log when applicable.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "SML processing and underwriting log announcement",
+        "url": "https://www.sml.texas.gov/news/announcement-new-required-loan-processing-and-underwriting-log/"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "OK",
+    "area": "LOAN",
+    "id": "BROKER-FEES",
+    "title": "Broker compensation and advance expense exceptions",
+    "authority": "59 O.S. §2095.15(D)",
+    "sourceUrl": "https://oksenate.gov/sites/default/files/2022-05/os59.pdf",
+    "summary": "The statute generally ties compensation to the agreed loan or modification being obtained. It addresses advance third-party costs and reasonable, consistently applied administrative fees with advance disclosure.",
+    "evidence": "Agreed terms and loan outcome, fee type and payee, disclosed schedule, invoice and collection and disposition evidence.",
+    "counsel": "Confirm the operative text, exceptions, treatment of the administrative fee and federal timing.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OK",
+    "area": "OUTREACH",
+    "id": "AD-CLAIMS",
+    "title": "Mortgage identifiers and advertised term availability",
+    "authority": "59 O.S. §§2095.4, 2095.18(5), (9)",
+    "sourceUrl": "https://oksenate.gov/sites/default/files/2022-05/os59.pdf",
+    "summary": "Oklahoma addresses originator identifiers in covered advertising and application materials, and prohibits advertising unavailable terms and deceptive mortgage claims.",
+    "evidence": "Published ad and channel, identifier, evidence of terms available at publication and approval.",
+    "counsel": "Confirm current text, company and originator identifiers by medium and applicable channel exceptions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OK",
+    "area": "RECORDS",
+    "id": "TRUST-LEDGER",
+    "title": "Third-party fee trust and examination records",
+    "authority": "59 O.S. §§2095.16, 2095.17",
+    "sourceUrl": "https://oksenate.gov/sites/default/files/2022-05/os59.pdf",
+    "summary": "Oklahoma requires a trust account for qualifying third-party funds and current, accessible records for at least three years after the effective period to which the records relate.",
+    "evidence": "Receipts, trust deposit and disbursement dates, reconciled ledger and bank evidence, records location and exam production.",
+    "counsel": "Confirm who holds the funds, what starts retention and the time and method for examiner access.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NM",
+    "area": "LOAN",
+    "id": "DEPOSIT-AGREEMENT",
+    "title": "Written deposit disposition and trust funds",
+    "authority": "12.19.8.8(D) NMAC",
+    "sourceUrl": "https://www.srca.nm.gov/parts/title12/12.019.0008.html",
+    "summary": "An application deposit required by the licensee calls for a written agreement on its disposition whether or not the loan is consummated. The rule addresses trust handling for covered funds.",
+    "evidence": "Written agreement, receipt and trust ledger, disbursement or refund and file disposition.",
+    "counsel": "Confirm covered funds, refund and reconciliation rules, and current federal limits on advance collection.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NM",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Originator identifier on solicitations and ads",
+    "authority": "12.19.8.8(B) NMAC",
+    "sourceUrl": "https://www.srca.nm.gov/parts/title12/12.019.0008.html",
+    "summary": "The rule requires the originator unique identifier on residential applications, solicitations and advertisements, including business cards and websites.",
+    "evidence": "Published samples and application forms, originator ID and sponsorship, placement and approvals.",
+    "counsel": "Confirm applicable company and individual identifiers and additional rules by medium.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NM",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Loan file, compensation and funded journal records",
+    "authority": "12.19.8.8(C) NMAC",
+    "sourceUrl": "https://www.srca.nm.gov/parts/title12/12.019.0008.html",
+    "summary": "The rule lists records for examination, including disclosures, fee and compensation evidence, account journals and the funded loan journal. It covers electronic records.",
+    "evidence": "File inventory and disposition, dated disclosures, compensation and funded journal references, and retrieval sample.",
+    "counsel": "Confirm current equivalents for older named forms, file categories for unclosed loans, retention and exam format.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CO",
+    "area": "LOAN",
+    "id": "BORROWER-BENEFIT",
+    "title": "Borrower benefit and historical disclosure form",
+    "authority": "C.R.S. §12-10-710; repeal of 4 CCR 725-3 Rules 5.7 and 5.8",
+    "sourceUrl": "https://dre.colorado.gov/sites/dre/files/documents/2025%20Colorado%20Real%20Estate%20Manual-Chapter%2008.pdf",
+    "summary": "The statute addresses reasonable inquiry and borrower benefit. The Board repealed the prescribed form rules effective September 30, 2025 and approved related cleanup effective March 17, 2026.",
+    "evidence": "Transaction date, terms, costs, borrower circumstances and inquiry, benefit rationale, and historical form where applicable.",
+    "counsel": "Confirm applicable statutory duties and product scope, date-specific forms and the evidence supporting current decisions.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Board advisory on form repeal",
+        "url": "https://content.govdelivery.com/accounts/CODORA/bulletins/3edb44a"
+      },
+      {
+        "label": "Board 2026 rule update",
+        "url": "https://content.govdelivery.com/accounts/CODORA/bulletins/40760c2"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "CO",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Mortgage advertising identity and available terms",
+    "authority": "4 CCR 725-3 Rules 5.1–5.2",
+    "sourceUrl": "https://www.sos.state.co.us/CCR/GenerateRulePdf.do?fileName=4+CCR+725-3&ruleVersionId=9222",
+    "summary": "The Board's advertising rules address actually available products and material limitations, conspicuous responsible-party and company information, exceptions and an advertising archive.",
+    "evidence": "Dated published creative, terms availability, material limits, responsible-party identity and retention sample.",
+    "counsel": "Confirm the operative version, channel exceptions and required identifiers and retention.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Board 2026 rule update",
+        "url": "https://content.govdelivery.com/accounts/CODORA/bulletins/40760c2"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "CO",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Loan origination records for Board investigations",
+    "authority": "4 CCR 725-3 ch. 5",
+    "sourceUrl": "https://www.sos.state.co.us/CCR/GenerateRulePdf.do?fileName=4+CCR+725-3&ruleVersionId=9222",
+    "summary": "The Board's investigation procedure addresses responsive records such as applications, disclosures and supporting transaction documentation, and provides for a timely written request for extension.",
+    "evidence": "Board notice, due date and extension evidence, loan file and disclosure records, and scoped production receipt.",
+    "counsel": "Confirm operative rule, records and retention by role and file disposition, and production instructions.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Board 2026 rule update",
+        "url": "https://content.govdelivery.com/accounts/CODORA/bulletins/40760c2"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "AZ",
+    "area": "LOAN",
+    "id": "FEE-AGREEMENT",
+    "title": "Written agreement for covered loan funds or documents",
+    "authority": "A.R.S. §6-906(C)",
+    "sourceUrl": "https://www.azleg.gov/ars/6/00906.htm",
+    "summary": "For covered applications of $200,000 or less, the statute limits acceptance of funds or documents and requires a signed agreement with disposition, term and estimated cost information. It also addresses specified fees and segregation.",
+    "evidence": "Loan amount, signed agreement and estimated costs, items received, fee purpose, ledger and return or disposition evidence.",
+    "counsel": "Confirm current threshold, scope and timing for each item and any federal collection restrictions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AZ",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Licensed name and number on advertising and solicitation",
+    "authority": "A.R.S. §6-903(P)",
+    "sourceUrl": "https://www.azleg.gov/ars/6/00903.htm",
+    "summary": "Arizona addresses use of the licensed or filed name and license number in mortgage advertising and solicitation. It describes certain channel and promotional-item exclusions.",
+    "evidence": "Published item and channel, approved name and license number, market and advertised rate or term.",
+    "counsel": "Confirm channel and content exceptions and any separate originator identifier duty.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AZ",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Closed loan retention and response to regulator demand",
+    "authority": "A.R.S. §6-906(A)–(B)",
+    "sourceUrl": "https://www.azleg.gov/ars/6/00906.htm",
+    "summary": "The statute requires original or legible records of mortgage transactions for at least five years after closing and production in Arizona within three business days after demand.",
+    "evidence": "Closing and demand dates, records location and contents, production dates and receipt.",
+    "counsel": "Confirm unclosed-file retention, offsite requirements and longer applicable obligations.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "UT",
+    "area": "LOAN",
+    "id": "FEE-REFUND",
+    "title": "Signed statement of fee and deposit refund conditions",
+    "authority": "Utah Code §61-2c-301(2)(b)",
+    "sourceUrl": "https://le.utah.gov/xcode/Title61/Chapter2c/C61-2c-S301_2025050720250507.pdf",
+    "summary": "Utah limits charges and requires a written statement signed by the applicant describing whether the fee or deposit is refundable and the conditions for refund.",
+    "evidence": "Dated signed statement, fee or deposit and timing, refund basis and disposition.",
+    "counsel": "Confirm covered charges, cancellation and fee exceptions, form and federal collection limits.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "UT",
+    "area": "LOAN",
+    "id": "VALUATION-COPY",
+    "title": "First-lien valuation delivery and waiver evidence",
+    "authority": "Utah Code §61-2c-301(2)(n), (6)",
+    "sourceUrl": "https://le.utah.gov/xcode/Title61/Chapter2c/C61-2c-S301_2025050720250507.pdf",
+    "summary": "Utah specifies delivery timing for each appraisal or written valuation in covered first-lien dwelling transactions, with limited waivers and a separate delivery rule when a waived transaction does not complete.",
+    "evidence": "Valuation versions, completion and delivery dates, proposed settlement, waiver and known noncompletion date.",
+    "counsel": "Confirm responsible party, applicable business-day definition and federal overlap, waiver limits and triggers.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "UT",
+    "area": "OUTREACH",
+    "id": "AD-CLAIMS",
+    "title": "False and misleading mortgage advertising",
+    "authority": "Utah Code §61-2c-301(2)(l), (t)",
+    "sourceUrl": "https://le.utah.gov/xcode/Title61/Chapter2c/C61-2c-S301_2025050720250507.pdf",
+    "summary": "Utah prohibits false or misleading mortgage advertising and addresses representations by persons exempt under the specified provision.",
+    "evidence": "Published creative and channel, claims support, responsible party and authority, and approval.",
+    "counsel": "Confirm company and originator identity and applicable advertising rules by channel.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "UT",
+    "area": "RECORDS",
+    "id": "FILE-RETENTION",
+    "title": "Safeguarded mortgage files and latest-event retention",
+    "authority": "Utah Code §61-2c-302(1)–(3)",
+    "sourceUrl": "https://le.utah.gov/xcode/Title61/Chapter2C/C61-2c_1800010118000101.pdf",
+    "summary": "Utah requires four years of retention from the latest applicable final entry, servicing event, or closing for a nonserviced loan. Required records must be made available for inspection.",
+    "evidence": "File records, dated final entry and closing or servicing events, evidence of custody and inspection retrieval.",
+    "counsel": "Confirm trigger treatment for unclosed files, applicable record classes and longer obligations.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NV",
+    "area": "LOAN",
+    "id": "FEE-DISCLOSURE",
+    "title": "Itemized mortgage company fee disclosure",
+    "authority": "NRS 645B.305",
+    "sourceUrl": "https://www.leg.state.nv.us/nrs/nrs-645B.html#NRS645BSec305",
+    "summary": "Nevada requires a disclosure for covered real-property-secured loans listing fees earned by the company in specific dollar amounts, the responsible party and probable impact.",
+    "evidence": "Itemized company fees and payors, impact explanation, disclosure version and delivery, and closing reconciliation.",
+    "counsel": "Confirm covered fees and parties, MLD Form 201 applicability, timing and federal overlap.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Nevada MLD forms and instructions",
+        "url": "https://www.mld.nv.gov/industry-info/mortgage-companies-and-mortgage-loan-originators-nrs-645b/"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NV",
+    "area": "OUTREACH",
+    "id": "AD-APPROVAL",
+    "title": "Advertising identity and submission for newer licensees",
+    "authority": "NRS 645B.189; NAC 645B.240 as amended by R070-23",
+    "sourceUrl": "https://www.leg.state.nv.us/Register/2023Register/R070-23AP.pdf",
+    "summary": "The adopted regulation addresses name, contact and license or identifier information and joint ads. MLD also directs companies licensed for less than 12 months to submit advertising for review.",
+    "evidence": "Dated creative and channels, identifiers and names, license dates, submission and approval and any cost allocation.",
+    "counsel": "Confirm scope and timing of submission or approval, medium exceptions, and whether other lender names require consent.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Nevada MLD advertising instructions",
+        "url": "https://www.mld.nv.gov/industry-info/mortgage-companies-and-mortgage-loan-originators-nrs-645b/"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NV",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Completed and unclosed transaction records",
+    "authority": "NAC 645B.075, 645B.077; NRS 645B.080",
+    "sourceUrl": "https://www.leg.state.nv.us/nac/NAC-645B.html",
+    "summary": "Nevada distinguishes completed records kept for at least four years after the last related activity from denied or withdrawn applications kept for at least one year or as required under federal law.",
+    "evidence": "Disposition, last related activity, file inventory, office and electronic access, and exam retrieval.",
+    "counsel": "Confirm trigger and retention by record category, longer federal requirements and remote records access.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Nevada MLD records FAQ",
+        "url": "https://www.mld.nv.gov/faqs/mortgage-companies/"
+      }
+    ]
   },
   {
     "jurisdiction": "CA",
@@ -1931,6 +3588,24 @@
   },
   {
     "jurisdiction": "CA",
+    "area": "LICENSING",
+    "id": "CRMLA",
+    "title": "DFPI residential mortgage lender or servicer authority",
+    "authority": "Cal. Fin. Code §50000 et seq. and DFPI CRMLA guidance",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/about-california-residential-mortgage-lending-act/",
+    "summary": "DFPI distinguishes lender, servicer and combined CRMLA authority and describes brokerage services permitted for licensed CRMLA lenders.",
+    "evidence": "Exact company and branch authority, lending or servicing activity, eligible counterparties and individual licenses.",
+    "counsel": "Confirm the exact authorization and exemption basis, branch and sponsor facts, and when limited brokerage activity is covered.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DFPI company and branch authorization guidance",
+        "url": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/who-is-required-to-obtain-license-or-branch-license-under-the-california-residential-mortgage-lenders-law-crmla/"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "CA",
     "area": "REPORTING",
     "id": "BAR",
     "title": "DRE Business Activity Report",
@@ -1951,6 +3626,54 @@
     "summary": "DFPI identifies a March 15 annual report for CFL licensees even when no business was conducted under the license.",
     "evidence": "CFL license, report-year instructions, reconciled activity or no-activity basis and submission receipt.",
     "counsel": "Confirm exact report-year deadline, delivery and scope when the company holds multiple California authorities.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "REPORTING",
+    "id": "CRMLA-ANNUAL",
+    "title": "DFPI residential mortgage lender or servicer annual report",
+    "authority": "Cal. Fin. Code §50307 and DFPI CRMLA annual report instructions",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/requirements-after-a-california-residential-mortgage-lender-and-or-servicer-license-has-been-issued/crmla-annual-report/",
+    "summary": "DFPI requires CRMLA licensees to submit the prior calendar year's annual report through its self-service portal by March 1.",
+    "evidence": "CRMLA authority, report-year schedules, reconciled loan and servicing data, authorized attestation and portal receipt.",
+    "counsel": "Confirm the report-year instructions, reportable population, no-activity schedules and authorized attestation.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "REPORTING",
+    "id": "HOLDEN",
+    "title": "Holden Act residential mortgage loan report or response",
+    "authority": "DFPI Residential Mortgage Loan Report guidance",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/california-residential-mortgage-lending-act-archives/crmla-residential-mortgage-loan-report-holden-act-report/",
+    "summary": "DFPI identifies March 31 for the prior-year report and describes circumstances in which the licensee provides a signed response explaining why it is not filing loan data.",
+    "evidence": "License and first year of authority, covered loan analysis, applicable HMDA submission or no-activity basis, current DFPI form and transmission evidence.",
+    "counsel": "Confirm the current report-year form and route, HMDA treatment, first-year and no-activity treatment, and whether the signed response is required.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "REPORTING",
+    "id": "CRMLA-MCR",
+    "title": "DFPI residential mortgage quarterly call report",
+    "authority": "DFPI CRMLA ongoing reporting requirements",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/requirements-after-a-california-residential-mortgage-lender-and-or-servicer-license-has-been-issued/",
+    "summary": "DFPI directs CRMLA licensees to file the quarterly Mortgage Call Report through NMLS within 45 days after quarter end.",
+    "evidence": "Company and license scope, current NMLS components, quarterly reconciliation and filing receipt.",
+    "counsel": "Confirm reporting components, which authorities share the same NMLS submission, and treatment of inactivity.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "REPORTING",
+    "id": "CRMLA-AUDIT",
+    "title": "CRMLA audited financial statements and supplements",
+    "authority": "Cal. Fin. Code §50200, 10 CCR §1950.200 and DFPI CRMLA guidance",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-residential-mortgage-lending-act/requirements-after-a-california-residential-mortgage-lender-and-or-servicer-license-has-been-issued/",
+    "summary": "DFPI directs CRMLA licensees to post audited financial statements in NMLS within 105 days after fiscal year end and identifies additional CPA or trust reconciliation evidence.",
+    "evidence": "Actual fiscal year end, signed CPA audit, tangible net worth evidence, applicable supplementary reports and NMLS upload receipt.",
+    "counsel": "Confirm the fiscal basis, annual audit coverage and supplementary documents or substitutions applicable to origination and servicing.",
     "checkedOn": "2026-11-12"
   },
   {
@@ -2161,6 +3884,366 @@
     "summary": "Hawaii addresses quarterly reports of condition for licensees and exempt sponsoring companies where required under federal law, in the NMLS-prescribed form.",
     "evidence": "Company and sponsorship status, current quarter and form, reconciled figures and filing receipt.",
     "counsel": "Confirm current FV7 schedules and sections and any financial or no-activity requirements for the actual entity.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "LOAN",
+    "id": "DRE-DISCLOSURE",
+    "title": "DRE Mortgage Loan Disclosure Statement and delivery timing",
+    "authority": "Cal. Bus. & Prof. Code §§10236.4, 10240–10241",
+    "sourceUrl": "https://www.dre.ca.gov/files/pdf/relaw/relaw.pdf",
+    "summary": "The DRE broker statute ties delivery to the earlier of three business days after a completed written application or the borrower becoming obligated on the note. It prescribes content and recognizes a conditional alternative.",
+    "evidence": "DRE authority, loan type and principal amount, completed written application and note obligation times, signed disclosure and delivery.",
+    "counsel": "Confirm covered products and thresholds, approved form or alternative, translated materials and overlap with TRID.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DRE mortgage broker compliance manual",
+        "url": "https://www.dre.ca.gov/files/pdf/re7.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "OUTREACH",
+    "id": "DRE-ADS",
+    "title": "DRE license numbers and originator identifiers in advertising",
+    "authority": "Cal. Bus. & Prof. Code §§10140.6, 10235.5, 10236.4; DRE RE 858",
+    "sourceUrl": "https://www.dre.ca.gov/files/pdf/forms/re858.pdf",
+    "summary": "DRE describes display of the broker license number and applicable originator NMLS ID and distinguishes media and solicitation types.",
+    "evidence": "Published creative and channel, DRE and NMLS identifiers, capacity and claims support, and approval evidence.",
+    "counsel": "Confirm exact identifiers, prominent display and medium and audience exceptions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "RECORDS",
+    "id": "DRE-FILES",
+    "title": "DRE mortgage records and inspection access",
+    "authority": "Cal. Bus. & Prof. Code §§10148, 10240; 10 CCR §2729",
+    "sourceUrl": "https://www.dre.ca.gov/files/pdf/relaw/relaw.pdf",
+    "summary": "DRE requires broker transaction records and the signed mortgage disclosure or applicable alternative, with a three-year retention requirement and records available for inspection.",
+    "evidence": "Executed and obtained documents, signed disclosure and delivery, disposition and dates, and examination retrieval.",
+    "counsel": "Confirm the retention start, unconsummated files, any trust records and longer applicable retention.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "LOAN",
+    "id": "CFL-LOAN-TERMS",
+    "title": "Accuracy of borrower loan terms for CFL licensees",
+    "authority": "Cal. Fin. Code §22161(a)(1)",
+    "sourceUrl": "https://dfpi.ca.gov/wp-content/uploads/2024/09/Admin.-Action-Clear-Choice-Lending_-LLC-Accusation.pdf",
+    "summary": "DFPI cites the CFL prohibition on materially false or misleading borrower representations about loan terms or conditions when making or brokering a loan.",
+    "evidence": "CFL authority and counterparty, dated representations and offers, loan terms and any correction.",
+    "counsel": "Confirm CFL scope, permitted counterparties, material changes requiring notice and other borrower disclosures.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "OUTREACH",
+    "id": "CFL-ADS",
+    "title": "CFL advertising identifier and advertising copy",
+    "authority": "10 CCR §§1550, 1552",
+    "sourceUrl": "https://dfpi.ca.gov/wp-content/uploads/sites/337/2021/08/PRO-02-17-Final-Text-of-Rules.pdf",
+    "summary": "The adopted rules address unique identifiers in mortgage ads, a limited-character electronic ad link exception, and advertising copy retention, including originator ads kept by the sponsor.",
+    "evidence": "Creative, channel and character limit, linked destination, sponsor and identifiers, publication and last-use dates.",
+    "counsel": "Confirm operative rule and exact short-format exception, claim requirements and retention.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "RECORDS",
+    "id": "CFL-EXAM",
+    "title": "CFL books, records and independent escrow evidence",
+    "authority": "Cal. Fin. Code §22156",
+    "sourceUrl": "https://dfpi.ca.gov/wp-content/uploads/2024/09/Admin.-Action-Clear-Choice-Lending_-LLC-Accusation.pdf",
+    "summary": "The CFL requires compliance records and addresses records for real-property secured loans disbursed through independent escrow.",
+    "evidence": "CFL license, books and loan file inventory, escrow evidence, storage and examination production.",
+    "counsel": "Confirm current underlying regulations, which files and records are required, and retention and location.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "REPORTING",
+    "id": "DRE-MCR",
+    "title": "DRE company mortgage call reports",
+    "authority": "Cal. Bus. & Prof. Code §10166.08; DRE SAFE Act guidance",
+    "sourceUrl": "https://dre.ca.gov/Licensees/SafeAct.html",
+    "summary": "DRE identifies company MCR filing obligations for its mortgage loan origination endorsement program.",
+    "evidence": "Company license and endorsement, filed period and components, reconciled activity or no activity and NMLS receipt.",
+    "counsel": "Confirm covered endorsement, current filing schedule and distinction from threshold broker and DFPI reports.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OR",
+    "area": "LOAN",
+    "id": "CLOSING-DISC",
+    "title": "Preclosing disclosure under Oregon mortgage broker law",
+    "authority": "ORS 86A.169",
+    "sourceUrl": "https://www.oregonlegislature.gov/bills_laws/ors/ors086a.html",
+    "summary": "The statute requires the mortgage banker or broker to supply the borrower with the referenced federal real estate lending disclosure before closing.",
+    "evidence": "Covered loan and broker role, applicable disclosure version, dated delivery and closing evidence.",
+    "counsel": "Resolve current federal equivalent and product and party scope given the statute's older Regulation Z citation.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OR",
+    "area": "OUTREACH",
+    "id": "AD-ARCHIVE",
+    "title": "Mortgage advertising identity and archive by channel",
+    "authority": "OAR 441-865-0030; OAR 441-870-0080",
+    "sourceUrl": "https://secure.sos.state.or.us/oard/viewSingleRule.action?ruleVrsnRsn=114954",
+    "summary": "Oregon lists print, broadcast and electronic advertising records, including covered mobile app versions. Related rules address licensee identity and identifiers.",
+    "evidence": "Published creative and scripts, app version where applicable, publication dates, approved name and identifiers.",
+    "counsel": "Confirm advertisement categories, archive period and identifiers by medium.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OR",
+    "area": "RECORDS",
+    "id": "BORROWER-FILES",
+    "title": "Residential borrower files and disposition evidence",
+    "authority": "OAR 441-865-0010, 441-865-0060",
+    "sourceUrl": "https://secure.sos.state.or.us/oard/viewSingleRule.action?ruleVrsnRsn=114963",
+    "summary": "The borrower file rule lists signed applications and identifiers, fee agreements when prepared, applicable rate lock or float evidence and disposition records.",
+    "evidence": "Executed application, ID and signatures, loan file and status, fee and rate records and exam retrieval.",
+    "counsel": "Confirm form and retention by disposition, storage, review of signatures and longer applicable periods.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OR",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Oregon NMLS residential mortgage reports of condition",
+    "authority": "OAR 441-865-0025",
+    "sourceUrl": "https://secure.sos.state.or.us/oard/viewSingleRule.action?ruleVrsnRsn=114949",
+    "summary": "The rule specifies filing through NMLS within 45 days after each calendar quarter and describes its license and activity period using preceding-calendar-year language.",
+    "evidence": "License dates, period-specific form instructions, state activity reconciliation, submission and amendment receipts.",
+    "counsel": "Confirm how the rule's period wording applies to the quarter, no-activity treatment and relationship to the statutory annual report.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WA",
+    "area": "LOAN",
+    "id": "DISCLOSURE",
+    "title": "Broker disclosures after application or receipt of funds",
+    "authority": "RCW 19.146.030, 19.144.020; WAC 208-660-430",
+    "sourceUrl": "https://app.leg.wa.gov/wac/default.aspx?cite=208-660-430",
+    "summary": "The rule sets a three-business-day window tied to receipt of a loan application or third-party service money. It requires copies and the lender agreement if a lender provides disclosures.",
+    "evidence": "Dated application and funds receipts, applicable fee and summary disclosures, delivery, and lender agreement where used.",
+    "counsel": "Confirm state triggers and exceptions, accepted forms and responsibilities, and overlap with federal timing and fee rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WA",
+    "area": "OUTREACH",
+    "id": "AD-RATE-PROOF",
+    "title": "Advertised rates, APR prominence and rate evidence",
+    "authority": "WAC 208-660-440",
+    "sourceUrl": "https://app.leg.wa.gov/wac/default.aspx?cite=208-660-440",
+    "summary": "Washington addresses advertised rate availability, APR prominence, prohibited claims and use of current loan information. The broker retains a rate sheet or other rate support and APR calculation for specific advertised rates.",
+    "evidence": "Published ad, lender rate sheet or equivalent, APR calculation, distribution and approval.",
+    "counsel": "Confirm channel-specific disclosures, source wording and required identifiers and evidence.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ID",
+    "area": "LOAN",
+    "id": "PRE-CLOSE-FEES",
+    "title": "Covered preclosing fees and third-party costs",
+    "authority": "Idaho Code §26-31-210",
+    "sourceUrl": "https://legislature.idaho.gov/statutesrules/idstat/Title26/T26CH31/SECT26-31-210/",
+    "summary": "The statute limits preclosing charges to listed categories, including actually incurred costs for third-party services rendered, and requires reasonable and customary charges.",
+    "evidence": "Charge category, invoice and service date, fee and approval and closing events, plus cancellation or refund evidence.",
+    "counsel": "Confirm origination or modification scope, exceptions and the effect of federal fee timing.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ID",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Accessible loan and originator records",
+    "authority": "Idaho Code §§26-31-208(1)–(2), 26-31-209",
+    "sourceUrl": "https://legislature.idaho.gov/statutesrules/idstat/Title26/T26CH31/SECT26-31-208/",
+    "summary": "The statute requires records in the United States that the director can access, addresses preservation after the final loan entry and separately covers records of originator relationships.",
+    "evidence": "File and final entry, location and access sample, dated sponsorship or employment records and exam response.",
+    "counsel": "Confirm the exact retention period and starts for each record category, including longer federal requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ID",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Idaho quarterly mortgage call report",
+    "authority": "Idaho Code §26-31-208(5)",
+    "sourceUrl": "https://legislature.idaho.gov/statutesrules/idstat/Title26/T26CH31/SECT26-31-208/",
+    "summary": "Licensed mortgage brokers and lenders submit quarterly mortgage call reports through NMLS within 45 days after the quarter ends.",
+    "evidence": "License, applicable quarter, reconciled activity or zero activity, prescribed component and receipt.",
+    "counsel": "Confirm scope, exact fields, supplements and treatment of periods with no activity.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ID",
+    "area": "REPORTING",
+    "id": "FINANCIAL",
+    "title": "Idaho annual report of financial condition",
+    "authority": "Idaho Code §26-31-208(6)",
+    "sourceUrl": "https://legislature.idaho.gov/statutesrules/idstat/Title26/T26CH31/SECT26-31-208/",
+    "summary": "The statute specifies an annual financial-condition report through NMLS within 45 days after calendar year end. The director prescribes form and content.",
+    "evidence": "Company and annual period, regulator instructions, financial component and receipt.",
+    "counsel": "Confirm current filing instructions and reconcile the statutory timing with NMLS component instructions before scheduling a legal deadline.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MT",
+    "area": "LOAN",
+    "id": "ORIGINATION-DISC",
+    "title": "Montana broker origination disclosure",
+    "authority": "MCA §32-9-124(2); ARM 2.59.1737",
+    "sourceUrl": "https://banking.mt.gov/BFID/mortgage-consumer-finance/mortgage",
+    "summary": "The agency identifies its required state disclosure at application before providing broker services, with borrower signature.",
+    "evidence": "Application and service chronology, operative disclosure and borrower signature, copy and delivery evidence.",
+    "counsel": "Confirm trigger, form version, party scope and acceptable signatures and delivery.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MT",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Licensee name, NMLS identifier and Consumer Access link",
+    "authority": "MCA §32-9-149(4); Montana broker guide",
+    "sourceUrl": "https://banking.mt.gov/BFID/mortgage-consumer-finance/MBguide",
+    "summary": "The division identifies name and NMLS identifier requirements for covered advertisements and a link to the broker's NMLS Consumer Access page on the website.",
+    "evidence": "Published ad and channel, approved name and identifier, website link and dated approval.",
+    "counsel": "Confirm identities by channel, applicable digital rules and any rate-sheet support.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MT",
+    "area": "RECORDS",
+    "id": "FINAL-ACTIVITY",
+    "title": "Mortgage pipeline and five-year loan file access",
+    "authority": "MCA §32-9-121(2); ARM 2.59.1710, 2.59.1746",
+    "sourceUrl": "https://banking.mt.gov/BFID/mortgage-consumer-finance/MBguide",
+    "summary": "The division requires an application pipeline and five-year retention from the last file activity. A broker relying on the lender's system must preserve access after the relationship ends.",
+    "evidence": "Pipeline and statuses, file contents and dated last activity, custody and independent retrieval sample.",
+    "counsel": "Confirm file content and exact start for each disposition, access after termination and longer obligations.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WY",
+    "area": "LOAN",
+    "id": "FEE-AGREEMENT",
+    "title": "Signed broker agreement and advance delivery",
+    "authority": "Wyo. Stat. §40-23-114",
+    "sourceUrl": "https://wyoleg.gov/statutes/compress/title40.pdf",
+    "summary": "The statute ties the signed agreement to three business days after the borrower signs a completed application and requires delivery before consideration. It addresses required contents and fee increases.",
+    "evidence": "Completed application and signature, agreement and delivery, consideration, itemized fees and changed-fee explanation.",
+    "counsel": "Confirm business-day and consideration definitions, which fee changes require redisclosure, and treatment of legacy federal form references.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WY",
+    "area": "OUTREACH",
+    "id": "AD-CLAIMS",
+    "title": "Mortgage advertising claims and originator identification",
+    "authority": "Wyo. Stat. §§40-23-117(a)(viii), 40-14-649",
+    "sourceUrl": "https://wyoleg.gov/statutes/compress/title40.pdf",
+    "summary": "Wyoming prohibits false promises and misrepresentations through advertising and addresses unique identifiers on covered originator applications, solicitations and ads.",
+    "evidence": "Published creative, lender rate support, originator and company identifiers and approval.",
+    "counsel": "Confirm which act and identifier rule apply to the entity, activity and medium.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WY",
+    "area": "RECORDS",
+    "id": "CLOSED-LOAN",
+    "title": "Loan records and out-of-state examination access",
+    "authority": "Wyo. Stat. §§40-23-111–112",
+    "sourceUrl": "https://wyoleg.gov/statutes/compress/title40.pdf",
+    "summary": "Wyoming requires closing-related loan records for 25 months from closing and addresses production when records are outside the state.",
+    "evidence": "Closed file inventory and date, records location, request and delivery or examination expense evidence.",
+    "counsel": "Confirm applicable record types, unclosed files and longer requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AK",
+    "area": "LOAN",
+    "id": "CO-BROKER-FEE",
+    "title": "Borrower permission and written amount for co-broker fee",
+    "authority": "3 AAC 14.515(5); AS 06.60.340",
+    "sourceUrl": "https://www.akleg.gov/basis/aac.asp#3.14.515",
+    "summary": "Alaska's unfair-practices rule addresses a broker engaging another broker who will charge the borrower an additional fee. It requires advance written permission and the fee amount in writing.",
+    "evidence": "Broker roles, fee amount and dated written permission, engagement and collection events.",
+    "counsel": "Confirm current rule text, applicable actors, when permission is required and federal fee restrictions.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Alaska Division of Banking mortgage statutes and rules",
+        "url": "https://www.commerce.alaska.gov/web/dbs/ConsumerFinance/MortgageBrokerLendersOriginators.aspx"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "AK",
+    "area": "OUTREACH",
+    "id": "AD-CLAIMS",
+    "title": "Mortgage advertising accuracy and available terms",
+    "authority": "AS 06.60.320, 06.60.340",
+    "sourceUrl": "https://www.akleg.gov/basis/statutes.asp#06.60.320",
+    "summary": "Alaska prohibits false, misleading or deceptive representations concerning mortgage rates, terms or conditions.",
+    "evidence": "Published dated material, substantiation and contemporaneous rate or terms, approval and role evidence.",
+    "counsel": "Confirm the operative statute and separate identifier, medium and archive rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AK",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Mortgage loan records and examination production",
+    "authority": "AS 06.60.135; Alaska Division of Banking examination enforcement",
+    "sourceUrl": "https://www.commerce.alaska.gov/web/Portals/3/pub/Archive26/22-122-CMortgageBrokersofAlaskaConsentOrder.pdf",
+    "summary": "Alaska requires mortgage records and has enforced timely production of complete loan files. The agency's examination order also addresses separating business records.",
+    "evidence": "File inventory, request and retrieval times, separate business records and regulator response.",
+    "counsel": "Confirm scope for broker and lender files, current retention and production deadline, and out-of-state storage.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "HI",
+    "area": "LOAN",
+    "id": "BROKER-FEES",
+    "title": "Broker compensation provisions and required disclosures",
+    "authority": "HRS §454F-17(4), (7)–(8)",
+    "sourceUrl": "https://data.capitol.hawaii.gov/hrscurrent/Vol10_Ch0436-0474/HRS0454F/HRS_0454F-0017.htm",
+    "summary": "Hawaii prohibits covered best-efforts agreements allowing compensation when the borrower obtains no loan and requires applicable disclosures. The statute addresses handling of amounts or documents the licensee cannot retain.",
+    "evidence": "Agreement and terms, loan outcome, compensation or refund, and dated disclosure evidence.",
+    "counsel": "Confirm current role, contract and fee scope and separate state and federal disclosure duties.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "HI",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Originator identifier and advertising claims",
+    "authority": "HRS §§454F-19, 454F-17(5), (9)",
+    "sourceUrl": "https://data.capitol.hawaii.gov/hrscurrent/Vol10_Ch0436-0474/HRS0454F/HRS_0454F-0019.htm",
+    "summary": "Hawaii requires the originator's unique identifier on covered applications, solicitations and advertising, including business cards and websites. It separately addresses unavailable terms and misleading claims.",
+    "evidence": "Published material, application, unique identifier and exemption facts, dated term and claim evidence.",
+    "counsel": "Confirm covered roles and any company identifiers or channel rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "HI",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Loan records and regulator examination production",
+    "authority": "HRS §454F-15",
+    "sourceUrl": "https://data.capitol.hawaii.gov/hrscurrent/Vol10_Ch0436-0474/HRS0454F/HRS_0454F-0015.htm",
+    "summary": "The commissioner can request loan books, files and records, require reports and obtain access for an examination or investigation.",
+    "evidence": "Records inventory and file samples, regulator request and dated production, role and access evidence.",
+    "counsel": "Confirm retention and file content by license and disposition, production format and response timing.",
     "checkedOn": "2026-11-12"
   }
 ]

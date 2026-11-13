@@ -154,3 +154,31 @@ test("bounded pagination and bounded assessment attempts retain all history", t 
   assert.match(f.mutate("attempt", { assignmentId, versionId: id, answers: [0] }, f.employee).error, /limit/);
   assert.equal(f.db.prepare("SELECT count(*) n FROM compliance_learning_events WHERE operation='attempt'").get().n, 20);
 });
+
+
+test("owner follow-up lists only outstanding policy assignments for current staff access", t => {
+  const f = fixture(t);
+  const policy = f.draft();
+  const another = f.draft("Policy", { title: "Upcoming policy" });
+  const course = f.draft("Course");
+  for (const version of [policy, another, course]) f.publish(version.versionId);
+  const overdue = f.mutate("assign", { versionId: policy.versionId, employeeEmail: f.employee.email, dueAt: "2026-11-10T23:59:59Z" }).assignmentId;
+  const upcoming = f.mutate("assign", { versionId: another.versionId, employeeEmail: f.other.email, dueAt: "2026-11-15T23:59:59Z" }).assignmentId;
+  const revoked = f.assign(policy.versionId, f.other);
+  f.mutate("revokeAssignment", { assignmentId: revoked, note: "Fictional reassignment" });
+  f.assign(course.versionId, f.employee);
+  const all = { operation: "policyFollowUp", filter: "All outstanding", offset: 0 };
+  const queue = f.work(all);
+  assert.deepEqual(queue.items.map(row => [row.id, row.employeeName, row.pastTarget]), [[overdue, "Employee", true], [upcoming, "Other", false]]);
+  assert.deepEqual([queue.total, queue.pastTarget], [2, 1]);
+  assert.deepEqual(f.work({ ...all, filter: "Past target" }).items.map(row => row.id), [overdue]);
+  assert.deepEqual(f.work({ ...all, filter: "Due later" }).items.map(row => row.id), [upcoming]);
+  assert.deepEqual(f.work({ operation: "listAssignments", versionId: policy.versionId, assignmentId: overdue }).items.map(row => row.id), [overdue]);
+  assert.deepEqual(f.work({ operation: "listAssignments", versionId: another.versionId, assignmentId: overdue }).items, []);
+  assert.ok(f.work(all, f.employee).error);
+  assert.deepEqual(f.work(all, f.admin, f.roster, uuid()).items, []);
+  const reinvited = f.roster.map(member => member.email === f.other.email ? { ...member, accessRevision: 2 } : member);
+  assert.deepEqual(f.work(all, f.admin, reinvited).items.map(row => row.id), [overdue]);
+  f.mutate("acknowledge", { assignmentId: overdue, versionId: policy.versionId, acknowledged: true }, f.employee);
+  assert.deepEqual(f.work(all).items.map(row => row.id), [upcoming]);
+});

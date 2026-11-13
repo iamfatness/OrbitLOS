@@ -11,11 +11,12 @@ import { Button } from "./ui/button";
 
 const displayTotals = (total: CarryoverTotals | null) => total ? `${total.count} · ${money(total.amount)}` : "—";
 
-export function CallReportQuarterReview({ brokerageId, period, openLoan, openReadiness, openPrior, version }: {
+export function CallReportQuarterReview({ brokerageId, period, openLoan, openReadiness, openPrior, version, initiallyOpen }: {
   brokerageId: string; period: ReportingPeriod; openLoan: (id: string) => void; openReadiness: () => void;
-  openPrior: (period: ReportingPeriod) => void; version: object;
+  openPrior: (period: ReportingPeriod) => void; version: object; initiallyOpen?: boolean;
 }) {
-  const [started, setStarted] = useState(false);
+  const [open, setOpen] = useState(!!initiallyOpen);
+  const [started, setStarted] = useState(!!initiallyOpen);
   const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [loaded, setLoaded] = useState<{ offset: number; refresh: number; version: object; data: QuarterReviewPage | { error: string } }>();
@@ -77,7 +78,10 @@ export function CallReportQuarterReview({ brokerageId, period, openLoan, openRea
 
   const download = (version: number) => void perform({ type: "downloadQuarterReview", year, quarter, version });
 
-  return <details className="document-form" onToggle={(event) => { if (event.currentTarget.open) setStarted(true); }}>
+  return <details className="document-form" open={open} onToggle={(event) => {
+    setOpen(event.currentTarget.open);
+    if (event.currentTarget.open) setStarted(true);
+  }}>
     <summary>Quarter reconciliation and review exports</summary>
     {started && <section className="record-form" aria-label="Quarter reconciliation">
       <p className="muted">Compare the saved prior quarter’s ending pipeline with this quarter’s opening files. This is an internal review of the whole brokerage quarter.</p>

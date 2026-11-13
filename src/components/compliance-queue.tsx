@@ -33,10 +33,11 @@ function ReceiptEvidence({ evidence }: { evidence: SampleReceiptEvaluation["basi
   </details>;
 }
 
-export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, initialAttention, paused, openLoan, openDisclosures }: {
+export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, initialAttention, paused, openLoan, openDisclosures, returnToEvidence }: {
   brokerageId: string; admin: boolean; loanId?: string; initialCaseId?: string;
   initialAttention?: ComplianceAttention; paused?: boolean;
-  openLoan?: (loanId: string, caseId?: string) => void; openDisclosures?: () => void;
+  openLoan?: (loanId: string, caseId?: string) => void; openDisclosures?: (caseId?: string) => void;
+  returnToEvidence?: boolean;
 }) {
   const id = useId();
   const [query, setQuery] = useState<Query>({ type: "list", loanId, attention: initialAttention });
@@ -48,6 +49,8 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ini
   const attempt = useRef<{ key: string; requestId: string }>(null);
   const focus = useRef<string>(undefined);
   const heading = useRef<HTMLHeadingElement>(null);
+  const evidenceAction = useRef<HTMLButtonElement>(null);
+  const returning = useRef(returnToEvidence);
   useEffect(() => {
     if (paused) return;
     let current = true;
@@ -60,6 +63,10 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ini
   const detail = data && "kind" in data && data.kind === "detail" ? data : undefined;
   const loaded = Boolean(data);
   useEffect(() => {
+    if (loaded && returning.current) {
+      (evidenceAction.current ?? heading.current)?.focus();
+      returning.current = false;
+    }
     if (!loaded || focus.current === undefined) return;
     const target = focus.current ? document.getElementById(`${id}-${focus.current}`) : null;
     (target ?? heading.current)?.focus();
@@ -140,7 +147,7 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ini
       {loanId && admin && <div className="loan-application-actions">
         {list.samplePackageVersion && !list.items.some((item) => item.packageVersion === list.samplePackageVersion) ?
           <Button size="sm" disabled={pending} onClick={() => void save({ type: "openFixture", loanId, packageVersion: list.samplePackageVersion }, "Sample cases opened.")}>Open sample finding</Button> :
-          !list.samplePackageVersion && openDisclosures && <Button size="sm" variant="outline" onClick={openDisclosures}>Open sample disclosures</Button>}
+          !list.samplePackageVersion && openDisclosures && <Button size="sm" variant="outline" onClick={() => openDisclosures()}>Open sample disclosures</Button>}
       </div>}
       {(query.after || list.next) && <div className="loan-application-actions">
         {query.after && <Button size="sm" variant="outline" onClick={() => setQuery({ ...query, after: undefined })}>First page</Button>}
@@ -152,11 +159,18 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ini
       <p className="muted">{detail.item.ownerState === "Assigned" ? "Owner" : detail.item.ownerState}{detail.item.ownerName && ` · ${detail.item.ownerName}`} · Deadline undetermined</p>
       {detail.item.loanId && <div className="document-item record-form"><strong>Sample package v{detail.item.packageVersion} · {detail.packageState}</strong>
         <p>{detail.sampleReview ? `Sample workbench review recorded for revision ${detail.sampleReview.packageRevision}.` :
-          detail.packageState !== "Current" ? "Open the current file for new evidence. This case retains its original history." :
+          detail.packageState === "Superseded" ? "This finding belongs to an earlier package. Its evidence and decisions remain in Case history." :
+            detail.packageState === "Unavailable" ? "No disclosure package is available for this finding." :
+            detail.packageState !== "Current" ? "Review the latest package and its status in Disclosures." :
             detail.sampleReviewRevision ? "The current sample workbench review is available to record here." : "Current sample workbench review is missing."}</p>
+        {detail.latestPackageVersion !== null && detail.latestPackageVersion !== detail.item.packageVersion &&
+          <p className="muted">Latest sample package v{detail.latestPackageVersion}</p>}
         <div className="loan-application-actions">
           {openLoan && currentLoanId && <Button size="sm" onClick={() => openLoan(currentLoanId, detail.item.id)}>Open file finding</Button>}
-          {openDisclosures && detail.packageState === "Current" && <Button size="sm" variant="outline" onClick={openDisclosures}>Open sample disclosures</Button>}
+          {openDisclosures && <Button ref={evidenceAction} size="sm" className="min-h-11"
+            variant={detail.packageState === "Superseded" ? "default" : "outline"} disabled={pending}
+            onClick={() => openDisclosures(detail.item.id)}>{detail.latestPackageVersion === null ?
+              "Open sample disclosures" : "Open current evidence"}</Button>}
           {admin && detail.sampleReviewRevision && !detail.sampleReview && <Button size="sm" disabled={pending}
             onClick={() => void save({ type: "recordSampleReview", packageRevision: detail.sampleReviewRevision }, "Sample workbench review recorded.")}>Record sample review</Button>}
         </div>

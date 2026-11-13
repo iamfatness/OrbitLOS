@@ -4,10 +4,13 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
 import { stateScopeFacts, type StateScopeFacts } from "@/lib/compliance-state-scope-model";
+import { propertyStateName } from "@/lib/property-state";
 import { LicenseRecordStatus } from "./license-record-status";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 import { ComplianceStateReadiness } from "./compliance-state-readiness";
+import { ComplianceScopeReviews } from "./compliance-scope-reviews";
+import type { ProgramReviewTarget } from "@/lib/compliance-program-model";
 
 type Scope = Extract<ComplianceCaseResult, { kind: "stateScope" }>;
 type Entity = Extract<ComplianceCaseResult, { kind: "programEntities" }>["entities"][number];
@@ -33,12 +36,14 @@ function ScopeFacts({ facts, labels = scopeLabels }: {
     <div key={name}><dt>{label}</dt><dd>{facts[name] || "Not recorded"}</dd></div>)}</dl>;
 }
 
-export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
-  brokerageId: string; jurisdiction: string; paused: boolean;
+export function ComplianceStateScope({ brokerageId, jurisdiction, paused, initiallyOpen, active, openReview, initialEntityId }: {
+  brokerageId: string; jurisdiction: string; paused: boolean; initiallyOpen?: boolean; active: boolean;
+  openReview: (target: ProgramReviewTarget, origin: string) => void;
+  initialEntityId?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!initiallyOpen);
   const [entities, setEntities] = useState<readonly Entity[]>();
-  const [entityId, setEntity] = useState("");
+  const [entityId, setEntity] = useState(initialEntityId ?? "");
   const [version, setVersion] = useState<number>();
   const [data, setData] = useState<Scope>();
   const [draft, setDraft] = useState<{ revision: number; base: StateScopeFacts; facts: StateScopeFacts }>();
@@ -47,6 +52,8 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const feedback = useRef<HTMLParagraphElement>(null);
+  const initialFocus = useRef(!!initialEntityId);
+  const scopeHeading = useRef<HTMLHeadingElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
   const retry = useRef<{ body: string; id: string } | null>(null);
 
@@ -79,6 +86,13 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
   const current = data?.entityId === entityId && (version === undefined ? data.revision === data.latestRevision : data.revision === version)
     ? data : undefined;
   const selectedEntity = entities?.find(entity => entity.id === entityId);
+  useEffect(() => {
+    if (current && selectedEntity && active && initialFocus.current) {
+      initialFocus.current = false;
+      scopeHeading.current?.focus();
+    }
+  }, [current, selectedEntity, active]);
+  const needsRecheck = current && (current.sourceChanged || current.entityChanged || current.licensesChanged || current.licenseBasisMissing);
   const basis = current?.savedBasis;
   const savedFacts = current?.facts ?? emptyFacts;
   const facts = draft?.facts ?? savedFacts;
@@ -122,15 +136,18 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
       if (result.revision !== result.latestRevision) setVersion(result.revision);
       setDraft(undefined);
       retry.current = null;
-      setNotice(`Scope version ${result.revision} saved for counsel review.`);
+      setNotice(`Business facts saved as version ${result.revision}.`);
     } catch {
       setError("Save could not be confirmed. Retry the same scope or refresh to check the outcome.");
     } finally { setBusy(false); }
   }
 
-  return <details className="document-form compliance-state-scope" onToggle={event => setOpen(event.currentTarget.open)}>
+  return <details className="document-form compliance-state-scope" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>Brokerage scope for counsel review</summary>
     {open && <div className="record-form state-scope-body">
+      {initialEntityId && current && selectedEntity && <h3 ref={scopeHeading} tabIndex={-1} className="break-words">
+        {propertyStateName(jurisdiction)} · {selectedEntity.name}
+      </h3>}
       <div className="loan-application-actions licensing-controls state-scope-controls">
         <label className="field">Legal entity<select value={entityId} disabled={busy || paused || !entities} onChange={event => {
           setEntity(event.target.value); setVersion(undefined); setData(undefined); setDraft(undefined); setError(""); setNotice("");
@@ -149,10 +166,14 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
       }}><option value="">Latest version · {data.latestRevision}</option>{data.history.map(item =>
         <option key={item.revision} value={item.revision}>Version {item.revision} · {item.savedAt.slice(0, 10)}</option>)}</select></label>}
       {current && <>
-        <p className="muted">{current.revision ? `Version ${current.revision} · Pending counsel review` : "No scope saved for this entity and state."}</p>
+        <p className="muted">{current.revision ? `Version ${current.revision} · ${
+          version !== undefined && version !== current.latestRevision ? "Historical record" : needsRecheck ? "Needs recheck" : "Business facts saved"}` :
+          "No scope saved for this entity and state."}</p>
         {current.sourceChanged && <p role="status">Research sources changed since this version was recorded.</p>}
         {current.entityChanged && <p role="status">Entity details changed since this version was recorded.</p>}
         {current.licensesChanged && <p role="status">License records changed since this version was recorded.</p>}
+        {current.licenseBasisMissing && <p role="status">This version did not capture license records. Save a current version after checking them.</p>}
+        {needsRecheck && version === undefined && <p className="muted">Check the current records below, then save a new scope version for review.</p>}
         {basis && <div><Button type="button" size="sm" variant="outline" className="min-h-11" onClick={() => {
           downloadSampleFile(JSON.stringify({
             jurisdiction, version: current.revision, entity: JSON.parse(basis.entity), facts: current.facts,
@@ -162,6 +183,8 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
             legalApproval: current.legalApproval,
           }, null, 2), `orbit-${jurisdiction}-scope-v${current.revision}.json`, "application/json");
         }}>Download scope version</Button></div>}
+        {current.revision > 0 && <ComplianceScopeReviews key={`${entityId}:${current.revision}:reviews`} brokerageId={brokerageId}
+          entityId={entityId} jurisdiction={jurisdiction} scopeRevision={current.revision} active={active} paused={paused} openReview={openReview} />}
         {current.revision > 0 && <ComplianceStateReadiness key={`${entityId}:${current.revision}`}
           brokerageId={brokerageId} entityId={entityId} jurisdiction={jurisdiction} scopeRevision={current.revision} paused={paused} />}
         {version === undefined ? <>
