@@ -798,3 +798,9 @@ Staging preview 7257fb84-a88b-45e7-8075-ea5ddd5a522d receives 0% ordinary traffi
 ### Combined broker working-day rehearsal
 
 The maintained 70-stage rehearsal passed against the local build used for staging preview 7257fb84-a88b-45e7-8075-ea5ddd5a522d. It exercised the fictional brokerage owner, LO, processor, borrower and realtor, including both staff handoffs. The Michigan reporting portion now verifies that the processor cannot save owner filing evidence, the owner can record a fictional receipt, a completed review keeps its timing gap, a date correction clears it without reopening the work, and the prior monthly snapshot preserves the original date. The rehearsal now reads the full saved review from the server action even when it arrives in a separate text chunk. The hosted Chrome session remained at Google sign-in. The authenticated rehearsal used a local build and fictional data.
+
+### Completed filing timing gaps in Needs attention
+
+Source edfbf27 keeps completed NMLS and HMDA work in Needs attention while its internal target is later than the current filing deadline. The owner can open the exact item and correct the target while retaining Completed status. The queue refresh removes the cleared item. The fictional owner completed this loop from Compliance home using the keyboard. Inspected populated owner-queue captures at 1440, 900 and 390 px in .orbit/owner-completed-gap-owner-queue-*.png and checked the selected review. The existing review rows and controls were reused. Impeccable and UI UX Pro Max informed the visible warning text and focus checks. All 689 tests, targeted lint, typecheck and stage build passed.
+
+Staging preview 4759a994-6e54-463c-ac6c-56dddb0276c7 receives 0% ordinary traffic. It matched the ordinary staging bindings and runtime, passed 33 public, portal and signed-out checks and matched all 52 assets twice. The authenticated owner walkthrough was local.
