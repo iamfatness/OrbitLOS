@@ -78,6 +78,7 @@ export default function DemoPage() {
           <li>Open Exceptions as a brokerage owner. Assign a processor, open a closing review that needs attention and see who acts next, or jump to a reopened mock lender condition.</li>
           <li>Compare a sample settlement fee statement with the confirmed disclosure. Open itemized fee differences directly from the settlement exception queue.</li>
           <li>Recover a missing mock UWM receipt from Today. Open the mock UWM delivery timeline to see which 1003 revision arrived and why older or duplicate updates left a cleared condition in place.</li>
+          <li>In a workspace with the UWM connection configured, a confirmed import rejection takes the assigned loan officer from Today to the exact 1003 revision and lender response.</li>
           <li>Issue a fictional preapproval PDF from the reviewed purchase 1003. Share the current version separately with the borrower and their realtor.</li>
               <li>Set sample preapproval limits and require independent approval before portal sharing. Issued PDFs keep their template version.</li>
               <li>Find pending sample letter approvals, requested changes, and letters ready to share in Today.</li>

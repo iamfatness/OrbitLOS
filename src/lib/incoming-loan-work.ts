@@ -12,13 +12,14 @@ import { currentRealtorFinancingSql, readyRealtorFinancingId, realtorFinancingDa
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { isDemoStaff } from "./workspace-access";
-import { fictionalUwmWorkspace } from "./uwm-live";
+import { fictionalUwmWorkspace, uwmWorkspaceEnabled, type UwmEnvironment } from "./uwm-live";
+import { uwmUserSettings } from "./uwm-user-access";
 
 const pageSize = 8;
 const sparseReceivedLimit = 32;
 
 export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
-  localName?: string, now = new Date(), limit = pageSize): IncomingLoanWorkPage | { error: string } {
+  localName?: string, now = new Date(), limit = pageSize, uwmEnv?: UwmEnvironment): IncomingLoanWorkPage | { error: string } {
   const parsed = incomingLoanWorkQuery.safeParse(input);
   if (!parsed.success || !staff || staff.brokerage.id !== brokerageId) return { error: incomingLoanWorkUnavailable };
   const { view, after } = parsed.data;
@@ -64,6 +65,10 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
   const documentArgs = processing ? (team ? [] : [staff.email]) : ownerArgs;
   const leadDocuments = !processing && staff.brokerage.pilot;
   const mockUnderwriting = !processing && fictionalUwmWorkspace(staff);
+  let importEnvironment: string | undefined;
+  if (!processing && uwmEnv && uwmWorkspaceEnabled(uwmEnv, staff)) {
+    try { importEnvironment = uwmUserSettings(uwmEnv).environment; } catch { /* No configured import environment. */ }
+  }
   const realtorFinancing = !processing && staff.brokerage.pilot;
   const checkedAt = now.toISOString();
   const letters = !processing ? preapprovalWorkSource(db, staff, now, requireApproval) : undefined;
@@ -81,6 +86,18 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
       '${processing ? "Ready to accept" : "Returned from processing"}', ${processing && !team ? "loan.officer" : "processing.processorName"}, 0,
       nullif(processing.note, ''), NULL, NULL, NULL, NULL
     ${handoffs}
+    ${importEnvironment ? `UNION ALL
+    SELECT 'import-rejection', rejected.id, loan.id, contact.name, receipt.receivedAt, rejected.applicationRevision,
+      'UWM rejected 1003 revision ' || rejected.applicationRevision, NULL, 0, NULL, NULL, NULL, NULL, NULL
+    FROM loans loan ${contacts}
+    JOIN uwm_operations rejected ON rejected.loanId = loan.id AND rejected.environment = ? AND rejected.kind = 'import'
+    JOIN uwm_webhook_receipts receipt ON receipt.id = rejected.receiptId AND receipt.heldImport = 0
+      AND receipt.kind = 'import' AND receipt.environment = rejected.environment AND receipt.transactionId = rejected.transactionId
+      AND json_extract(receipt.body,'$.LoanStatus') = 'NotCompleted'
+    WHERE ${activeProcessingLoan} AND ${owned} AND rejected.state = 'Failed'
+      AND rejected.id = (SELECT recent.id FROM uwm_operations recent
+        WHERE recent.loanId = loan.id AND recent.environment = rejected.environment AND recent.kind = 'import'
+        ORDER BY recent.startedAt DESC, recent.rowid DESC LIMIT 1)` : ""}
     ${mockUnderwriting ? `UNION ALL
     SELECT 'underwriting', attempt.id, loan.id, contact.name, attempt.requestedAt, coalesce(attempt.applicationRevision, 0),
       CASE WHEN json_extract(attempt.result, '$.conflict.detectedAt') IS NOT NULL AND json_extract(attempt.result, '$.conflict.reviewedAt') IS NULL
@@ -117,7 +134,8 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     ${after ? "WHERE (receivedAt, kind, id) < (?, ?, ?)" : ""}
     ORDER BY receivedAt DESC, kind DESC, id DESC LIMIT ?
   ) SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY receivedAt DESC, kind DESC, id DESC`)
-    .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(mockUnderwriting ? [...ownerArgs, unconfirmedMockOrder] : []),
+    .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(importEnvironment ? [importEnvironment, ...ownerArgs] : []),
+      ...(mockUnderwriting ? [...ownerArgs, unconfirmedMockOrder] : []),
       ...(leadDocuments ? [staff.email] : []), ...(realtorFinancing ? [staff.email, ...realtorFinancingDates(checkedAt)] : []), ...documentArgs,
       ...(letters?.args ?? []),
       ...(after ? [after.receivedAt, after.kind, after.id] : []), limit + 1) as unknown as

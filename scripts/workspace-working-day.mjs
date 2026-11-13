@@ -4970,6 +4970,28 @@ try {
     assert.notEqual(restoredCopy, originalCopy);
     assert.equal((await receipts(lenderBrokerage)).filter((row) => row.kind === "conditions").length, 2);
     if (process.argv.includes("--preview")) await destination.removeMatchedReceiptFixture(restoredCopy);
+
+    const failedLoan = await action(lenderOfficer, "mutate", { type: "loan", contactId: "", borrower: "Fictional Rejected Buyer",
+      borrowerEmail: "rejected-buyer@example.test", address: "", amount: 265000, purpose: "Purchase", stage: "Lead",
+      officer: lenderOfficer.name, partnerId: null }, undefined, lenderBrokerage, lenderBrokerage);
+    const rejectedLoanId = failedLoan.loanWork.loanId;
+    const [rejectedOp, rejectedRequest, rejectedTx] = [randomUUID(), randomUUID(), randomUUID()];
+    await workspaces.getByName(lenderBrokerage).lostImportResponse(rejectedLoanId, rejectedOp, rejectedRequest, rejectedTx,
+      lenderOfficer.email, new Date().toISOString());
+    await directory.registerUwmTransactionRoute({ email: lenderOfficer.email, name: lenderOfficer.name, brokerage: { id: lenderBrokerage } },
+      rejectedOp, rejectedTx, "production");
+    const rejectionWork = async (actor) => (await action(actor, "readIncomingLoanWork", { view: "today" }, undefined, lenderBrokerage, lenderBrokerage))
+      .items.filter(item => item.kind === "import-rejection");
+    assert.deepEqual(await rejectionWork(lenderOfficer), []);
+    const rejected = { TransactionId: rejectedTx, LoanNumber: null, LoanStatus: "NotCompleted",
+      Message: "Review the fictional property ZIP.", LogDateTime: "2026-11-11T09:00:00Z" };
+    assert.equal((await webhook("production", "import", webhookToken, rejected)).status, 200);
+    assert.equal((await webhook("production", "import", webhookToken, rejected)).status, 200);
+    assert.deepEqual((await rejectionWork(lenderOfficer)).map(item => [item.id, item.loanId, item.revision]), [[rejectedOp, rejectedLoanId, 1]]);
+    assert.deepEqual(await rejectionWork(otherLenderOfficer), []);
+    await workspaces.getByName(lenderBrokerage).lostImportResponse(rejectedLoanId, randomUUID(), randomUUID(), randomUUID(),
+      lenderOfficer.email, new Date(Date.now() + 1000).toISOString());
+    assert.deepEqual(await rejectionWork(lenderOfficer), []);
   });
 
   await stage("Pilot staff track their own support requests and the owner updates the brokerage queue", async () => {

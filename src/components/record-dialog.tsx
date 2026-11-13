@@ -53,6 +53,7 @@ import { TridEvidencePanel } from "./trid-evidence-panel";
 import { StateBrokerAgreement } from "./state-broker-agreement";
 import { StateRefinanceBenefit } from "./state-refinance-benefit";
 import { disclosureTarget, disclosureTask, requestClosingPackageReviewTarget } from "@/lib/disclosure-model";
+import { importRejectionTargetPrefix } from "@/lib/incoming-loan-work-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
 import { realtorFinancingTarget } from "@/lib/realtor-financing-model";
@@ -523,7 +524,7 @@ function loanSection(target?: string) {
   if (target === disclosureTarget) return "Disclosures";
   if (target === complianceTarget || target.startsWith(complianceCaseTarget(""))) return "Compliance";
   if (target === "loan-application" || target === jointBorrowerPortionsTarget || target === loanAmountComparisonTarget || target === "manual-lender-export" ||
-    target === manualLenderAcknowledgmentTarget) return "1003";
+    target === manualLenderAcknowledgmentTarget || target.startsWith(importRejectionTargetPrefix)) return "1003";
   if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-") ||
     target === serviceOrdersTarget || target.startsWith(serviceOrderTargetPrefix)) return "Conditions";
   if (target === "credit-aus" || target.startsWith(creditAusAttemptTargetPrefix) || target === "loan-pricing" ||
@@ -771,7 +772,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {!processor && state.quoteConsent !== undefined && <QuoteConsentEvidence receipt={state.quoteConsent} />}
       {!processor && state.quoteOverrides && <QuoteCorrectionEvidence receipt={state.quoteOverrides} />}
       {!!state.applicationQuestionReceipts?.length && <ApplicationQuestionReceipts receipts={state.applicationQuestionReceipts} />}
-      {uwmEnabled && !fictionalUwm && staff && <UwmLoanActions key={`import:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="import"/>}
+      {uwmEnabled && !fictionalUwm && staff && <UwmLoanActions key={`import:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="import"
+        rejectionId={target?.startsWith(importRejectionTargetPrefix) ? target.slice(importRejectionTargetPrefix.length) : undefined} />}
       <LoanApplication loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} state={state} busy={busy} save={save} processor={processor}
         jointLinks={!processor && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot : process.env.NODE_ENV === "development")}
         shareBrokerage={!processor && (staff ? staff.brokerage.pilot : process.env.NODE_ENV === "development") ? staff?.brokerage.id ?? demoBrokerageId : undefined}

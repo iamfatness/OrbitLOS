@@ -70,13 +70,15 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
       const action = letter?.action ?? (item.returnStatus ? manualReturnSteps[item.returnStatus].action :
         item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" :
         item.kind === "lead-document" ? "Review lead document" : item.kind === "question" ? "Review borrower answer" :
-          item.kind === "underwriting" ? "Open order" : item.kind === "realtor-financing" ? "Open financing summary" : "Open handoff");
+          item.kind === "underwriting" ? "Open order" : item.kind === "import-rejection" ? "Open rejected import" :
+            item.kind === "realtor-financing" ? "Open financing summary" : "Open handoff");
       return <li className={item.returnEventId ? "loan-task lender-return-task" :
         item.kind === "realtor-financing" ? "loan-task realtor-financing-task" : letter ? "loan-task preapproval-task" : "loan-task"}
         key={`${item.kind}:${item.id}:${item.returnEventId ?? ""}`}>
       <div className="loan-task-copy"><strong>{item.name} · {item.title}</strong>
         <span>{letter ? `Letter v${item.revision} · ${letter.time}` : item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " :
-          item.kind === "underwriting" ? "Ordered " : item.kind === "realtor-financing" ? "Permissions complete " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
+          item.kind === "underwriting" ? "Ordered " : item.kind === "import-rejection" ? "Rejected " :
+            item.kind === "realtor-financing" ? "Permissions complete " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
         {item.returnDeadline && <span className={item.returnDeadline.overdue ? "open-chip" : "muted"}>
           {item.returnDeadline.overdue ? "Return overdue since" : "Follow up by"} {dateTime(item.returnDeadline.dueAt)} ET
         </span>}

@@ -1016,7 +1016,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
 
   incomingLoanWork(input: unknown, staff: WorkspaceStaff) {
-    return readIncomingLoanWorkPage(this.#store, input, staff, this.#id);
+    return readIncomingLoanWorkPage(this.#store, input, staff, this.#id, undefined, undefined, undefined, this.#uwmEnvironment());
   }
 
   manualReturnFollowUp(input: unknown, staff: WorkspaceStaff) {

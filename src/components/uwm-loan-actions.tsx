@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { RefreshCw, ShieldCheck } from "lucide-react";
 import type { StaffApplication } from "@/lib/application-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
+import { importRejectionTarget } from "@/lib/incoming-loan-work-model";
 import { uwmActionLabels, uwmRateBody, uwmRateFields, type RateAction, type UwmField } from "@/lib/uwm-loan-ui";
 import { uwmConditionAttachments, uwmDocumentType } from "@/lib/uwm-public-contracts";
 import { UwmAccount } from "./uwm-account";
@@ -26,7 +27,8 @@ async function json<T>(url:string, body?:unknown, signal?:AbortSignal) {
   return result as T;
 }
 
-export function UwmLoanActions({loanId,staff,application,view}:{loanId:string;staff:WorkspaceStaff;application?:StaffApplication;view:"import"|"documents"|"rates"}) {
+export function UwmLoanActions({loanId,staff,application,view,rejectionId}:{loanId:string;staff:WorkspaceStaff;application?:StaffApplication;
+  view:"import"|"documents"|"rates";rejectionId?:string}) {
   const [account,setAccount]=useState<Account|null>(null), [activity,setActivity]=useState<Activity|null>(null);
   const [error,setError]=useState(""), [message,setMessage]=useState(""), [busy,setBusy]=useState(false), [loading,setLoading]=useState(true);
   const [pending,setPending]=useState<Pending|null>(null), [uncertain,setUncertain]=useState<string|null>(null);
@@ -42,6 +44,16 @@ export function UwmLoanActions({loanId,staff,application,view}:{loanId:string;st
   const linked=activity?.imports.find(item=>item.state==="Completed" && item.lenderLoanNumber);
   const importReview=activity?.imports.find(item=>item.state==="Prepared" && !item.committed && item.scan);
   const latestImport=activity?.imports[0];
+  const rejection=rejectionId ? activity?.imports.find(item=>item.id===rejectionId && item.state==="Failed") :
+    latestImport?.state==="Failed" ? latestImport : undefined;
+  const selectedRejectionId=rejection?.id;
+  const rejectionPanel=useRef<HTMLElement>(null);
+  useEffect(()=>{
+    if(rejectionId && selectedRejectionId && !loading) {
+      rejectionPanel.current?.scrollIntoView({block:"start"});
+      rejectionPanel.current?.focus({preventScroll:true});
+    }
+  },[loading,rejectionId,selectedRejectionId]);
   const importPending=activity?.imports.some(item=>["Acknowledged","Dispatching","Unknown"].includes(item.state));
   const unresolved=activity?.requests.some(item=>["Unknown","Dispatching"].includes(item.state));
   const connected=!!account?.configured && !!account.connectedAt;
@@ -141,13 +153,16 @@ export function UwmLoanActions({loanId,staff,application,view}:{loanId:string;st
       <Button variant="outline" size="sm" disabled={busy||loading} onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh</Button></div>
     {loading?<p role="status">Checking your UWM connection…</p>:<>
       <p className="uwm-loan-status"><ShieldCheck size={16}/>{account?.environment==="production"?"Production":"Test environment"} · {linked?`UWM loan ${linked.lenderLoanNumber}`:connected?"Account connected · no completed import":"Account connection needed"}</p>
-      {view==="import" && !processor && !pending && latestImport?.state==="Failed" &&
-        <section className="uwm-import-review document-item break-words" aria-label="Rejected UWM import">
-          <h4 className="font-semibold">UWM rejected 1003 revision {latestImport.applicationRevision}</h4>
-          {latestImport.transactionId && <p className="muted">Transaction {latestImport.transactionId}</p>}
-          <p>{latestImport.failureReason || "UWM did not include a reason. Check this transaction in UWM for details."}</p>
-          {!linked && !importPending && !unresolved && <p>Resolve the issue, then prepare a new submission check using the current reviewed 1003.</p>}
+      {view==="import" && !processor && !pending && rejection &&
+        <section id={importRejectionTarget(rejection.id)} ref={rejectionPanel} tabIndex={-1}
+          className="uwm-import-review document-item break-words" aria-label="Rejected UWM import">
+          <h4 className="font-semibold">UWM rejected 1003 revision {rejection.applicationRevision}</h4>
+          {rejection.transactionId && <p className="muted">Transaction {rejection.transactionId}</p>}
+          <p>{rejection.failureReason || "UWM did not include a reason. Check this transaction in UWM for details."}</p>
+          {rejection !== latestImport ? <p>A newer import attempt is on file.</p> :
+            !linked && !importPending && !unresolved && <p>Resolve the issue, then prepare a new submission check using the current reviewed 1003.</p>}
         </section>}
+      {rejectionId && activity && !rejection && <p role="status">This rejection is unavailable in the current import activity.</p>}
       {!connected && <UwmAccount brokerageId={staff.brokerage.id} onConnectionChange={()=>void refresh()}/>}
       {connected && !reviewed && <p className="uwm-feedback">Submit and mark the current 1003 reviewed before sending lender requests.</p>}
       {(unresolved||uncertain) && <p className="uwm-feedback">An earlier request needs verification. Refresh its status and check the lender file before sending again.</p>}
@@ -159,9 +174,9 @@ export function UwmLoanActions({loanId,staff,application,view}:{loanId:string;st
         <div className="loan-application-actions"><Button disabled={busy} onClick={()=>void send()}>{uncertain===pending.id?"Check original request":`Confirm ${uwmActionLabels[pending.action].toLowerCase().replace(/uwm/g,"UWM")}`}</Button><Button variant="outline" disabled={busy||uncertain===pending.id} onClick={()=>setPending(null)}>Back to editing</Button></div></div>}
       <div hidden={!!pending}>
       {view==="import" && !processor && <>
-        {!!activity?.imports.slice(1).some(item=>item.state==="Failed") && <details className="uwm-loan-history">
+        {!!activity?.imports.some(item=>item.state==="Failed" && item!==rejection) && <details className="uwm-loan-history">
           <summary>Earlier import rejections</summary>
-          <ul>{activity.imports.slice(1).filter(item=>item.state==="Failed").map(item=><li key={item.id} className="break-words">
+          <ul>{activity.imports.filter(item=>item.state==="Failed" && item!==rejection).map(item=><li key={item.id} className="break-words">
             <strong>1003 revision {item.applicationRevision}{item.transactionId && ` · Transaction ${item.transactionId}`}</strong>
             <p>{item.failureReason || "UWM did not include a reason."}</p>
           </li>)}</ul>
