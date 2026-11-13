@@ -33,6 +33,7 @@ export default function DemoPage() {
           <li>In a fictional Michigan brokerage, record advertising evidence and retrieve the reviewed version from history.</li>
           <li>Open a Michigan state review question from Needs attention and see the last recorded decision and evidence on the same record.</li>
           <li>Start a state review from Compliance setup using the states recorded on the company profile.</li>
+          <li>Follow a state review from Needs attention to completion, with the evidence and outcome saved on the same record.</li>
           <li>In fictional pilots, review Midwest brokerage agreement timing and record refinance benefit evidence for Minnesota and Nebraska.</li>
           <li>Compare itemized charges on the original Loan Estimate and Closing Disclosure, and see which differences need review.</li>
           <li>Review the affected charges and timing on a revised Loan Estimate while keeping the original comparison available.</li>
