@@ -44,7 +44,7 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
   if(["settlement_imports", "settlement_feed_receipts", "settlement_feed_corrections"].some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Imported settlement evidence changed. Choose a checkpoint that retains its source records.");
   const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews","michigan_retention_reviews",
-    "california_dre_recordkeeping_reviews","california_dfpi_recordkeeping_reviews","crmla_register_versions","colorado_recordkeeping_reviews","florida_journal_versions","florida_recordkeeping_reviews","texas_loan_log_versions","texas_recordkeeping_reviews","new_york_application_log_versions","new_york_exam_records","illinois_recordkeeping_reviews","illinois_loan_log_versions"];
+    "california_dre_recordkeeping_reviews","california_dfpi_recordkeeping_reviews","crmla_register_versions","colorado_recordkeeping_reviews","florida_journal_versions","florida_recordkeeping_reviews","texas_loan_log_versions","texas_recordkeeping_reviews","new_york_application_log_versions","new_york_exam_records","illinois_recordkeeping_reviews","illinois_loan_log_versions","texas_custody_notices"];
   if(retentionTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Loan retention evidence changed. This checkpoint requires a separate retention review.");
   result.push(...processorRestoreBlockers(before,current));

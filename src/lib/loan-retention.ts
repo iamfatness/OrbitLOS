@@ -1,3 +1,5 @@
+import { texasCustodyNoticeRequest } from "./texas-custody-notice-model";
+import { initializeTexasCustodyNotices, texasCustodyNoticeWork, type TexasCustodyNoticeResult } from "./texas-custody-notice";
 import { coloradoRecordkeepingRequest } from "./colorado-recordkeeping-model";
 import { coloradoRecordkeepingWork, initializeColoradoRecordkeeping, type ColoradoRecordkeepingResult } from "./colorado-recordkeeping";
 import { floridaRecordkeepingRequest } from "./florida-recordkeeping-model";
@@ -47,6 +49,7 @@ const request = z.discriminatedUnion("type", [
   ...illinoisRecordkeepingRequest.options,
   newYorkApplicationLogRequest,
   newYorkExamRecordsRequest,
+  texasCustodyNoticeRequest,
   ...texasRecordkeepingRequest.options,
   ...floridaRecordkeepingRequest.options,
   z.object({ type: z.literal("list"), heldOnly: z.boolean(), search: z.string().trim().max(100), offset: z.number().int().min(0).max(10000) }),
@@ -72,6 +75,7 @@ export function initializeLoanRetention(db: Store) {
   initializeIllinoisRecordkeeping(db);
   initializeNewYorkApplicationLog(db);
   initializeNewYorkExamRecords(db);
+  initializeTexasCustodyNotices(db);
   initializeTexasRecordkeeping(db);
   initializeFloridaRecordkeeping(db);
   db.exec(`CREATE TABLE IF NOT EXISTS loan_retention_holds (
@@ -118,7 +122,7 @@ type LoanRow = { id: string; borrower: string; address: string; purpose: string;
   holdId: string | null; propertyState: string | null; canReviewCaliforniaDre: boolean; canReviewCaliforniaDfpi: boolean; canReviewColorado: boolean; canReviewFlorida: boolean; canReviewTexas: boolean; canReviewIllinois: boolean };
 type Work = { kind: "list"; loans: LoanRow[]; total: number; held: number; next: number | null } |
   { kind: "history"; holds: Hold[] } | { kind: "saved"; message: string } | DispositionQueue | RetentionAuditResult |
-  MichiganRetentionResult | MichiganBusinessRecords | CaliforniaDreRecordkeepingResult | CaliforniaDfpiResult | ColoradoRecordkeepingResult | CrmlaRegisterResult | FloridaJournalResult | FloridaRecordkeepingResult | TexasLoanLogResult | NewYorkApplicationLogResult | NewYorkExamRecordsResult | TexasRecordkeepingResult | IllinoisLoanLogResult | IllinoisRecordkeepingResult | { error: string };
+  MichiganRetentionResult | MichiganBusinessRecords | CaliforniaDreRecordkeepingResult | CaliforniaDfpiResult | ColoradoRecordkeepingResult | CrmlaRegisterResult | FloridaJournalResult | FloridaRecordkeepingResult | TexasLoanLogResult | NewYorkApplicationLogResult | NewYorkExamRecordsResult | TexasRecordkeepingResult | IllinoisLoanLogResult | IllinoisRecordkeepingResult | TexasCustodyNoticeResult | { error: string };
 export type LoanRetentionResult = Work;
 
 export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceStaff, workspaceId: string, now = new Date().toISOString()): Work {
@@ -141,6 +145,7 @@ export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceSta
     if (data.type === "texasRecordkeepingHistory" || data.type === "saveTexasRecordkeeping")
       return texasRecordkeepingWork(db,data,staff,now);
     if (data.type === "newYorkExamRecords") return newYorkExamRecordsWork(db,data,staff,now);
+    if (data.type === "texasCustodyNotice") return texasCustodyNoticeWork(db, data, staff, now);
     if (data.type === "newYorkApplicationLog") return newYorkApplicationLogWork(db,data,staff,now);
     if (data.type === "illinoisLoanLog") return illinoisLoanLogWork(db,data,staff,now);
     if (data.type === "illinoisRecordkeepingHistory" || data.type === "saveIllinoisRecordkeeping")

@@ -1608,3 +1608,50 @@ test("New York examination records keep complaint and DFS files separate with sc
  assert.equal(JSON.parse(work({...period,category:letter.category}).json).versions[0].facts.direction,"From DFS");
  assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
 });
+
+test("Texas custody notices have independent entity clocks, delivery evidence and protected history", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {db,staff,capture}=ownerFixture(t);
+ initializeStore(db,false);
+ const tenant=staff.brokerage.id, sender=crypto.randomUUID(), receiver=crypto.randomUUID();
+ const addEntity=db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'000123','Fictional Texas scope',?)");
+ addEntity.run(tenant,sender,"Terminating brokerage","2026-01-01T12:00:00Z");
+ addEntity.run(tenant,receiver,"Receiving brokerage","2026-01-01T12:00:00Z");
+ const before=capture();
+ const work=(entityId,input,now="2026-09-09T12:00:00Z",actor=staff)=>
+   loanRetentionWork(db,{type:"texasCustodyNotice",entityId,input},actor,tenant,now);
+ const facts={kind:"Cessation",zone:"America/Chicago",authority:"SML mortgage company",authorityReference:"Company license evidence",
+   trigger:{on:"2026-08-26",reference:"Dated cessation evidence"},custodyReference:"Archive location evidence",
+   calendar:{from:"2026-09-05",through:"2026-09-10",holidays:["2026-09-07"],reference:"Reviewed holiday calendar"}};
+ const save=(facts,options={})=>({operation:"save",noticeId:crypto.randomUUID(),requestId:crypto.randomUUID(),expected:0,facts,...options});
+ const first=save(facts);
+ const history={operation:"history",noticeId:first.noticeId};
+ assert.match(work(sender,first,undefined,{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
+ const saved=work(sender,first,"2026-09-08T12:00:00Z");
+ assert.equal(saved.versions[0].finding.nominalDueOn,"2026-09-05");
+ assert.equal(saved.versions[0].finding.dueOn,"2026-09-08");
+ assert.equal(saved.versions[0].finding.status,"Due today");
+ assert.equal(work(sender,first).versions.length,1);
+ assert.equal(work(receiver,history).versions.length,0);
+ assert.match(work(receiver,first).error,/changed/);
+ const list={operation:"list",offset:0};
+ assert.equal(work(sender,list).items[0].currentFinding.status,"Past due");
+ const transferred={...facts,kind:"Transfer received",authority:"SML mortgage banker",
+   authorityReference:"Banker registration evidence",trigger:{on:"2026-08-28",reference:"Dated transfer receipt"}};
+ assert.equal(work(receiver,save(transferred)).versions[0].finding.nominalDueOn,"2026-09-07");
+ const update={noticeId:first.noticeId,expected:1,correction:"Recorded written notice and proof"};
+ assert.match(work(sender,save(transferred,update)).error,/separate notice/);
+ const delivered={...facts,delivered:{on:"2026-09-08",writtenNotice:"Written SML notice",deliveryEvidence:"Delivery confirmation"}};
+ const corrected=work(sender,save(delivered,update)).versions;
+ assert.equal(corrected[0].finding.status,"Delivered on time");
+ assert.equal(corrected[1].finding.status,"Due today");
+ assert.match(work(sender,save(delivered,update)).error,/changed/);
+ assert.equal(work(sender,save({...delivered,delivered:{...delivered.delivered,on:"2026-09-09"}})).versions[0].finding.status,"Delivered late");
+ assert.equal(work(sender,save({...facts,calendar:{...facts.calendar,through:"2026-09-07"}})).versions[0].finding.status,"Verify calendar");
+ assert.match(work(sender,save({...delivered,delivered:{...delivered.delivered,on:"2026-08-25"}})).error,/required retention fields/);
+ assert.match(work(sender,save({...delivered,delivered:{...delivered.delivered,on:"2026-09-10"}})).error,/already occurred/);
+ assert.equal(work(sender,save({...facts,trigger:{...facts.trigger,on:"2024-11-22"}})).versions[0].finding.status,"Historical rule review");
+ assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
+});
