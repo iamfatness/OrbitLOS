@@ -31,6 +31,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   const [status, setStatus] = useState("");
   const [evidenceGapsOnly, setEvidenceGapsOnly] = useState(false);
   const [filingOpen, setFilingOpen] = useState(false);
+  const [openSnapshot, setOpenSnapshot] = useState<string>();
   const heading = useRef<HTMLHeadingElement>(null);
   const feedback = useRef<HTMLDivElement>(null);
   const returnToWork = useRef(false);
@@ -231,10 +232,18 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         <details>
           <summary>Monthly review history</summary>
           {!current.reviews.length && <p>No monthly reviews recorded.</p>}
-          {current.reviews.map(({ id, actor, at, note, snapshot, current: matches }) => <article className="document-item" key={id}>
+          {current.reviews.map(({ id, actor, at, note, snapshot, current: matches }) => <article className="document-item [overflow-wrap:anywhere]" key={id}>
             <strong>{at.slice(0, 10)} · {actor}</strong>
             <p>{note}</p>
             <p>{matches ? "Matches current review basis" : "Historical snapshot · Review basis has changed"}</p>
+            <details className="details-section" open={openSnapshot === id}
+              onToggle={event => {
+                const open = event.currentTarget.open;
+                setOpenSnapshot(current => open ? id : current === id ? undefined : current);
+              }}>
+              <summary className="min-h-11 content-center">View saved review</summary>
+              {openSnapshot === id && <MonthlyReviewSnapshot snapshot={snapshot} />}
+            </details>
             <Button type="button" variant="outline" className="min-h-11" onClick={() => {
               downloadSampleFile(JSON.stringify({ reviewId: id, reviewedBy: actor, reviewedAt: at, note,
                 snapshot: JSON.parse(snapshot) }, null, 2), `orbit-monthly-review-${current.month}-${id}.json`, "application/json");
@@ -292,4 +301,23 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
       </fieldset>
     </form>}
   </section>;
+}
+
+function MonthlyReviewSnapshot({ snapshot }: { snapshot: string }) {
+  const { items } = JSON.parse(snapshot) as Pick<ProgramMonth, "items">;
+  return <ul className="document-list" aria-label="Saved review items">
+    {items.map(item => <li key={item.id} className="py-2">
+      <strong>{item.title}</strong>
+      <p>{item.status} · Internal target {dateLabel(item.internalTarget)}</p>
+      <p>{item.ownerAvailable ? item.ownerEmail : "Owner unavailable at review"}</p>
+      {item.evidence && <p><strong>Evidence reference</strong> · {item.evidence}</p>}
+      {item.obligation && <p>Reporting period {item.obligation.period} · Obligation version {item.obligation.version}</p>}
+      {item.filingProgress && <>
+        <p>{item.filingProgress.summary}</p>
+        {item.filingProgress.gaps.length > 0 && <ul className="list-disc pl-5">
+          {item.filingProgress.gaps.map(gap => <li key={gap}>{gap}</li>)}
+        </ul>}
+      </>}
+    </li>)}
+  </ul>;
 }
