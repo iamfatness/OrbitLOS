@@ -368,7 +368,6 @@ test("Michigan company renewal preserves the filing target, expiration context a
   f.staff,f.staff.brokerage.id,[f.actor],"2026-11-12T12:00:00Z");
  assert.equal(scope.revision,1);
  const sources=f.run({operation:"stateSources",entityId:f.entityId}).items;
- assert.equal(sources.some(item=>item.sourceKey==="REQ-MI-LICENSING-MLO-RENEW"),false);
  const record=(license,targetDay,period="2026-01",annualStartMonth=1)=>{
   const id=crypto.randomUUID(),sourceKey=`REQ-MI-LICENSING-${license}-RENEW`;
   assert(sources.some(item=>item.sourceKey===sourceKey));
@@ -389,8 +388,19 @@ test("Michigan company renewal preserves the filing target, expiration context a
  assert.match(secondary.basis.review,/internal target falls after/);
  assert.equal(record("FIRST",14,"2024-01").basis.nominalDueOn,null);
  assert.equal(record("SECOND",14,"2026-07",7).basis.nominalDueOn,null);
+ const individual=record("MLO",15);
+ assert.equal(individual.basis.nominalDueOn,"2026-12-31");
+ assert.equal(individual.basis.route,"NMLS individual MLO renewal");
+ assert.match(individual.basis.review,/education before the request/);
+ assert.equal(record("MLO",15,"2025-01").basis.nominalDueOn,null);
+ assert.equal(record("MLO",15,"2026-07",7).basis.nominalDueOn,null);
+ assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:individual.id,period:"2026-01",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
+ const mloWork=f.sql.prepare("SELECT category,instructions FROM compliance_program_items").get();
+ assert.equal(mloWork.category,"License review");
+ assert.match(mloWork.instructions,/NMLS individual MLO renewal.*2026-12-31.*education before the request/);
  assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:secondary.id,period:"2026-01",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
- assert.match(f.sql.prepare("SELECT instructions FROM compliance_program_items").get().instructions,/Nominal date: 2026-12-15.*internal target falls after/);
+ assert.ok(f.sql.prepare("SELECT instructions FROM compliance_program_items").all()
+  .some(item=>/Nominal date: 2026-12-15.*internal target falls after/.test(item.instructions)));
  const receipt = { operation:"recordFilingReceipt", entityId:f.entityId, id:first.id, period:"2026-01",
   requestId:crypto.randomUUID(), expectedVersion:0, status:"Submitted", confirmation:"SAMPLE-MI-RENEW-1",
   confirmedOn:"2026-11-10", documentReference:"Fictional renewal receipt", note:"" };
@@ -399,6 +409,11 @@ test("Michigan company renewal preserves the filing target, expiration context a
  const archive=f.run({operation:"filingArchive",filters:{entityId:f.entityId,year:"2026",confirmation:receipt.confirmation}});
  assert.equal(archive.items[0].period,receipt.period);
  assert.equal(archive.items[0].basis.report,undefined);
+ const individualReceipt={...receipt,id:individual.id,requestId:crypto.randomUUID(),confirmation:"SAMPLE-MI-MLO-1"};
+ assert.equal(f.run(individualReceipt).items[0].confirmation,individualReceipt.confirmation);
+ const individualArchive=f.run({operation:"filingArchive",filters:{entityId:f.entityId,year:"2026",confirmation:individualReceipt.confirmation}});
+ assert.equal(individualArchive.items[0].basis.obligationId,individual.id);
+ assert.equal(individualArchive.items[0].period,"2026-01");
  f.run(f.save());
  f.run(f.generate());
  assert.ok(f.run({...receipt,id:f.id,period:"2024-02",requestId:crypto.randomUUID()}).error);

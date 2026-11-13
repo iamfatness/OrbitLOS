@@ -32,6 +32,7 @@ const change = { requestId: z.uuid() };
 const occurrence = { ...scope, id: z.uuid(), period: z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/) };
 const licensingSources = [
   "REQ-MI-LICENSING-FIRST-RENEW", "REQ-MI-LICENSING-SECOND-RENEW",
+  "REQ-MI-LICENSING-MLO-RENEW",
   "REQ-TX-LICENSING-CO-RENEW", "REQ-TX-LICENSING-BANKER-RENEW",
   "REQ-CA-LICENSING-CFL-ASSESS", "REQ-CA-LICENSING-DRE-RENEW",
 ];
@@ -128,8 +129,10 @@ export type ObligationReviewBasis = {
 export function supportsFilingReceipts(snapshot: {
   draft: ObligationDraft; stateBasis?: Pick<ObligationStateSource, "sourceKey">; reportingBasis?: ObligationReviewBasis["reportingBasis"];
 }) {
+  const source = snapshot.stateBasis?.sourceKey;
   return snapshot.draft.preparation === "Mortgage Call Report" || Boolean(snapshot.reportingBasis &&
-    (snapshot.stateBasis?.sourceKey === "REQ-MI-LICENSING-FIRST-RENEW" || snapshot.stateBasis?.sourceKey === "REQ-MI-LICENSING-SECOND-RENEW"));
+    (source === "REQ-MI-LICENSING-FIRST-RENEW" || source === "REQ-MI-LICENSING-SECOND-RENEW" ||
+      (source === "REQ-MI-LICENSING-MLO-RENEW" && snapshot.reportingBasis.nominalDueOn)));
 }
 type FilingRule = {
   route: string; review: string; cadence: "Quarterly" | "Fiscal quarterly" | "Calendar annual" | "Fiscal annual" | "Role-based";
@@ -157,6 +160,9 @@ function firstThreeFiscalQuarters(through: string, _: ObligationDraft["cadence"]
 const filings: Partial<Record<string, FilingRule>> = {
   "REQ-MI-LICENSING-FIRST-RENEW": michiganRenewal,
   "REQ-MI-LICENSING-SECOND-RENEW": michiganRenewal,
+  "REQ-MI-LICENSING-MLO-RENEW": { route: "NMLS individual MLO renewal", cadence: "Calendar annual",
+    from: "2026-01-01", due: through => through,
+    review: "Use a separate obligation for each Michigan originator. The May 2026 DIFS FAQ lists December 31. Verify current-year instructions against the older checklist, education before the request or a documented exception, sponsor, bond, fee, receipt and renewed status." },
   "REQ-CA-REPORTING-DRE-MCR": quarter("NMLS Mortgage Call Report", "Confirm DRE company coverage and current NMLS quarterly instructions."),
   "REQ-CA-LICENSING-DRE-RENEW": { route: "NMLS DRE company endorsement renewal", cadence: "Calendar annual",
     from: "2026-01-01", due: through => through,

@@ -300,7 +300,9 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const reporting = snapshot.reportingBasis;
       const routeNote = reporting ? ` Filing route: ${reporting.route}.${reporting.nominalDueOn ? ` Nominal date: ${reporting.nominalDueOn}.` : ""} ${reporting.review}` : "";
       const result = complianceProgramWork(db,{operation:"schedule",requestId,entityId:data.entityId,month,
-        title:snapshot.draft.title,category:"Management review",ownerEmail:snapshot.draft.ownerEmail,
+        title:snapshot.draft.title,
+        category:snapshot.stateBasis?.sourceKey === "REQ-MI-LICENSING-MLO-RENEW" ? "License review" : "Management review",
+        ownerEmail:snapshot.draft.ownerEmail,
         internalTarget:String(occurrence.internalTarget),instructions:
           `Period ${data.period}; obligation version ${snapshot.revision}. ${String(occurrence.status)}. Review applicability, evidence and next steps.${stateNote}${routeNote} Source: ${snapshot.draft.sourceUrl}`.slice(0,1500)},staff,roster,now);
       if ("error" in result) return result;
