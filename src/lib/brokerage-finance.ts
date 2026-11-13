@@ -5,7 +5,7 @@ import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { readSettlementFees, saveSettlementFees } from "./settlement-fees";
 import { accessEvent } from "./workspace-access";
-import { readSettlement, readSettlementQueue, saveSettlement, settlementStatuses } from "./settlement-reconciliation";
+import { importSettlementEvidence, readSettlement, readSettlementQueue, saveSettlement, settlementStatuses } from "./settlement-reconciliation";
 
 const pageSize = 20;
 const exportLimit = 1000;
@@ -157,6 +157,9 @@ export function brokerageFinanceWork(db: Store, input: unknown, staff: Workspace
   if (data.type === "list" || data.type === "export") return financePage(db, data, staff, at);
   if (data.type === "detail") return financeDetail(db, data, today);
   if (data.type === "settlementQueue") return readSettlementQueue(db, data);
+  if (data.type === "settlementEvidencePreview" || data.type === "settlementEvidenceImport") {
+    return db.transaction(() => importSettlementEvidence(db, data, financeRecord(db, data.loanId, data.cycle), staff, at, today));
+  }
   if (data.type === "settlementFeeStatement" || data.type === "settlementFeeReview") {
     return db.transaction(() => saveSettlementFees(db, data, financeRecord(db, data.loanId, data.cycle), staff, at, today));
   }

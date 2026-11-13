@@ -12,6 +12,7 @@ import { downloadSampleFile } from "./sample-download";
 import { SettlementExceptionQueue } from "./settlement-exception-queue";
 import { SettlementReconciliation } from "./settlement-reconciliation";
 import { SettlementFeeComparison } from "./settlement-fee-comparison";
+import { SettlementEvidenceImport } from "./settlement-evidence-import";
 import { Button } from "./ui/button";
 
 type List = Extract<FinanceResult, { kind: "list" }>;
@@ -108,6 +109,7 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
   const [query, setQuery] = useState<FinanceListQuery>(() => ({ type: "list", ...currentReportMonth(), view: "Funded", owner: "" }));
   const [showExceptions, setShowExceptions] = useState(false);
   const [exceptionView, setExceptionView] = useState<SettlementQueueQuery["view"]>("Differences");
+  const [returnTo, setReturnTo] = useState<{ loanId: string; cycle: number }>();
   const [selection, setSelection] = useState<{ loanId: string; cycle: number; before?: number; settlementBefore?: number; feeBefore?: number; focusFees?: true }>();
   const [version, setVersion] = useState(0);
   const [list, setList] = useState<{ query: FinanceListQuery; data: List | { error: string } }>();
@@ -174,9 +176,9 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
         onClick={() => { setShowExceptions(true); setFeedback(undefined); }}>Settlement exceptions</Button>
     </div>}
     {selection ? <div className="loan-application-actions"><Button size="sm" variant="outline" disabled={busy} onClick={() => {
-      setSelection(undefined); setFeedback(undefined);
+      setReturnTo(showExceptions ? selection : undefined); setSelection(undefined); setFeedback(undefined);
     }}>{showExceptions ? "Back to settlement exceptions" : "Back to financials"}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setVersion((value) => value + 1)}>Refresh ledger</Button></div>
-      : showingQueue ? <SettlementExceptionQueue brokerageId={brokerageId} fundingVersion={fundingVersion} view={exceptionView} selectView={setExceptionView}
+      : showingQueue ? <SettlementExceptionQueue brokerageId={brokerageId} fundingVersion={fundingVersion} view={exceptionView} selectView={setExceptionView} returnTo={returnTo}
         open={(loanId, cycle, focusFees) => { setFeedback(undefined); setSelection({ loanId, cycle, focusFees }); }} /> : <>
       <form className="record-form" key={`${query.from}:${query.through}:${query.view}:${query.owner}`} onSubmit={(event) => {
         event.preventDefault();
@@ -224,6 +226,8 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
       <div className="section-heading"><h3>{data.loan.borrower}</h3>{!data.loan.reversedAt && <Button size="sm" variant="outline" disabled={busy} onClick={() => openFunding(data.loan.id)}>Open funding record</Button>}</div>
       <p className="muted">Funded {dateLabel(data.loan.date)} · Cycle {data.loan.cycle}{data.loan.reversedAt && ` · Reversed ${dateTime(data.loan.reversedAt)} ET · Archived ledger`}</p>
       <SettlementReconciliation work={data.settlement} today={data.today} active={!data.loan.reversedAt} busy={busy} save={save}
+        importEvidence={!data.loan.reversedAt && <SettlementEvidenceImport brokerageId={brokerageId} loan={data.loan} busy={busy}
+          onSaved={(message) => { setFeedback({ text: message }); setVersion(value => value + 1); }} />}
         currentPage={!selection?.settlementBefore} onPage={(settlementBefore) => setSelection((current) => current && { ...current, settlementBefore })} />
       {data.settlementFees && <SettlementFeeComparison work={data.settlementFees} today={data.today} active={!data.loan.reversedAt} busy={busy}
         focus={selection?.focusFees} save={save} currentPage={!selection?.feeBefore}

@@ -435,6 +435,10 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE UNIQUE INDEX IF NOT EXISTS settlement_unique_receipt ON settlement_events(loanId, cycle, receiptReference COLLATE NOCASE)
       WHERE receiptReference IS NOT NULL;
     CREATE INDEX IF NOT EXISTS settlement_evidence_by_kind ON settlement_events(loanId, cycle, kind, revision);
+    CREATE TABLE IF NOT EXISTS settlement_imports (
+      source TEXT NOT NULL, evidenceId TEXT NOT NULL, eventId TEXT NOT NULL UNIQUE REFERENCES settlement_events(id) ON DELETE CASCADE,
+      sequence INTEGER, payload TEXT NOT NULL, PRIMARY KEY(source, evidenceId)
+    );
     CREATE TABLE IF NOT EXISTS settlement_fee_events (
       loanId TEXT NOT NULL, cycle INTEGER NOT NULL, revision INTEGER NOT NULL, id TEXT NOT NULL UNIQUE,
       kind TEXT NOT NULL CHECK(kind IN ('Statement', 'Review')), fundingDate TEXT NOT NULL,

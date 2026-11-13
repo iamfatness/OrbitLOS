@@ -40,6 +40,8 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
     "compliance_broker_agreement_versions","compliance_refinance_benefit_versions"];
   if(programTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Compliance program records changed. Reconcile entity profiles, work and review evidence before restoring.");
+  if(previous.get("settlement_imports")?.digest!==current.tables.find(item=>item.name==="settlement_imports")?.digest)
+    result.push("Imported settlement evidence changed. Choose a checkpoint that retains its source records.");
   const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews"];
   if(retentionTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Loan retention evidence changed. This checkpoint requires a separate retention review.");

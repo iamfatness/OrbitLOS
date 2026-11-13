@@ -1,4 +1,4 @@
-import type { FinanceLoan, FinanceResult, SettlementEntry, SettlementMutation, SettlementQueuePage, SettlementQueueQuery,
+import type { FinanceLoan, FinanceResult, SettlementEntry, SettlementEvidenceInput, SettlementMutation, SettlementQueuePage, SettlementQueueQuery,
   SettlementQueueRow, SettlementWork } from "./brokerage-finance-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -8,9 +8,11 @@ import { settlementFeeQueueCounts, settlementFeeQueuePage } from "./settlement-f
 const pageSize = 20;
 const balanceLimit = 50_000_000_000;
 type SettlementLoan = Pick<FinanceLoan, "id" | "cycle" | "date">;
-type EvidenceRow = { revision: number; id: string; at: string; actorName: string; request: string; amountCents: number | null; reversed: number };
+type EvidenceRow = { revision: number; id: string; at: string; actorName: string; request: string; amountCents: number | null; reversed: number;
+  source: string | null; evidenceId: string | null; sequence: number | null };
 type SettlementSummary = { revision: number; expectedCents: number | null; receivedCents: number; receiptCount: number; reviewFundingDate: string | null };
-const expectedProceeds = (advice: NonNullable<SettlementWork["advice"]>) => advice.grossCents - advice.feesCents + advice.adjustmentCents;
+const expectedProceeds = (advice: Pick<NonNullable<SettlementWork["advice"]>, "grossCents" | "feesCents" | "adjustmentCents">) =>
+  advice.grossCents - advice.feesCents + advice.adjustmentCents;
 const receiptKey = (reference: string) => reference.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 
 export function initializeSettlementSummaries(db: Store) {
@@ -87,7 +89,7 @@ export function settlementStatuses(db: Store, loans: FinanceLoan[]) {
 }
 
 export function readSettlementQueue(db: Store, { view, after }: SettlementQueueQuery): SettlementQueuePage {
-  const source = `FROM settlement_cycle_summary summary JOIN closing_progress progress
+  const source = `FROM closing_progress progress LEFT JOIN settlement_cycle_summary summary
     ON progress.loanId = summary.loanId AND progress.fundingCycle = summary.cycle`;
   const reviewed = "coalesce(summary.reviewFundingDate = progress.fundingDate, 0)";
   const category = `CASE
@@ -101,13 +103,15 @@ export function readSettlementQueue(db: Store, { view, after }: SettlementQueueQ
     .all() as { view: SettlementQueueQuery["view"] | null; count: number }[];
   for (const total of totals) if (total.view) counts[total.view] = total.count;
   if (view === "Fee differences" || view === "Reviewed fee differences") return settlementFeeQueuePage(db, { type: "settlementQueue", view, after }, counts);
-  const cursor = after ? "AND (summary.changedAt, summary.loanId, summary.cycle) < (?, ?, ?)" : "";
-  const records = db.prepare(`SELECT summary.loanId AS id, summary.cycle, summary.changedAt,
-      contact.name AS borrower, loan.officer, progress.fundingDate AS date, summary.expectedCents, summary.receivedCents,
-      summary.expectedCents - summary.receivedCents AS differenceCents, summary.receiptCount, ${reviewed} AS reviewed
-    ${source} JOIN loans loan ON loan.id = summary.loanId JOIN contacts contact ON contact.id = loan.contactId
+  const changed = "coalesce(summary.changedAt, progress.fundingDate || 'T00:00:00.000Z')";
+  const order = `${changed}, progress.loanId, progress.fundingCycle`;
+  const cursor = after ? `AND (${order}) < (?, ?, ?)` : "";
+  const records = db.prepare(`SELECT progress.loanId AS id, progress.fundingCycle AS cycle, ${changed} AS changedAt,
+      contact.name AS borrower, loan.officer, progress.fundingDate AS date, summary.expectedCents, coalesce(summary.receivedCents, 0) AS receivedCents,
+      summary.expectedCents - summary.receivedCents AS differenceCents, coalesce(summary.receiptCount, 0) AS receiptCount, ${reviewed} AS reviewed
+    ${source} JOIN loans loan ON loan.id = progress.loanId JOIN contacts contact ON contact.id = loan.contactId
     WHERE progress.fundingDate IS NOT NULL AND (${category}) = ? ${cursor}
-    ORDER BY summary.changedAt DESC, summary.loanId DESC, summary.cycle DESC LIMIT ?`)
+    ORDER BY changedAt DESC, progress.loanId DESC, progress.fundingCycle DESC LIMIT ?`)
     .all(view, ...(after ? [after.changedAt, after.id, after.cycle] : []), pageSize + 1) as unknown as
     (Omit<SettlementQueueRow, "status"> & { receiptCount: number; reviewed: number })[];
   const rows = records.slice(0, pageSize).map(({ receiptCount, reviewed, ...row }) => ({
@@ -121,13 +125,61 @@ export function readSettlementQueue(db: Store, { view, after }: SettlementQueueQ
 export function readSettlement(db: Store, loan: SettlementLoan, before?: number): SettlementWork {
   const totals = settlementTotals(db, loan);
   const rows = db.prepare(`SELECT event.revision, event.id, event.at, event.actorName, event.request, event.amountCents,
+      imported.source, imported.evidenceId, imported.sequence,
       EXISTS (SELECT 1 FROM settlement_events reversal WHERE reversal.reversesId = event.id) AS reversed
-    FROM settlement_events event WHERE event.loanId = ? AND event.cycle = ? ${before ? "AND event.revision < ?" : ""}
+    FROM settlement_events event LEFT JOIN settlement_imports imported ON imported.eventId = event.id
+    WHERE event.loanId = ? AND event.cycle = ? ${before ? "AND event.revision < ?" : ""}
     ORDER BY event.revision DESC LIMIT ?`)
     .all(loan.id, loan.cycle, ...(before ? [before] : []), pageSize + 1) as unknown as EvidenceRow[];
-  const entries: SettlementEntry[] = rows.slice(0, pageSize).map(({ request, reversed, ...entry }) =>
-    ({ ...entry, input: JSON.parse(request), reversed: Boolean(reversed) }));
+  const entries: SettlementEntry[] = rows.slice(0, pageSize).map(({ request, reversed, source, evidenceId, sequence, ...entry }) =>
+    ({ ...entry, input: JSON.parse(request), reversed: Boolean(reversed),
+      ...(source && evidenceId ? { importedEvidence: { source, evidenceId, sequence } } : {}) }));
   return { ...totals, entries, before: rows.length > pageSize ? entries.at(-1)?.revision ?? null : null };
+}
+
+export function importSettlementEvidence(db: Store, data: SettlementEvidenceInput, current: FinanceLoan | undefined,
+  staff: WorkspaceStaff, at: string, today: string): FinanceResult {
+  const evidence = data.evidence;
+  if (evidence.loanId !== data.loanId || evidence.cycle !== data.cycle) return { error: "This evidence names a different loan or funding cycle." };
+  const payload = JSON.stringify(evidence);
+  const prior = db.prepare("SELECT payload FROM settlement_imports WHERE source = ? AND evidenceId = ?").get(evidence.source, evidence.evidenceId);
+  if (prior && prior.payload !== payload) return { error: "This source and evidence ID were already used with different details." };
+  if (prior && data.type === "settlementEvidenceImport") return { kind: "saved", message: "This sample evidence is already recorded." };
+  if (!current || current.reversedAt || current.date !== evidence.fundingDate ||
+      (data.type === "settlementEvidenceImport" && current.date !== data.fundingDate)) {
+    return { error: "The evidence funding date or cycle is no longer current. Check the source before importing." };
+  }
+  const state = settlementTotals(db, current);
+  const isAdvice = evidence.kind === "Purchase advice";
+  const amountCents = isAdvice ? expectedProceeds(evidence) : evidence.amountCents;
+  if (!prior) {
+    if (evidence.occurredOn < "1900-01-01" || evidence.occurredOn > today) return { error: "The evidence date must be on or before today." };
+    if (isAdvice) {
+      const latest = db.prepare(`SELECT imported.source, imported.sequence FROM settlement_events event
+        LEFT JOIN settlement_imports imported ON imported.eventId = event.id
+        WHERE event.loanId = ? AND event.cycle = ? AND event.kind = 'settlementAdvice' ORDER BY event.revision DESC LIMIT 1`)
+        .get(data.loanId, data.cycle);
+      if (latest && latest.source !== evidence.source) return { error: "Purchase advice from another source is already on file. Compare the records and use the corrected advice form if needed." };
+      if (latest && Number(latest.sequence) >= evidence.sequence) return { error: "A newer or matching purchase advice version is already on file." };
+      if (amountCents < 1 || amountCents > balanceLimit) return { error: "Expected net proceeds must be positive and within the supported amount." };
+    } else {
+      if (db.prepare("SELECT 1 FROM settlement_events WHERE loanId = ? AND cycle = ? AND receiptReference = ? COLLATE NOCASE")
+        .get(data.loanId, data.cycle, receiptKey(evidence.reference))) return { error: "This wire reference is already recorded for the funding cycle. Compare it with settlement evidence history." };
+      if (state.receivedCents + amountCents > balanceLimit) return { error: "The settlement receipts exceed the supported balance." };
+    }
+  }
+  if (data.type === "settlementEvidencePreview") return { kind: "settlementEvidencePreview", amountCents, alreadyRecorded: !!prior, revision: state.revision };
+  const base = { loanId: data.loanId, cycle: data.cycle, fundingDate: data.fundingDate, revision: data.revision, entryId: data.entryId,
+    occurredOn: evidence.occurredOn, reference: evidence.reference, note: isAdvice && state.advice ? "Imported a newer sample purchase advice version." : "" };
+  const change: SettlementMutation = isAdvice ? { ...base, type: "settlementAdvice", grossCents: evidence.grossCents,
+    feesCents: evidence.feesCents, adjustmentCents: evidence.adjustmentCents } :
+    { ...base, type: "settlementReceipt", amountCents };
+  if (db.prepare("SELECT 1 FROM settlement_events WHERE id = ?").get(data.entryId)) return { error: "This settlement event identifier was already used." };
+  const result = saveSettlement(db, change, current, staff, at, today);
+  if ("error" in result) return result;
+  db.prepare("INSERT INTO settlement_imports(source, evidenceId, eventId, sequence, payload) VALUES (?, ?, ?, ?, ?)")
+    .run(evidence.source, evidence.evidenceId, data.entryId, isAdvice ? evidence.sequence : null, payload);
+  return { kind: "saved", message: isAdvice ? "Sample purchase advice imported." : "Sample wire receipt imported." };
 }
 
 const savedMessages = {

@@ -220,7 +220,7 @@ Brokerage admins can require independent approval when changed terms or fees reo
 
 The fictional owner-only queue groups active funding cycles into differences, matches to confirm, missing evidence, and reviewed differences. A row opens the exact cycle and its source entries. Funding-date corrections can reopen a review. Reversals leave the earlier cycle in the archived ledger. [Hosted settlement exception rehearsal](demo-rehearsal-log.md#sample-settlement-exception-queue)
 
-External evidence matching and operational acceptance still require a non-delegated pilot. Validate purchase-advice and receipt contracts, source identity, reviewer approval, and recovery after delayed or duplicate evidence. The demonstrated flow records sample evidence. Increments 3–4; separate non-del operational acceptance in 5.
+The owner can preview and import versioned sample purchase advice or wire receipts against the exact loan, funding cycle and funding date. Source identity is retained in history. Replays keep totals stable, an older advice version is rejected, and newer evidence reopens internal review. Funded cycles appear under Missing evidence as soon as they have a funding date. Next, exercise the provider-neutral contract with a sandbox adapter and confirm external reference mapping with a non-delegated pilot. Increments 3–4; separate non-del operational acceptance in 5.
 
 ### F18 — Contract processing
 

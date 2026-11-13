@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { financeInputCents, financeMoney, inputDollars, type SettlementChange, type SettlementEntry,
   type SettlementWork } from "@/lib/brokerage-finance-model";
 import { dateLabel } from "@/lib/client-retention";
@@ -23,6 +23,8 @@ function SettlementHistoryItem({ entry, today, active, busy, save }: {
     <div className="document-item-head"><strong>{labels[input.type]}{"reference" in input && ` · ${input.reference}`}</strong>
       {entry.amountCents !== null && <span className="pill">{input.type === "settlementReview" ? "Difference " : ""}{financeMoney(entry.amountCents)}</span>}</div>
     <p className="muted">{entry.actorName} · {dateTime(entry.at)} ET{"occurredOn" in input && ` · Evidence dated ${dateLabel(input.occurredOn)}`}</p>
+    {entry.importedEvidence && <p className="muted break-words">Imported from {entry.importedEvidence.source} · {entry.importedEvidence.evidenceId}
+      {entry.importedEvidence.sequence !== null && ` · Source version ${entry.importedEvidence.sequence}`}</p>}
     {input.type === "settlementAdvice" && <p>Gross {financeMoney(input.grossCents)} · Fees {financeMoney(input.feesCents)} · Adjustment {financeMoney(input.adjustmentCents)}</p>}
     {input.note && <p>{input.note}</p>}
     {entry.reversed && <span className="pill">Reversed</span>}
@@ -40,8 +42,9 @@ function SettlementHistoryItem({ entry, today, active, busy, save }: {
   </li>;
 }
 
-export function SettlementReconciliation({ work, today, active, busy, save, currentPage, onPage }: {
+export function SettlementReconciliation({ work, today, active, busy, save, currentPage, onPage, importEvidence }: {
   work: SettlementWork; today: string; active: boolean; busy: boolean; save: Save; currentPage: boolean; onPage: (before?: number) => void;
+  importEvidence?: ReactNode;
 }) {
   const [error, setError] = useState("");
   const { advice } = work;
@@ -76,6 +79,7 @@ export function SettlementReconciliation({ work, today, active, busy, save, curr
     </dl>
     {advice && <p>Advice {advice.reference} · {dateLabel(advice.occurredOn)} · Gross {financeMoney(advice.grossCents)} · Fees {financeMoney(advice.feesCents)} · Adjustment {financeMoney(advice.adjustmentCents)}</p>}
     {error && <p role="alert">{error}</p>}
+    {importEvidence}
     {active && <>
       <details className="document-form"><summary>{advice ? "Record corrected purchase advice" : "Record sample purchase advice"}</summary>
         <form className="record-form" onSubmit={recordAdvice} key={advice?.entryId ?? "initial"}>

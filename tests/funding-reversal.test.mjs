@@ -100,7 +100,7 @@ test("fictional settlement matches partial receipts, preserves corrections, and 
   await apply({ type: "recordClosing", closingDate: closing, revision: 0 });
   await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 });
   assert.equal(detail().settlement.status, "Awaiting advice");
-  assert.deepEqual(queue("Missing evidence").rows, []);
+  assert.deepEqual(queue("Missing evidence").rows.map(row => [row.id, row.cycle, row.status]), [[loanId, 1, "Awaiting advice"]]);
   assert.match(finance({ type: "detail" }, officer).error, /workspace owner/);
   assert.match(finance({ type: "detail" }, admin).error, /workspace owner/);
   assert.match(finance({ type: "detail" }, owner, crypto.randomUUID()).error, /workspace owner/);
@@ -169,7 +169,47 @@ test("fictional settlement matches partial receipts, preserves corrections, and 
   assert.equal(detail(2).settlement.status, "Awaiting advice");
   assert.equal(detail(2).settlement.receivedCents, 0);
   assert.equal(detail().settlement.status, "Reconciled");
-  assert.deepEqual(queue("Missing evidence").rows, []);
+  assert.deepEqual(queue("Missing evidence").rows.map(row => [row.id, row.cycle, row.status]), [[loanId, 2, "Awaiting advice"]]);
+});
+
+test("sample settlement import validates the exact cycle and retains source identity across replay and late evidence", async t => {
+  const { db, admin, officer, loanId, apply, closing, initialFunding, day } = fundingFixture(t);
+  const owner = { ...admin, brokerage: { ...admin.brokerage, financeAccess: true } };
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 });
+  await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 });
+  const target = { loanId, cycle: 1 };
+  const base = { ...target, schemaVersion: 1, source: "mock-settlement", fundingDate: initialFunding, occurredOn: initialFunding };
+  const finance = (input, actor = owner) => brokerageFinanceWork(db, { ...target, ...input }, actor, owner.brokerage.id);
+  const detail = () => finance({ type: "detail" }).settlement;
+  const preview = evidence => finance({ type: "settlementEvidencePreview", evidence });
+  const save = (evidence, revision = detail().revision) => finance({ type: "settlementEvidenceImport", evidence,
+    fundingDate: initialFunding, entryId: crypto.randomUUID(), revision });
+  const receipt = { ...base, kind: "Wire receipt", evidenceId: "wire-1", reference: "WIRE 001", amountCents: 34_875_000 };
+  const advice = { ...base, kind: "Purchase advice", evidenceId: "advice-1", reference: "ADVICE 001", sequence: 1,
+    grossCents: 35_000_000, feesCents: 125_000, adjustmentCents: 0 };
+  assert.match(finance({ type: "settlementEvidencePreview", evidence: receipt }, officer).error, /workspace owner/);
+  assert.match(preview({ ...receipt, loanId: crypto.randomUUID() }).error, /different loan or funding cycle/);
+  assert.match(preview({ ...receipt, cycle: 2 }).error, /different loan or funding cycle/);
+  assert.match(preview({ ...receipt, fundingDate: day(-1) }).error, /no longer current/);
+  assert.deepEqual(preview(receipt), { kind: "settlementEvidencePreview", amountCents: 34_875_000, alreadyRecorded: false, revision: 0 });
+  assert.equal(detail().revision, 0);
+  assert.equal(save(receipt).kind, "saved");
+  assert.equal(detail().status, "Awaiting advice");
+  assert.equal(save(receipt, 0).kind, "saved");
+  assert.equal(detail().revision, 1);
+  assert.equal(preview(receipt).alreadyRecorded, true);
+  assert.match(preview({ ...receipt, amountCents: 5 }).error, /different details/);
+  assert.match(preview({ ...receipt, evidenceId: "duplicate", reference: "wire  001" }).error, /wire reference is already recorded/);
+  assert.match(save(advice, 0).error, /evidence changed/);
+  assert.equal(save(advice).kind, "saved");
+  assert.equal(detail().status, "Ready to confirm");
+  assert.equal(finance({ type: "settlementReview", fundingDate: initialFunding, revision: 2, entryId: crypto.randomUUID(), note: "" }).kind, "saved");
+  assert.equal(detail().status, "Reconciled");
+  assert.equal(save({ ...advice, evidenceId: "advice-3", sequence: 3, feesCents: 150_000 }).kind, "saved");
+  assert.match(preview({ ...advice, evidenceId: "advice-2", sequence: 2 }).error, /newer or matching/);
+  assert.equal(detail().status, "Difference to review");
+  assert.deepEqual(detail().entries.flatMap(entry => entry.importedEvidence ? [entry.importedEvidence.evidenceId] : []),
+    ["advice-3", "advice-1", "wire-1"]);
 });
 
 test("settlement exceptions page across tied timestamps and reopen only the current funding cycle", async (t) => {
