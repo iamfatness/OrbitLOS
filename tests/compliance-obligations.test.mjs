@@ -300,6 +300,17 @@ test("Michigan company renewal preserves the filing target, expiration context a
  assert.equal(record("SECOND",14,"2026-07",7).basis.nominalDueOn,null);
  assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:secondary.id,period:"2026-01",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
  assert.match(f.sql.prepare("SELECT instructions FROM compliance_program_items").get().instructions,/Nominal date: 2026-12-15.*internal target falls after/);
+ const receipt = { operation:"recordFilingReceipt", entityId:f.entityId, id:first.id, period:"2026-01",
+  requestId:crypto.randomUUID(), expectedVersion:0, status:"Submitted", confirmation:"SAMPLE-MI-RENEW-1",
+  confirmedOn:"2026-11-10", documentReference:"Fictional renewal receipt", note:"" };
+ assert.equal(f.run(receipt).items[0].confirmation,receipt.confirmation);
+ assert.deepEqual(f.run(receipt).items.map(item=>item.version),[1]);
+ const archive=f.run({operation:"filingArchive",filters:{entityId:f.entityId,year:"2026",confirmation:receipt.confirmation}});
+ assert.equal(archive.items[0].period,receipt.period);
+ assert.equal(archive.items[0].basis.report,undefined);
+ f.run(f.save());
+ f.run(f.generate());
+ assert.ok(f.run({...receipt,id:f.id,period:"2024-02",requestId:crypto.randomUUID()}).error);
 });
 
 test("planning rejects unavailable owners and rolls back monthly work on audit failure",t=>{

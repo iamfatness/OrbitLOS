@@ -13,6 +13,7 @@ type Archive = z.infer<typeof filingArchivePage>;
 type Record = z.infer<typeof filingArchiveRow>;
 const initialFilters: Filters = { year: "", entityId: "", confirmation: "" };
 const recordKey = (record: Record) => `${record.entityId}-${record.obligationId}-${record.period}`;
+const filingPeriodLabel = ({ basis, period }: Record) => basis.report ? `Q${basis.report.quarter} ${basis.report.year}` : `Period starting ${dateLabel(`${period}-01`)}`;
 
 export function ComplianceFilingArchive({ brokerageId, paused }: { brokerageId: string; paused: boolean }) {
   const [draft, setDraft] = useState(initialFilters);
@@ -113,7 +114,7 @@ export function ComplianceFilingArchive({ brokerageId, paused }: { brokerageId: 
       {archive && !archive.items.length && <p role="status">{filtered ? "No filings match these filters. Try another year or confirmation number." : "No external filing confirmations have been recorded."}</p>}
       {!!archive?.items.length && <ul className="compliance-home-list" aria-label="Recorded filing confirmations">
         {archive.items.map(record => <li key={recordKey(record)} className="compliance-home-row">
-          <div><strong>{record.entityName} · Q{record.basis.report.quarter} {record.basis.report.year}</strong>
+          <div><strong>{record.entityName} · {filingPeriodLabel(record)}</strong>
             <p>{record.title}</p>
             <p className="break-words">{record.matchedVersion !== record.version ? "Matching confirmation" : "Latest confirmation"} · {record.matched.status}
               {" · "}{record.matched.confirmation} · {dateLabel(record.matched.confirmedOn)}</p>
@@ -121,7 +122,7 @@ export function ComplianceFilingArchive({ brokerageId, paused }: { brokerageId: 
             {!record.matched.hasReceiptReference && <p className="muted">Receipt location missing</p>}
           </div>
           <Button id={`filing-archive-${recordKey(record)}`} size="sm" variant="outline"
-            aria-label={`Open filing for ${record.entityName}, Q${record.basis.report.quarter} ${record.basis.report.year}`}
+            aria-label={`Open filing for ${record.entityName}, ${filingPeriodLabel(record)}${record.basis.report ? "" : ` · ${record.title}`}`}
             onClick={event => { returnFocus.current = event.currentTarget.id; setSelected(record); }}>Open filing</Button>
         </li>)}
       </ul>}
@@ -132,7 +133,7 @@ export function ComplianceFilingArchive({ brokerageId, paused }: { brokerageId: 
     </section>
     {selected && <section className="integration manager-panel record-form" aria-label="Selected filing">
       <div><Button size="sm" variant="outline" onClick={() => { setSelected(undefined); refresh(value => value + 1); }}>Back to filing results</Button></div>
-      <h2 ref={detailHeading} tabIndex={-1}>{selected.entityName} · Q{selected.basis.report.quarter} {selected.basis.report.year}</h2>
+      <h2 ref={detailHeading} tabIndex={-1}>{selected.entityName} · {filingPeriodLabel(selected)}</h2>
       <p>{selected.title} · Obligation version {selected.basis.version}</p>
       <ComplianceFilingReceipts brokerageId={brokerageId} entityId={selected.entityId} entityName={selected.entityName}
         basis={selected.basis} initialVersion={selected.matchedVersion} archiveView />

@@ -109,3 +109,31 @@ Run the first-use session without a tour. Ask the owner to open a new office, ha
 **Knowing where a review stands.** Saving business facts confirms the version that was recorded. The home shows how many review questions are open or completed for that version, or says there are no recorded questions. The selected state record shows the questions and the evidence behind each response. A new version starts with its own question history. Use the earlier version to retrieve its answers. A completed question records a follow-up outcome. The requirement-level review still holds the applicability decision and its evidence.
 
 **Next release check.** Give an owner unfamiliar with mortgage compliance the fictional two-office workspace and the prompts above. Start with three tasks on a phone. Ask them to add an office, find a renewal and record a question without first finding a regulation. Then have them find the exact response and original filing confirmation on desktop. Ask them to explain what is recorded, what still needs a decision, and what proves a filing happened. Counsel separately reviews the pilot scope and rules.
+
+## Michigan staging exercise
+
+### Participant handout
+
+You run **Sample Harbor Mortgage LLC**, a fictional Michigan brokerage with one office, **North Office**. Your team works on first-lien residential mortgages. You have two sample records on file, a company license `SAMPLE-MI-CO` and a North Office license `SAMPLE-MI-BR`. Use an expiration seven days from today and take responsibility for the renewal follow-up. Use sample data throughout. [Open the staging workspace](https://stage.orbitlos.com/workspace)
+
+1. Set up the company, office, and the two records. Find the North Office renewal and explain who owns it and when it needs attention.
+2. Record how the company operates in Michigan. You are unsure which renewal requirement applies. Record the question and decide who should follow up. Show where you would look for the answer later.
+3. Set up an internal review for a company renewal. Show the team’s target and the filing date Orbit displays. Explain what you would verify before acting and where you would record the outcome.
+4. You found a sample renewal confirmation in `Fictional evidence / North Office / SAMPLE-RENEWAL.pdf`. Show where you would record that location and how another staff member could tell what happened. Explain whether you have proved that a filing was sent or accepted.
+
+### Facilitator setup and scorecard
+
+Use an empty **Release test** workspace on staging. An admin can create it from Team → Workspaces → Create workspace. Open the new workspace explicitly and confirm its name and **Release test** label. Enable Compliance and leave UWM off for this exercise. Release tests close after 24 hours. Hand the participant only the prompts above and their workspace link.
+
+| Task | Observe | Evidence |
+| --- | --- | --- |
+| Company and office setup | The owner records two different holders and opens the exact North Office renewal. | Sample license number, assigned owner, displayed expiration. |
+| State facts and question | The owner distinguishes saved business facts from an applicability decision and can save an open question without selecting a research source. | Exact company, state and facts version, follow-up owner, open status. |
+| Renewal filing plan | The owner opens the exact period and can distinguish their internal target, the displayed nominal filing date and a date that still needs confirmation. | Saved period and scope version, review status and evidence reference. |
+| Renewal evidence | The owner records a sample external confirmation on the exact period, retrieves it in Filing history, and explains what the original receipt establishes. | Confirmation number, recorded external status, receipt location, and period. |
+
+For each task, mark **Unaided**, **Needed a hint**, or **Stopped**. Capture the first label or action the owner tried, the hint given, the owner’s own explanation, device width and staging version. Use the phone for setup and the renewal, then desktop for filing review and evidence retrieval. A scripted browser pass does not count as participant evidence.
+
+Filing history supports Mortgage Call Report confirmations and source-linked Michigan company renewal confirmations. For a history exercise, give the participant an original Submitted entry and a later Accepted entry. Ask them to locate the original by confirmation number and explain both statuses. A completed internal review and a staff-recorded external confirmation appear separately.
+
+The baseline at staging Worker `26ce6db0-6bf7-434a-9a9f-9d122dd25e7e` passed the scripted empty-brokerage path through internal review. The independent session and the separate [Michigan counsel review](michigan-pilot-counsel-review.md) are open.

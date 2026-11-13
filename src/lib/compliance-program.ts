@@ -1,4 +1,4 @@
-import type { ObligationDraft, ObligationReviewBasis } from "./compliance-obligations-model";
+import { supportsFilingReceipts, type ObligationDraft, type ObligationReviewBasis } from "./compliance-obligations-model";
 import { createHash } from "node:crypto";
 import { readBranches } from "./branches";
 import { branchStaffCurrent } from "./branch-model";
@@ -270,6 +270,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
     item.obligation = {
       obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version), status: String(row.status),
       sourceUrl: draft.sourceUrl, authority: draft.authority, reportingBasis,
+      filingReceipts: supportsFilingReceipts({ draft, stateBasis, reportingBasis }),
       stateBasis: stateBasis && { jurisdiction: stateBasis.jurisdiction, revision: stateBasis.revision, sourceKey: stateBasis.sourceKey,
         title: stateBasis.title, authority: stateBasis.authority, sourceUrl: stateBasis.sourceUrl },
       report: draft.preparation === "Mortgage Call Report" ? { year, quarter: Math.ceil(Number(month) / 3) } : undefined,

@@ -144,7 +144,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         onClick={() => { if (selected.obligation) openReport(selected.obligation, current.entity.name); }}>
         Open Q{selected.obligation.report.quarter} {selected.obligation.report.year} report preparation
       </Button></div>}
-      {selected.obligation.report && <ComplianceFilingReceipts key={selected.id} brokerageId={brokerageId}
+      {selected.obligation.filingReceipts && <ComplianceFilingReceipts key={selected.id} brokerageId={brokerageId}
         entityId={current.entity.id} entityName={current.entity.name} basis={selected.obligation} />}
     </div>}
     <p className="muted">Internal planning and evidence review. Regulatory applicability and legal deadlines still require review before launch.</p>

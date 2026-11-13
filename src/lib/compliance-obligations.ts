@@ -5,7 +5,7 @@ import { stateScopeLicenseSnapshot } from "./compliance-state-basis";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
 import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
-  type ObligationStateSource } from "./compliance-obligations-model";
+  supportsFilingReceipts, type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
 
 type StateBasis = ObligationStateSource & { snapshot: string };
@@ -94,7 +94,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
         matched: { status: matched.status, confirmation: matched.confirmation, confirmedOn: matched.confirmedOn,
           hasReceiptReference: !!matched.documentReference || !!row.referenceAdded },
         basis: { obligationId: row.obligationId, period: row.period, version: row.obligationVersion, status: row.periodStatus,
-          sourceUrl: draft.sourceUrl, authority: draft.authority, report: { year, quarter: Math.ceil(Number(month) / 3) } },
+          sourceUrl: draft.sourceUrl, authority: draft.authority,
+          report: draft.preparation === "Mortgage Call Report" ? { year, quarter: Math.ceil(Number(month) / 3) } : undefined },
       });
     }) };
   }
@@ -105,7 +106,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const keys = [tenant, data.entityId, data.id, data.period] as const;
     const period = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences
       WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...keys);
-    if (!period || (JSON.parse(String(period.snapshot)) as { draft: ObligationDraft }).draft.preparation !== "Mortgage Call Report") return unavailable;
+    if (!period || !supportsFilingReceipts(JSON.parse(String(period.snapshot)) as Parameters<typeof supportsFilingReceipts>[0])) return unavailable;
     const today = easternDate(new Date(now));
     const read = () => ({
       kind: "filingReceipts" as const, today,

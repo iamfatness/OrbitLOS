@@ -73,7 +73,7 @@ export const filingArchiveRow = z.object({
     status: z.enum(filingReceiptStatuses), confirmation: z.string(), confirmedOn: z.iso.date(), hasReceiptReference: z.boolean(),
   }),
   basis: z.object({ obligationId: z.uuid(), period: filingPeriod, version: z.int().positive(),
-    status: z.string(), sourceUrl: z.url(), authority: z.string(), report: z.object({ year: z.string(), quarter: z.int().min(1).max(4) }) }),
+    status: z.string(), sourceUrl: z.url(), authority: z.string(), report: z.object({ year: z.string(), quarter: z.int().min(1).max(4) }).optional() }),
 });
 export const filingArchivePage = z.object({
   kind: z.literal("filingArchive"), items: z.array(filingArchiveRow), more: z.boolean(),
@@ -116,7 +116,15 @@ export type ObligationReviewBasis = {
   obligationId: string; period: string; version: number; status: string; sourceUrl: string; authority: string;
   report?: { year: string; quarter: number }; stateBasis?: ObligationStateSource;
   reportingBasis?: z.infer<typeof reportingDateBasis>;
+  filingReceipts?: boolean;
 };
+
+export function supportsFilingReceipts(snapshot: {
+  draft: ObligationDraft; stateBasis?: Pick<ObligationStateSource, "sourceKey">; reportingBasis?: ObligationReviewBasis["reportingBasis"];
+}) {
+  return snapshot.draft.preparation === "Mortgage Call Report" || Boolean(snapshot.reportingBasis &&
+    (snapshot.stateBasis?.sourceKey === "REQ-MI-LICENSING-FIRST-RENEW" || snapshot.stateBasis?.sourceKey === "REQ-MI-LICENSING-SECOND-RENEW"));
+}
 type FilingRule = {
   route: string; review: string; cadence: "Quarterly" | "Fiscal quarterly" | "Calendar annual" | "Fiscal annual" | "Role-based";
   due: (through: string, cadence: ObligationDraft["cadence"]) => string | null;
