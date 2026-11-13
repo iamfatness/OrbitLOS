@@ -24,6 +24,11 @@ export function uwmUserSettings(env: UwmEnvironment) {
     scope: `https://api.uwm.com/loanorigination${environment === "production" ? "" : environment === "int" ? "-int" : "-stg"}`,
     key: Buffer.from(env.UWM_TOKEN_ENCRYPTION_KEY!, "hex") };
 }
+
+export function configuredUwmImportEnvironment(env: UwmEnvironment | undefined, staff: WorkspaceStaff) {
+  if (!env || !uwmWorkspaceEnabled(env, staff)) return undefined;
+  try { return uwmUserSettings(env).environment; } catch { return undefined; }
+}
 function context(env: UwmEnvironment, staff: WorkspaceStaff) {
   if (!uwmAccountEnabled(staff)) throw new UwmError("UWM user access is unavailable for this brokerage.");
   const settings = uwmUserSettings(env);

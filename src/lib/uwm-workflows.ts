@@ -183,14 +183,15 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
   try {
     if (input.action === "reconcile-request") {
       const previous = db.prepare("SELECT * FROM uwm_live_requests WHERE id=? AND loanId=? AND environment=?").get(input.requestId, input.loanId, environment);
+      const savedEvidence = db.prepare("SELECT applicationRevision,details FROM uwm_request_evidence WHERE requestId=?").get(input.requestId);
+      if (savedEvidence && savedEvidence.applicationRevision !== input.applicationRevision) throw new UwmError("Open the original request and verify its submitted 1003 revision.");
       if (!previous || !["Dispatching", "Unknown", "Acknowledged"].includes(String(previous.state)) ||
         (previous.state === "Dispatching" && Date.parse(String(previous.updatedAt)) > Date.now() - 300000)) {
         throw new UwmError("This request cannot be reconciled yet. Let an in-progress request finish first.");
       }
       db.prepare("UPDATE uwm_live_requests SET state='Reconciled',updatedAt=? WHERE id=?").run(now, input.requestId);
       if (input.outcome === "Not applied") {
-        const prior = db.prepare("SELECT details FROM uwm_request_evidence WHERE requestId=?").get(input.requestId);
-        const details = prior ? JSON.parse(String(prior.details)) as { importId?: string } : null;
+        const details = savedEvidence ? JSON.parse(String(savedEvidence.details)) as { importId?: string } : null;
         const importId = previous.action === "prepare-import" ? input.requestId : previous.action === "commit-import" ? details?.importId : null;
         if (importId) db.prepare("UPDATE uwm_operations SET state='Rejected',updatedAt=? WHERE id=? AND state IN ('Prepared','Dispatching','Unknown','Acknowledged')").run(now, importId);
       }
@@ -313,7 +314,8 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
 }
 
 export async function readUwmFile(db: Store, env: UwmEnvironment, staff: WorkspaceStaff, raw: unknown) {
-  const input = z.strictObject({ loanId: z.uuid(), view: z.enum(["activity", "documents", "products"]), body: uwmProductSearch.optional() }).parse(raw);
+  const input = z.strictObject({ loanId: z.uuid(), view: z.enum(["activity", "documents", "products"]), body: uwmProductSearch.optional(),
+    requestId: z.uuid().optional() }).parse(raw);
   const environment = context(db, env, staff, input.loanId);
   recoverSavedImportReceipt(db, input.loanId, environment);
   if (input.view === "activity") return {
@@ -329,7 +331,14 @@ export async function readUwmFile(db: Store, env: UwmEnvironment, staff: Workspa
         AND json_extract(receipt.body,'$.LoanStatus')='NotCompleted'
       WHERE op.loanId=? AND op.environment=? AND op.kind='import' ORDER BY op.startedAt DESC,op.rowid DESC LIMIT 20`)
       .all(staff.brokerage.role !== "Processor" ? 1 : 0, input.loanId, environment),
-    requests: db.prepare("SELECT id,action,state,createdAt,updatedAt FROM uwm_live_requests WHERE loanId=? AND environment=? ORDER BY createdAt DESC LIMIT 50").all(input.loanId, environment),
+    requests: db.prepare(`SELECT request.id,request.action,request.state,request.createdAt,request.updatedAt,evidence.applicationRevision,
+      operation.transactionId FROM uwm_live_requests request
+      LEFT JOIN uwm_request_evidence evidence ON evidence.requestId=request.id
+      LEFT JOIN uwm_operations operation ON operation.id=CASE WHEN request.action='prepare-import' THEN request.id
+        WHEN request.action='commit-import' THEN json_extract(evidence.details,'$.importId') END
+        AND operation.loanId=request.loanId AND operation.environment=request.environment
+      WHERE request.loanId=? AND request.environment=? ORDER BY (request.id IS ?) DESC,request.createdAt DESC LIMIT 50`)
+      .all(input.loanId, environment, input.requestId ?? null),
   };
   const number = linkedLoan(db, input.loanId, environment), api = uwmPublicClient(db, env, staff);
   if (input.view === "products") {

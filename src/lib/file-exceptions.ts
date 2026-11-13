@@ -5,8 +5,9 @@ import { easternDate } from "./client-retention";
 import { closingPackageReviewCategory, disclosureClosingReviewPrefix, disclosureIssuePrefix, disclosureReviewPrefix, disclosureTarget, requestClosingPackageReviewTarget } from "./disclosure-model";
 import { canUseSampleDisclosures, currentSignedClosingPackageSql } from "./disclosures";
 import { creditAusAttemptTarget, unconfirmedMockOrder } from "./credit-aus-model";
-import { fictionalUwmWorkspace } from "./uwm-live";
-import { closingPackageException, fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, unattendedManualReturnFilter,
+import { fictionalUwmWorkspace, type UwmEnvironment } from "./uwm-live";
+import { configuredUwmImportEnvironment } from "./uwm-user-access";
+import { closingPackageException, importVerificationException, importVerificationTarget, fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, unattendedManualReturnFilter,
   type FileException, type FileExceptionPage, type FileExceptionQuery } from "./file-exception-model";
 import { loanReviewsTarget, reviewTarget } from "./loan-review-model";
 import { closingDisclosureReviewTarget } from "./file-preflight-model";
@@ -41,7 +42,7 @@ export function closingReviewEmails(db: Store, staff: WorkspaceStaff, brokerageI
     .all(closingPackageReviewCategory).map(row => String(row.reviewerEmail));
 }
 
-function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, staff: WorkspaceStaff, now: Date, countCap?: number, access?: ClosingReviewerAccess) {
+function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, staff: WorkspaceStaff, now: Date, countCap?: number, access?: ClosingReviewerAccess, uwmEnv?: UwmEnvironment) {
   const today = easternDate(now);
   const checkedAt = now.toISOString();
   const overdueReturns = filter === overdueManualReturnFilter || filter === unattendedManualReturnFilter;
@@ -64,6 +65,19 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
   const requesterActs = `review.status = 'Changes requested' OR (${reviewChanged})`;
   const processorActs = `processing.processorEmail IS NOT NULL AND (lower(trim(item.manualOwner)) = 'processor' OR
     (coalesce(trim(item.manualOwner), '') = '' AND processing.status IN ('Ready for processing', 'In processing')))`;
+
+  const environment = configuredUwmImportEnvironment(uwmEnv, staff);
+  if (environment) add(importVerificationException, `${loanColumns}, 'UWM import needs verification' AS title,
+    CASE request.state WHEN 'Acknowledged' THEN 'Awaiting lender confirmation' ELSE 'Outcome unconfirmed' END AS status,
+    NULL AS dueOn, NULL AS reopenedAt, NULL AS nextParty, NULL AS ownerName, NULL AS ownerEmail,
+    NULL AS reviewerRole, NULL AS reviewerAccessRevision, 0 AS escalated,
+    evidence.applicationRevision AS version, 0 AS changed, NULL AS requestStatus
+    FROM uwm_live_requests request JOIN loans loan ON loan.id = request.loanId ${loanJoins}
+    JOIN uwm_request_evidence evidence ON evidence.requestId = request.id
+    WHERE ${activePipeline} AND request.environment = ? AND request.action IN ('prepare-import','commit-import')
+      AND (request.state = 'Unknown' OR (request.state = 'Acknowledged' AND request.action = 'commit-import')
+        OR (request.state = 'Dispatching' AND request.updatedAt <= ?))`,
+  "request.createdAt", "loan.id", "request.id", [environment, new Date(now.getTime() - 300000).toISOString()]);
 
   add("Missing evidence", `${loanColumns}, request.kind || CASE WHEN request.recipient = 'Co-borrower' THEN ' · Co-borrower' ELSE '' END AS title,
     request.status, request.dueOn, NULL AS reopenedAt, NULL AS nextParty,
@@ -250,9 +264,9 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
   return { parts, today, checkedAt };
 }
 
-export function countFileExceptions(db: Store, staff: WorkspaceStaff, brokerageId: string, now: Date, cap: number, access?: ClosingReviewerAccess) {
+export function countFileExceptions(db: Store, staff: WorkspaceStaff, brokerageId: string, now: Date, cap: number, access?: ClosingReviewerAccess, uwmEnv?: UwmEnvironment) {
   if (staff.brokerage.role !== "Admin" || staff.brokerage.id !== brokerageId) return undefined;
-  const { parts } = selectFileExceptions(db, { filter: "All file exceptions" }, staff, now, cap, access);
+  const { parts } = selectFileExceptions(db, { filter: "All file exceptions" }, staff, now, cap, access, uwmEnv);
   let count = 0;
   for (const { sql, args } of parts) {
     count += Number(db.prepare(sql).get(...args, cap - count)?.total ?? 0);
@@ -264,11 +278,11 @@ export function countFileExceptions(db: Store, staff: WorkspaceStaff, brokerageI
 // Dates and generated record keys use binary order, matching the SQL cursor.
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
-export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date(), access?: ClosingReviewerAccess): Candidates | { error: string } {
+export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date(), access?: ClosingReviewerAccess, uwmEnv?: UwmEnvironment): Candidates | { error: string } {
   if (!staff || staff.brokerage.id !== brokerageId || staff.brokerage.role !== "Admin") return { error: fileExceptionsUnavailable };
   const parsed = fileExceptionQuery.safeParse(input);
   if (!parsed.success) return { error: "Choose a valid file exception view." };
-  const { parts, today, checkedAt } = selectFileExceptions(db, parsed.data, staff, now, undefined, access);
+  const { parts, today, checkedAt } = selectFileExceptions(db, parsed.data, staff, now, undefined, access, uwmEnv);
   // Keep each read bounded and within the hosted SQLite compound-query limit.
   const all = parts.flatMap(({ sql, args }) => db.prepare(`SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp
     FROM (${sql}) page`).all(...args) as unknown as Base[])
@@ -298,12 +312,14 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const handoff = kind === "Unassigned handoffs";
     const disclosure = kind === "Disclosure reviews";
     const underwriting = kind === "Underwriting conflicts";
+    const importVerification = kind === importVerificationException;
     const dueAt = handoff || disclosure ? sortOn : undefined;
-    const target = underwriting ? creditAusAttemptTarget(id) : handoff ? "processing-handoff" : disclosure ?
+    const target = importVerification ? importVerificationTarget(id) : underwriting ? creditAusAttemptTarget(id) : handoff ? "processing-handoff" : disclosure ?
       id.startsWith(disclosureClosingReviewPrefix) ? closingDisclosureReviewTarget : disclosureTarget : closingReview ?
       (status === "Reviewer needed" ? requestClosingPackageReviewTarget : reviewTarget(id)) : gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
       (status === "Reviewer needed" ? loanReviewsTarget : reviewTarget(id)) : conditionTarget(parentId, id);
-    const action = underwriting ? "Review the unmatched response on the original order" : handoff ? "Reviewed 1003 is ready for a processor" : disclosure ?
+    const action = importVerification ? "Check the original import in UWM and record what you verified" :
+      underwriting ? "Review the unmatched response on the original order" : handoff ? "Reviewed 1003 is ready for a processor" : disclosure ?
       id.startsWith(disclosureReviewPrefix) ? "Review the change and prepare an updated sample package" : status :
       closingReview ? (status === "Reviewer unavailable" ? `${ownerName ?? "The assigned reviewer"} can no longer review this package. Reassign it to an eligible teammate.` :
         status === "Reviewer needed" ? requestStatus ?? "Assign an eligible reviewer" :
@@ -316,7 +332,7 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
         requestStatus === "Received" ? "Review received evidence" : requestStatus === "Accepted" ? "Check delivery and clearance" :
           requestStatus ? "Follow up on borrower evidence" : "Review the lender request and request evidence";
     const evidence = version === null ? null : closingReview ? `Package v${version}` :
-      `${manual ? "Current 1003" : internalReview || underwriting ? "Submitted 1003" : "Document"} revision ${version}`;
+      `${manual ? "Current 1003" : internalReview || underwriting || importVerification ? "Submitted 1003" : "Document"} revision ${version}`;
     const currentStatus = required && status === "Awaiting approval" && !available ? "Reviewer unavailable" : status;
     return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action,
       owner: status === "Reviewer unavailable" && closingReview ? null : member?.name || ownerName || null,

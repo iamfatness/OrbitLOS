@@ -3,7 +3,10 @@ import type { ManualReturnFollowUp } from "./lender-export-model";
 
 export const fileExceptionsUnavailable = "File exceptions are available to brokerage admins.";
 export const closingPackageException = "Closing package reviews";
-export const fileExceptionKinds = ["Missing evidence", "Internal reviews", "Reopened conditions", "Required 1003 approvals", "Manual lender returns", "Closing and funding holds", "Unassigned handoffs", "Disclosure reviews", "Underwriting conflicts", closingPackageException] as const;
+export const importVerificationException = "Unconfirmed UWM imports";
+export const importVerificationTargetPrefix = "uwm-import-verification-";
+export const importVerificationTarget = (id: string) => importVerificationTargetPrefix + id;
+export const fileExceptionKinds = ["Missing evidence", "Internal reviews", "Reopened conditions", "Required 1003 approvals", "Manual lender returns", "Closing and funding holds", "Unassigned handoffs", "Disclosure reviews", "Underwriting conflicts", closingPackageException, importVerificationException] as const;
 export const overdueManualReturnFilter = "Overdue lender returns";
 export const unattendedManualReturnFilter = "Overdue lender returns without follow-up";
 export const fileExceptionFilters = ["All file exceptions", ...fileExceptionKinds, overdueManualReturnFilter, unattendedManualReturnFilter] as const;

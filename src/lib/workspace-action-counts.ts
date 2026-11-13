@@ -7,11 +7,12 @@ import { readOfficerQueue } from "./officer-queue";
 import type { OfficerQueueQuery } from "./officer-queue-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
+import type { UwmEnvironment } from "./uwm-live";
 
 export const actionCountsUnavailable = "Workspace action counts are unavailable.";
 const countLimit = 100;
 
-export function readActionCounts(db: Store, staff: WorkspaceStaff | null, brokerageId: string, now = new Date(), localName?: string, access?: ClosingReviewerAccess) {
+export function readActionCounts(db: Store, staff: WorkspaceStaff | null, brokerageId: string, now = new Date(), localName?: string, access?: ClosingReviewerAccess, uwmEnv?: UwmEnvironment) {
   if (!staff || staff.brokerage.id !== brokerageId) {
     return { error: actionCountsUnavailable };
   }
@@ -19,7 +20,7 @@ export function readActionCounts(db: Store, staff: WorkspaceStaff | null, broker
     readIncomingLoanWorkPage(db, { view: "processing" }, staff, brokerageId, localName, now, countLimit);
   if (processing && "error" in processing) return { error: actionCountsUnavailable };
   if (staff.brokerage.role === "Processor") return { processing: processing?.items.length ?? 0 };
-  const incoming = readIncomingLoanWorkPage(db, { view: "today" }, staff, brokerageId, localName, now, countLimit);
+  const incoming = readIncomingLoanWorkPage(db, { view: "today" }, staff, brokerageId, localName, now, countLimit, uwmEnv);
   if ("error" in incoming) return { error: actionCountsUnavailable };
   const actions = new Set(incoming.items.map(({ kind, id }) => `${kind}:${id}`));
   const applicationWork = new Set(incoming.items.flatMap((item) =>
@@ -38,7 +39,7 @@ export function readActionCounts(db: Store, staff: WorkspaceStaff | null, broker
     for (const { id } of page.replies.items) actions.add(`conversation:${id}`);
     after = page.next ?? undefined;
   } while (after);
-  const fileExceptions = countFileExceptions(db, staff, brokerageId, now, countLimit, access);
+  const fileExceptions = countFileExceptions(db, staff, brokerageId, now, countLimit, access, uwmEnv);
   const deliveryExceptions = countDeliveryExceptions(db, staff, brokerageId, now.toISOString(), countLimit);
   const renewals = actions.size >= countLimit ? 0 : countMyLicenseRenewals(db, staff, now.toISOString(), countLimit - actions.size);
   return { today: Math.min(actions.size + renewals, countLimit), leads: countLeadAttention(db, staff, countLimit),

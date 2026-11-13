@@ -12,8 +12,8 @@ import { currentRealtorFinancingSql, readyRealtorFinancingId, realtorFinancingDa
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { isDemoStaff } from "./workspace-access";
-import { fictionalUwmWorkspace, uwmWorkspaceEnabled, type UwmEnvironment } from "./uwm-live";
-import { uwmUserSettings } from "./uwm-user-access";
+import { fictionalUwmWorkspace, type UwmEnvironment } from "./uwm-live";
+import { configuredUwmImportEnvironment } from "./uwm-user-access";
 
 const pageSize = 8;
 const sparseReceivedLimit = 32;
@@ -65,10 +65,7 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
   const documentArgs = processing ? (team ? [] : [staff.email]) : ownerArgs;
   const leadDocuments = !processing && staff.brokerage.pilot;
   const mockUnderwriting = !processing && fictionalUwmWorkspace(staff);
-  let importEnvironment: string | undefined;
-  if (!processing && uwmEnv && uwmWorkspaceEnabled(uwmEnv, staff)) {
-    try { importEnvironment = uwmUserSettings(uwmEnv).environment; } catch { /* No configured import environment. */ }
-  }
+  const importEnvironment = processing ? undefined : configuredUwmImportEnvironment(uwmEnv, staff);
   const realtorFinancing = !processing && staff.brokerage.pilot;
   const checkedAt = now.toISOString();
   const letters = !processing ? preapprovalWorkSource(db, staff, now, requireApproval) : undefined;

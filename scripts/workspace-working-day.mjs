@@ -4866,6 +4866,13 @@ try {
     const path = `/api/uwm-file/read?brokerage=${lenderBrokerage}`;
     const view = (staff) => post(path, { loanId, view: "activity" }, staff);
     assert.equal((await view(lenderOfficer)).requests[0].state, "Unknown");
+    const importExceptions = async (actor = owner) => action(actor, "readManagerFileExceptions",
+      { filter: "Unconfirmed UWM imports" }, undefined, lenderBrokerage, lenderBrokerage);
+    const pendingImports = await importExceptions();
+    assert.deepEqual(pendingImports.items.map(item => [item.id, item.loanId, item.target]),
+      [[requestId, loanId, `uwm-import-verification-${requestId}`]]);
+    assert.ok((await importExceptions(lenderOfficer)).error);
+    const pendingImportCount = (await action(owner, "readSidebarActionCounts", lenderBrokerage, undefined, lenderBrokerage, lenderBrokerage)).exceptions;
     assert.equal((await postResponse(path, { loanId, view: "activity" }, otherLenderOfficer)).status, 409);
     const webhook = (environment, kind, token, body) => runtime.dispatchFetch(
       `${origin}/api/webhooks/uwm/${environment}/${kind}`, { method: "POST",
@@ -4919,6 +4926,8 @@ try {
     const saved = (await receipt.json()).receipt;
     assert.equal(saved.duplicate, true);
     const accepted = await view(lenderOfficer);
+    assert.deepEqual((await importExceptions()).items, []);
+    assert.equal((await action(owner, "readSidebarActionCounts", lenderBrokerage, undefined, lenderBrokerage, lenderBrokerage)).exceptions, pendingImportCount - 1);
     assert.equal(accepted.imports[0].lenderLoanNumber, "1234567890");
     assert.deepEqual(accepted.requests.map(({ id, state }) => [id, state]), [[requestId, "Reconciled"]]);
     const repeat = (await (await send("production", webhookToken)).json()).receipt;

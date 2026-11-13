@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { readManagerFileExceptions } from "@/app/actions";
 import { dateLabel } from "@/lib/client-retention";
-import { closingPackageException, fileExceptionFilters, overdueManualReturnFilter, unattendedManualReturnFilter,
+import { closingPackageException, importVerificationException, fileExceptionFilters, overdueManualReturnFilter, unattendedManualReturnFilter,
   type FileException, type FileExceptionPage, type FileExceptionQuery } from "@/lib/file-exception-model";
 import { cn, dateTime } from "@/lib/utils";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
@@ -23,6 +23,7 @@ function fileExceptionAction(item: FileException) {
     case "Disclosure reviews": return "Open disclosure review";
     case closingPackageException: return item.status === "Reviewer unavailable" ? "Reassign closing reviewer" : "Open closing review";
     case "Underwriting conflicts": return "Review reference conflict";
+    case importVerificationException: return "Verify import";
     default: return "Open lender condition";
   }
 }
@@ -81,7 +82,8 @@ export function FileExceptions({ brokerageId, version, busy, open, assign, stand
       {page.items.length ? <ul className="playbook-exceptions">{page.items.map((item) => <li className="document-item" key={`${item.kind}:${item.parentId}:${item.id}`}>
         <div className="document-item-head"><strong>{item.title} · {item.borrower}</strong><span className="pill">{item.status}</span></div>
         {item.kind !== "Manual lender returns" && <p>{item.action}</p>}
-        <p className="muted">{item.kind === closingPackageException ? "Next to act" : "Staff owner"} · {item.owner ?? (item.kind === closingPackageException ? item.nextParty : null) ?? "Unassigned"}
+        <p className="muted">{item.kind === importVerificationException ? "Next to act · Brokerage admin" :
+          `${item.kind === closingPackageException ? "Next to act" : "Staff owner"} · ${item.owner ?? (item.kind === closingPackageException ? item.nextParty : null) ?? "Unassigned"}`}
           {item.owner && !item.ownerAvailable && " · Owner unavailable"}
           {item.dueOn ? ` · Due ${dateLabel(item.dueOn)}` : item.kind === "Required 1003 approvals" ? " · Due date pending" : null}
           {item.dueAt && ` · Due ${dateTime(item.dueAt)} ET`}
@@ -96,7 +98,7 @@ export function FileExceptions({ brokerageId, version, busy, open, assign, stand
             item.overdue && !item.returnDueAt && item.status !== "Review overdue" && "Overdue", item.escalated && item.status !== "Escalated" && "Escalated"].filter(Boolean).join(" · ")}
         </p>}
         <div className="loan-application-actions"><Button size="sm" variant="outline" disabled={busy}
-          data-closing-review-action={item.kind === closingPackageException ? item.id : undefined}
+          data-closing-review-action={item.kind === closingPackageException || item.kind === importVerificationException ? item.id : undefined}
           aria-label={`${fileExceptionAction(item)} for ${item.borrower} · ${item.title}`} onClick={(event) => open(item, event.currentTarget)}>
           {fileExceptionAction(item)}
         </Button>

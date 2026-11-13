@@ -826,7 +826,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   async actionCounts(staff: WorkspaceStaff): Promise<ReturnType<typeof readActionCounts>> {
     const access = await this.#closingReviewerAccess(staff);
-    return this.#store.transaction(() => readActionCounts(this.#store, staff, this.#id, undefined, undefined, access ?? undefined));
+    return this.#store.transaction(() => readActionCounts(this.#store, staff, this.#id, undefined, undefined, access ?? undefined, this.#uwmEnvironment()));
   }
 
   workspaceTasks(input: unknown, staff: WorkspaceStaff) {
@@ -925,7 +925,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const needsAccess = query.success && (query.data.filter === "All file exceptions" || query.data.filter === closingPackageException);
     const access = needsAccess ? await this.#closingReviewerAccess(staff) : undefined;
     if (needsAccess && !access) return { error: fileExceptionsUnavailable };
-    const page = readFileExceptions(this.#store, input, staff, this.#id, undefined, access ?? undefined);
+    const page = readFileExceptions(this.#store, input, staff, this.#id, undefined, access ?? undefined, this.#uwmEnvironment());
     if ("error" in page) return page;
     const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
     const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
