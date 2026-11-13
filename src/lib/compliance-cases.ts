@@ -5,6 +5,10 @@ import { brokerAgreementRequest } from "./state-broker-agreement-model";
 import { stateBrokerAgreementWork } from "./state-broker-agreement";
 import { refinanceBenefitRequest } from "./state-refinance-benefit-model";
 import { stateRefinanceBenefitWork } from "./state-refinance-benefit";
+import { kansasNoticeRequest } from "./kansas-consumer-notice-model";
+import { kansasNoticeWork } from "./kansas-consumer-notice";
+import { michiganLoanPracticesRequest } from "./michigan-loan-practices-model";
+import { michiganLoanPracticesWork } from "./michigan-loan-practices";
 import { obligationRequest } from "./compliance-obligations-model";
 import { complianceObligationsWork } from "./compliance-obligations";
 import { learningRequest } from "./compliance-learning-model";
@@ -12,6 +16,8 @@ import { complianceLearningWork } from "./compliance-learning";
 import { complianceProgramWork } from "./compliance-program";
 import { stateScopeRequest } from "./compliance-state-scope-model";
 import { complianceStateScopeWork } from "./compliance-state-scope";
+import { scopeReviewRequest } from "./compliance-scope-review-model";
+import { complianceScopeReviewWork } from "./compliance-scope-review";
 import { stateReadinessRequest } from "./compliance-state-readiness-model";
 import { complianceStateReadinessWork } from "./compliance-state-readiness";
 import { z } from "zod";
@@ -40,10 +46,13 @@ const cursor = z.object({ id: z.uuid(), openedAt: z.iso.datetime(), cohort: z.st
 const dailyCursor = z.strictObject({ id: z.uuid(), openedAt: z.iso.datetime(), snapshot: z.string().max(500) });
 const request = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("stateScope"), input: stateScopeRequest }),
+  z.strictObject({ type: z.literal("scopeReview"), input: scopeReviewRequest }),
   z.strictObject({ type: z.literal("stateReadiness"), input: stateReadinessRequest }),
   z.strictObject({ type: z.literal("trid"), input: tridRequest }),
   z.strictObject({ type: z.literal("stateBrokerAgreement"), input: brokerAgreementRequest }),
   z.strictObject({ type: z.literal("stateRefinanceBenefit"), input: refinanceBenefitRequest }),
+  z.strictObject({ type: z.literal("kansasNotice"), input: kansasNoticeRequest }),
+  z.strictObject({ type: z.literal("michiganLoanPractices"), input: michiganLoanPracticesRequest }),
   z.strictObject({ type: z.literal("obligations"), input: obligationRequest }),
   z.strictObject({ type: z.literal("learning"), input: learningRequest }),
   z.strictObject({ type: z.literal("program"), input: programRequest }),
@@ -134,6 +143,19 @@ const attentionFilter: Record<ComplianceAttention, string> = {
   ownership: "needsOwner = 1",
 };
 
+function ownerFileFindings(db: Store, staff: WorkspaceStaff, roster: readonly Member[]) {
+  const scope = fileFindings(roster, staff.brokerage.id);
+  const rows = db.prepare(`${scope.sql} SELECT id,loanId,borrower,title,status,ownerEmail,needsOwner,count(*) OVER () AS total
+    FROM findings ORDER BY needsOwner DESC,openedAt,id LIMIT 8`).all(...scope.args);
+  return {
+    total: Number(rows[0]?.total ?? 0),
+    items: rows.map(row => ({
+      id: String(row.id), loanId: String(row.loanId), borrower: String(row.borrower), title: String(row.title), status: String(row.status),
+      ownerName: Number(row.needsOwner) ? null : currentMember(roster, String(row.ownerEmail))?.name ?? null,
+    })),
+  };
+}
+
 function overview(db: Store, staff: WorkspaceStaff, roster: readonly Member[], now: string) {
   if (staff.brokerage.role !== "Admin") return unavailable;
   const scope = fileFindings(roster, staff.brokerage.id);
@@ -195,6 +217,7 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
     packageRow.version !== item.packageVersion || packageRow.supersededAt ? "Superseded" :
       packageRow.reviewReason ? "Needs review" : samplePackage(db, item.loanId) ? "Current" : "Outside sample scope";
   const currentPackageRevision = packageState === "Current" && typeof packageRow?.revision === "number" ? packageRow.revision : null;
+  const latestPackageVersion = packageRow && !packageRow.supersededAt ? Number(packageRow.version) : null;
   const currentCheck = item.loanId && item.packageVersion && currentPackageRevision !== null ?
     evaluateSampleReceipt(sampleReceiptBasis(db, { brokerageId: staff.brokerage.id, caseId: item.id, loanId: item.loanId },
       item.packageVersion, currentPackageRevision)) : null;
@@ -206,7 +229,7 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
   const canUpdateStatus = admin || (projected.ownerState === "Assigned" && projected.ownerEmail === staff.email);
   const submitted = packageState === "Current" && packageRow ? currentReviewSubmission(db, staff.brokerage.id, item, packageRow.revision) : undefined;
   const decision = item.loanId ? lastReviewDecision(db, staff.brokerage.id, item) : null;
-  return { kind: "detail", item: projected, packageState, coverage, sampleReviewRevision,
+  return { kind: "detail", item: projected, packageState, latestPackageVersion, coverage, sampleReviewRevision,
     canUpdateStatus: canUpdateStatus && !submitted,
     submitPackageRevision: canUpdateStatus && !submitted ? currentPackageRevision : null,
     evidencePackageRevision: canUpdateStatus ? currentPackageRevision : null,
@@ -339,17 +362,26 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
   const parsed = request.safeParse(input);
   if (!parsed.success) return unavailable;
   const data = parsed.data;
-  if (!staff.brokerage.pilot && (staff.brokerage.role !== "Admin" ||
-      (data.type !== "research" && data.type !== "program" && data.type !== "stateScope" && data.type !== "stateReadiness"))) return unavailable;
+  if (!staff.brokerage.pilot && data.type !== "learning" && (staff.brokerage.role !== "Admin" ||
+      (data.type !== "research" && data.type !== "program" && data.type !== "stateScope" && data.type !== "stateReadiness" &&
+        data.type !== "obligations" && data.type !== "scopeReview"))) return unavailable;
   return db.transaction(() => {
     if (data.type === "stateScope") return complianceStateScopeWork(db, data.input, staff, roster, now);
+    if (data.type === "scopeReview") return complianceScopeReviewWork(db, data.input, staff, roster, now);
     if (data.type === "stateReadiness") return complianceStateReadinessWork(db, data.input, staff, roster, now);
     if (data.type === "trid") return { kind: "trid" as const, result: tridEvidenceWork(db, data.input, staff, now) };
     if (data.type === "stateBrokerAgreement") return stateBrokerAgreementWork(db, data.input, staff, now);
     if (data.type === "stateRefinanceBenefit") return stateRefinanceBenefitWork(db, data.input, staff, now);
+    if (data.type === "kansasNotice") return kansasNoticeWork(db, data.input, staff, now);
+    if (data.type === "michiganLoanPractices") return michiganLoanPracticesWork(db, data.input, staff, now);
     if (data.type === "obligations") return { kind: "obligations" as const, result: complianceObligationsWork(db, data.input, staff, roster, now) as unknown };
     if (data.type === "learning") return { kind: "learning" as const, result: complianceLearningWork(db, data.input, staff, roster, now) as unknown };
-    if (data.type === "program") return complianceProgramWork(db, data.input, staff, roster, now);
+    if (data.type === "program") {
+      const result = complianceProgramWork(db, data.input, staff, roster, now);
+      return "kind" in result && result.kind === "ownerHome" ? {
+        ...result, fileFindings: staff.brokerage.pilot ? ownerFileFindings(db, staff, roster) : undefined,
+      } : result;
+    }
     if (data.type === "research") return complianceResearchWork(db, data.input, staff, roster, now);
     if (data.type === "inventory" || data.type === "advanceInventory") {
       if (staff.brokerage.role !== "Admin") return unavailable;

@@ -11,14 +11,14 @@ import { ComplianceLearning } from "./compliance-learning";
 type Daily = Extract<ComplianceCaseResult, { kind: "daily" }>;
 type Cursor = NonNullable<Daily["next"]>;
 
-export function ComplianceDailyWork({ brokerageId, view = "mine", paused, version, open }: {
-  brokerageId: string; view?: "mine" | "review"; paused: boolean; version: object; open: (loanId: string, caseId: string) => void;
+export function ComplianceDailyWork({ brokerageId, view = "mine", paused, version, open, showFindings = true }: {
+  brokerageId: string; view?: "mine" | "review"; paused: boolean; version: object; showFindings?: boolean; open: (loanId: string, caseId: string) => void;
 }) {
   const [query, setQuery] = useState<{ after?: Cursor }>({});
   const [learning,setLearning]=useState(false);
   const [loaded, setLoaded] = useState<{ brokerageId: string; view: string; query: typeof query; result: Daily | { error: string } }>();
   useEffect(() => {
-    if (paused) return;
+    if (paused || !showFindings) return;
     let active = true;
     let reading = false;
     async function read(isCurrent: () => boolean) {
@@ -34,15 +34,16 @@ export function ComplianceDailyWork({ brokerageId, view = "mine", paused, versio
     void read(() => true);
     const stopReturn = observeTabReturn(document, window, (isCurrent) => void read(isCurrent));
     return () => { active = false; stopReturn(); };
-  }, [brokerageId, paused, query, version, view]);
+  }, [brokerageId, paused, query, showFindings, version, view]);
 
   const data = loaded?.brokerageId === brokerageId && loaded.view === view && loaded.query === query ? loaded.result : undefined;
   const page = data && "kind" in data ? data : undefined;
-  const label = view === "review" ? "Compliance reviews" : "Compliance follow-ups";
+  const label = !showFindings ? "Training and policy assignments" : view === "review" ? "Compliance reviews" : "Compliance follow-ups";
   const action = view === "review" ? "Open for review" : "Open compliance finding";
   return <section className="document-item record-form compliance-work" aria-label={label}>
     <Button variant="outline" disabled={paused} aria-expanded={learning} onClick={()=>setLearning(v=>!v)}>{learning?"Close training and policies":"My training & policies"}</Button>
     {learning&&<ComplianceLearning key={brokerageId} brokerageId={brokerageId} paused={paused}/>}
+    {showFindings && <>
     <div className="section-heading"><h3>{label}</h3>{page && <span className="pill">
       {page.counts.cases} {page.counts.cases === 1 ? "finding" : "findings"} · {page.counts.files} {page.counts.files === 1 ? "file" : "files"}
     </span>}</div>
@@ -64,5 +65,6 @@ export function ComplianceDailyWork({ brokerageId, view = "mine", paused, versio
       {page?.next && <Button size="sm" variant="outline" disabled={paused} onClick={() => setQuery({ after: page.next ?? undefined })}>
         More compliance work</Button>}
     </div>
+    </>}
   </section>;
 }

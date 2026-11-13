@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { readMichiganRetentionExport } from "./michigan-retention";
 import { shiftReportDate } from "./report-date-range";
+import type { MichiganDispositionReview } from "./retention-disposition";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -14,7 +16,8 @@ export const retentionAuditRequest = z.discriminatedUnion("type", [
 type Command = z.infer<typeof retentionAuditRequest>;
 export type AuditPolicy = {version:number;fundedDays:number|null;closedDays:number|null;reference:string;at:string;actor:string};
 export type AuditDecision = {id:string;loanId:string;currentBorrower:string|null;policyVersion:number;previous:string|null;
-  outcome:string;reference:string;at:string;actor:string;eventDate:string|null;reviewOn:string|null;category:string|null};
+  outcome:string;reference:string;at:string;actor:string;eventDate:string|null;reviewOn:string|null;category:string|null;
+  michiganReview?:MichiganDispositionReview};
 export type RetentionAudit = {kind:"retentionAudit";section:z.infer<typeof section>;latestVersion:number|null;
   policies:AuditPolicy[];decisions:AuditDecision[];next:number|null};
 export type RetentionAuditResult = RetentionAudit | {kind:"retentionAuditExport";json:string} | {error:string};
@@ -30,17 +33,18 @@ function readPolicies(db:Store, version:number|null, before:number|null, limit:n
 
 function readDecisions(db:Store, version:number|null, before:number|null, limit:number) {
   const rows = db.prepare(`SELECT r.rowid AS cursor,r.id,r.loanId,c.name AS currentBorrower,r.policyVersion,r.previous,r.outcome,
-    r.reference,r.at,r.actor,r.basis,p.fundedDays,p.closedDays FROM loan_retention_reviews r
+    r.reference,r.at,r.actor,r.basis,r.michiganReview,p.fundedDays,p.closedDays FROM loan_retention_reviews r
     LEFT JOIN loans l ON l.id=r.loanId LEFT JOIN contacts c ON c.id=l.contactId
     LEFT JOIN loan_retention_policies p ON p.version=r.policyVersion
     WHERE (? IS NULL OR r.policyVersion=?) AND (? IS NULL OR r.rowid<?)
     ORDER BY r.rowid DESC LIMIT ?`).all(version,version,before,before,limit);
-  return rows.map(({cursor,basis,fundedDays,closedDays,...row})=>{
+  return rows.map(({cursor,basis,fundedDays,closedDays,michiganReview,...row})=>{
     const [outcome,date]=String(basis).split("/");
     const category=outcome==="Active"?"Funded":["Withdrawn","Lost"].includes(outcome)?outcome:null;
     const eventDate=z.iso.date().safeParse(date);
     const period=category==="Funded"?fundedDays:closedDays;
     return {cursor:Number(cursor),decision:{...row,category,eventDate:eventDate.success?eventDate.data:null,
+      ...(michiganReview ? {michiganReview:JSON.parse(String(michiganReview))} : {}),
       reviewOn:category && eventDate.success && typeof period==="number"?shiftReportDate(eventDate.data,period):null} as AuditDecision};
   });
 }
@@ -57,8 +61,11 @@ export function retentionAuditWork(db:Store, command:Command, staff:WorkspaceSta
     const reviews=readDecisions(db,version,null,exportLimit+1);
     if (policies.length>exportLimit || reviews.length>exportLimit)
       return {error:"This export exceeds 1,000 policy versions or decisions. Select a policy version to narrow the export."};
+    const michiganRetention=version===null?readMichiganRetentionExport(db,null,exportLimit+1):undefined;
+    if (michiganRetention && michiganRetention.length>exportLimit)
+      return {error:"This export exceeds 1,000 Michigan retention versions. Choose a policy version for a policy-only export or download a selected loan’s retention ZIP."};
     const json=JSON.stringify({format:1,exportedAt:now,brokerageId:staff.brokerage.id,policyVersion:version,
-      latestVersion,policies,decisions:reviews.map(row=>row.decision)},null,2);
+      latestVersion,policies,decisions:reviews.map(row=>row.decision),michiganRetention},null,2);
     accessEvent(db,staff,"Prepared retention audit export",version===null?"All policies":`Policy version ${version}`,now);
     return {kind:"retentionAuditExport",json};
   }

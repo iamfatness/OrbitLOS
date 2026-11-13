@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { strToU8, zipSync } from "fflate";
 import { z } from "zod";
 import { documentKey } from "./document-files-model";
+import { readMichiganRetentionExport } from "./michigan-retention";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -17,7 +18,9 @@ const digest = (value: string | Uint8Array) => createHash("sha256").update(value
 type Version = { requestId: string; kind: string; objectId: string; source: string; revision: number | null; holdId: string | null };
 type Hold = { id: string; reference: string; placedAt: string; placedBy: string; releaseReference: string | null;
   releasedAt: string | null; releasedBy: string | null };
-type Snapshot = { loan: { id: string; borrower: string; stage: string }; holds: Hold[]; versions: Version[]; unmappedAcceptedRevisions: { requestId: string; kind: string; revision: number }[] };
+type Snapshot = { loan: { id: string; borrower: string; stage: string }; holds: Hold[]; versions: Version[];
+  unmappedAcceptedRevisions: { requestId: string; kind: string; revision: number }[];
+  michiganRetention: ReturnType<typeof readMichiganRetentionExport> };
 export type RetentionExportReview = { snapshot: Snapshot; fingerprint: string } | { status: 404 | 413; error: string };
 
 function review(db: Store, staff: WorkspaceStaff, workspaceId: string, loanId: string): RetentionExportReview {
@@ -48,9 +51,11 @@ function review(db: Store, staff: WorkspaceStaff, workspaceId: string, loanId: s
     LEFT JOIN document_accepted_files f ON f.requestId=a.requestId AND f.revision=a.revision
     WHERE r.loanId=? AND f.objectId IS NULL ORDER BY r.id,a.revision LIMIT ?`)
     .all(loanId,maxEntries+1) as Snapshot["unmappedAcceptedRevisions"];
-  if (holds.length>maxEntries || versions.length>maxEntries || unmappedAcceptedRevisions.length>maxEntries || new Set(versions.map(row=>row.objectId)).size>maxFiles)
+  const michiganRetention = readMichiganRetentionExport(db,loanId,maxEntries+1);
+  if (holds.length>maxEntries || versions.length>maxEntries || unmappedAcceptedRevisions.length>maxEntries ||
+    michiganRetention.length>maxEntries || new Set(versions.map(row=>row.objectId)).size>maxFiles)
     return { status:413, error:"This loan exceeds the retention export limit. Orbit did not create a partial archive." };
-  const snapshot = { loan, holds, versions, unmappedAcceptedRevisions };
+  const snapshot = { loan, holds, versions, unmappedAcceptedRevisions, michiganRetention };
   return { snapshot, fingerprint:digest(JSON.stringify(snapshot)) };
 }
 
@@ -101,7 +106,8 @@ export async function retentionExportResponse(bucket: R2Bucket | undefined, work
       versions:snapshot.versions.filter(row=>row.objectId===objectId).map(({requestId,kind,source,revision,holdId})=>({requestId,kind,source,revision,holdId})) });
   }
   entries["manifest.json"] = strToU8(JSON.stringify({ format:1, exportedAt:new Date().toISOString(), loan:snapshot.loan,
-    holdHistory:snapshot.holds, unmappedAcceptedRevisions:snapshot.unmappedAcceptedRevisions, files },null,2)+"\n");
+    holdHistory:snapshot.holds, unmappedAcceptedRevisions:snapshot.unmappedAcceptedRevisions, files,
+    ...(snapshot.michiganRetention.length ? { michiganRetention:snapshot.michiganRetention } : {}) },null,2)+"\n");
   const zip = zipSync(entries,{level:0});
   if (!await confirm(fingerprint)) return problem(409,"Loan records or your access changed while preparing the export. Refresh and try again.");
   return new Response(zip,{ headers:{ ...headers, "Content-Type":"application/zip",

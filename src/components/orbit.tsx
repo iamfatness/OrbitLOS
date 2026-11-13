@@ -28,6 +28,7 @@ import { usePipeline } from "./use-pipeline";
 import { LoanWorkQueue } from "./loan-work-queue";
 import { PagedTaskQueue } from "./paged-task-queue";
 import type { WorkspaceStaff } from "@/lib/staff-store";
+import { programRequest } from "@/lib/compliance-program-model";
 import { pastClientLoan, rateFollowUpContext } from "@/lib/client-retention";
 import { workspaceFeatures, demoBrokerageId, staffSignInRequired } from "@/lib/brokerage-model";
 import { CallReportWorkbench } from "./call-report";
@@ -206,6 +207,16 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const [calendar, setCalendar] = useState<CalendarQuery>(() => ({ week: currentCalendarWeek(), scope: "Mine", group: "All" }));
   const [renewalVisit, setRenewalVisit] = useState<LicenseRenewalVisit & { origin: "Brokerage" | "Today" }>();
   const [renewalReturn, setRenewalReturn] = useState<LicenseRenewalVisit & { origin: "Brokerage" | "Today" }>();
+  const renewalBranchKey = staff?.brokerage.role === "Admin" && complianceEnabled
+    ? `orbit:compliance-renewal-branch:${JSON.stringify([staff.brokerage.id, staff.email])}` : "";
+  const [complianceBranch, setComplianceBranch] = useState(() => {
+    try {
+      const branchId = renewalBranchKey ? localStorage.getItem(renewalBranchKey) : null;
+      if (branchId && programRequest.safeParse({ operation: "ownerHome", branchId }).success) return { key: renewalBranchKey, id: branchId };
+    } catch { /* The current workspace can still keep the filter in memory. */ }
+    return { key: renewalBranchKey, id: "" };
+  });
+  const [complianceBranchVisit, setComplianceBranchVisit] = useState<"team" | "return">();
   const [registerVisit, setRegisterVisit] = useState<"register" | "return">();
   const [reportScheduleTarget, setReportScheduleTarget] = useState<{ reportId?: string }>();
   const [reportScheduleReturn, setReportScheduleReturn] = useState<{ reportId?: string }>();
@@ -666,6 +677,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     setRenewalVisit(undefined);
     setRenewalReturn(undefined);
     setRegisterVisit(undefined);
+    setComplianceBranchVisit(undefined);
     setReportScheduleTarget(undefined);
     setReportScheduleReturn(undefined);
     setFirstDayDestination(undefined);
@@ -1651,7 +1663,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             openRenewal={complianceEnabled ? openLicenseRenewal : undefined} renewalReturn={renewalReturn?.origin === "Brokerage" ? renewalReturn : undefined} openSchedule={openReportSchedule} scheduleReturn={reportScheduleReturn} />}
           {(section === "Today" || conversationOrigin === "Today") && canOpenToday && <Activity mode={section === "Today" ? "visible" : "hidden"}><OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId}
-            complianceWork={pilotCompliance && staff && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+            complianceWork={complianceEnabled && staff && <ComplianceDailyWork brokerageId={staff.brokerage.id} showFindings={pilotCompliance}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             renewalWork={staff && admin && complianceEnabled && <LicenseRenewalAttention key={staff.brokerage.id} brokerageId={staff.brokerage.id}
               busy={!!modal || busy} mine open={visit => openLicenseRenewal(visit, "Today")}
@@ -1688,13 +1700,28 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             returnToBrokerageLicenses={registerVisit === "register" ? () => { navigate("Brokerage", false); setRegisterVisit("return"); } : undefined}
             openLicensing={firstDayDestination === "licensing" || registerVisit === "register"}
             brokerageId={staff.brokerage.id} pilot={staff.brokerage.pilot === true} paused={!!modal || busy}
+            branchId={complianceBranch.key === renewalBranchKey ? complianceBranch.id : ""}
+            onBranch={id => {
+              setComplianceBranch({ key: renewalBranchKey, id });
+              try {
+                if (id) localStorage.setItem(renewalBranchKey, id);
+                else localStorage.removeItem(renewalBranchKey);
+              } catch { /* Keep the filter usable for this workspace visit. */ }
+            }}
+            openBranches={() => { setTeamPanel("Branches"); openBrokerageView("Team"); setComplianceBranchVisit("team"); }}
+            returningFromBranches={complianceBranchVisit === "return"} openCallReport={() => { setReportTab("Call report"); openBrokerageView("Reports"); }}
+            renderReport={(period, setPeriod) => <CallReportWorkbench state={state} brokerageId={staff.brokerage.id}
+              period={period} setPeriod={setPeriod} showQuarterEvidence
+              openReadiness={() => { setReportingPeriod(period); setManagerExceptionView("reporting"); navigate("Playbooks", false); }}
+              openLoan={loanId => void openQueueLoan({ kind: "details", loanId, target: callReportFactsTarget })} />}
             openHistoryRecord={openMigrationDestination}
+            openEvidence={loanId => void openQueueLoan({ kind: "details", loanId, target: disclosureTarget })}
             openLoan={(loanId, caseId) => void openQueueLoan({ kind: "details", loanId, target: caseId ? complianceCaseTarget(caseId) : complianceTarget })} />}
           {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}
           {section === "Processing" && canOpenProcessing && <ProcessorQueue key={attentionVisit?.section === "Processing" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={!processor} initialReadyOnly={firstDayDestination === "accept-handoff"}
-            complianceWork={pilotCompliance && staff && processor && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+            complianceWork={complianceEnabled && staff && processor && <ComplianceDailyWork brokerageId={staff.brokerage.id} showFindings={pilotCompliance}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             mockServices={!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot}
             reviewingLoan={!!modal || busy} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "processing")}
@@ -1703,7 +1730,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             onAssignment={canReport ? invalidateWorkspace : undefined}
             openAssignment={canReport ? (loanId) => show({ kind: "assignment", loanId }) : undefined} />}
           {section === "Tasks" && staff && pagedTasks && <PagedTaskQueue staff={staff} version={queueVersion} busy={busy}
-            complianceWork={pilotCompliance && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+            complianceWork={complianceEnabled && <ComplianceDailyWork brokerageId={staff.brokerage.id} showFindings={pilotCompliance}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             focusContact={focusContactTask} openWork={openActiveTask} openHistory={(id, realtor) => void openContactRecord(id, false, realtor ? "partner" : "contact")}
             save={(input, after) => save(input, after, true, "tasks")} />}
@@ -1964,6 +1991,9 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             openStep={openFirstDayStep} returning={firstDayReturn}
             openPractice={() => openFirstDayStep("pilot-tools")} />}
 
+          {section === "Team" && complianceBranchVisit === "team" && <div className="mb-3">
+            <Button size="sm" variant="outline" className="min-h-11" onClick={() => { openBrokerageView("Compliance"); setComplianceBranchVisit("return"); }}>Back to Compliance home</Button>
+          </div>}
           {section === "Team" && staff && <BrokerageTeam staff={staff} uwmConnection={uwmConnection} version={state} panel={teamPanel} setPanel={setTeamPanel} refresh={async () => invalidateWorkspace()}
             openRouting={() => { openBrokerageView("Lead Inbox"); setOpenLeadRouting(true); }}
             openLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })}

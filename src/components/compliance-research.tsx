@@ -84,10 +84,14 @@ function ResearchLinks({ source }: { source: ResearchSource }) {
     <li key={link.url}><a className="underline" target="_blank" rel="noreferrer" href={link.url}>{link.label}</a></li>)}</ul>;
 }
 
-export function ComplianceResearch({ brokerageId, paused }: { brokerageId: string; paused: boolean }) {
-  const [view, setView] = useState<"Sources" | "Research work" | "State rollout">("Sources");
+export function ComplianceResearch({ brokerageId, paused, startWithState, active, openReview, stateTarget }: {
+  brokerageId: string; paused: boolean; startWithState?: boolean; active: boolean;
+  openReview: (target: import("@/lib/compliance-program-model").ProgramReviewTarget, origin: string) => void;
+  stateTarget?: import("@/lib/compliance-program-model").StateScopeTarget;
+}) {
+  const [view, setView] = useState<"Sources" | "Research work" | "State rollout">(startWithState ? "State rollout" : "Sources");
   const [jurisdiction, setJurisdiction] = useState("US");
-  const [rolloutState, setRolloutState] = useState("MI");
+  const [rolloutState, setRolloutState] = useState(stateTarget?.jurisdiction ?? (startWithState ? "" : "MI"));
   const rolloutSelect = useRef<HTMLSelectElement>(null);
   const rolloutSearch = useRef<HTMLInputElement>(null);
   const [requirementSearch, setRequirementSearch] = useState("");
@@ -113,7 +117,7 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
   const activeBrokerage = useRef<string | null>(brokerageId);
   useEffect(() => { activeBrokerage.current = brokerageId; return () => { activeBrokerage.current = null; }; }, [brokerageId]);
   useEffect(() => {
-    if (paused || (view === "Sources" && !caseId)) return;
+    if (paused || (!caseId && (view === "Sources" || (view === "State rollout" && !rolloutState)))) return;
     let active = true;
     void accessComplianceCases({ type: "research", input: request }, brokerageId).then((result) => {
       if (active && ("error" in result || result.kind === "researchList" || result.kind === "researchDetail" || result.kind === "stateRollout")) {
@@ -121,7 +125,7 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
       }
     }, () => { if (active) setResponse({ key, data: { error: "Could not load research work. Refresh to try again." } }); });
     return () => { active = false; };
-  }, [brokerageId, caseId, key, paused, request, view]);
+  }, [brokerageId, caseId, key, paused, request, rolloutState, view]);
   const data = response?.key === key ? response.data : undefined;
   const detail = data && "kind" in data && data.kind === "researchDetail" ? data : undefined;
   const list = data && "kind" in data && data.kind === "researchList" ? data : undefined;
@@ -197,7 +201,7 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
     });
   }
   return <div className="integration manager-panel record-form compliance-research-panel" ref={panel}>
-    <h2>Research &amp; control gaps</h2>
+    <h2>{startWithState && view === "State rollout" && !caseId ? "States and activities" : "Research & control gaps"}</h2>
     <p className="muted">50 states · 25 federal research areas · Baseline {researchBaseline}. DC and territories require separate research.</p>
     <div className="document-item"><strong>Legal approval and enforcement remain unverified</strong>
       <p>Track review work and missing controls. Workflow status and notes do not approve a jurisdiction or verify compliance.</p></div>
@@ -218,12 +222,14 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
     {view === "State rollout" && !caseId ? <section className="record-form" aria-label="State rollout">
       <div className="form-grid">
         <label className="field">State<select ref={rolloutSelect} value={rolloutState} disabled={pending} onChange={event => setRolloutState(event.target.value)}>
+          {startWithState && <option value="">Choose a state</option>}
           {states.map(item => <option key={item.key} value={item.jurisdiction}>{item.title}</option>)}
         </select></label>
         <label className="field">Search requirements<input ref={rolloutSearch} type="search" value={requirementSearch}
-          maxLength={120} onChange={event => setRequirementSearch(event.target.value)} /></label>
+          disabled={!rolloutState} maxLength={120} onChange={event => setRequirementSearch(event.target.value)} /></label>
       </div>
-      {!data && <p role="status">{paused ? "State rollout is unavailable while the workspace is paused." : "Loading state rollout…"}</p>}
+      {!rolloutState && <p>Choose a state where your brokerage operates. You can save business facts for review.</p>}
+      {rolloutState && !data && <p role="status">{paused ? "State rollout is unavailable while the workspace is paused." : "Loading state rollout…"}</p>}
       {data && "error" in data && <p role="alert">{data.error}</p>}
       {rollout && <>
         <div role="status">
@@ -232,7 +238,9 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
             ? `${visibleRequirements} of ${selectedState?.requirements} specific requirements match`
             : `${selectedState?.requirements} specific requirements · ${rollout.states.filter(item => item.tracked > 0).length} of ${rollout.states.length} states have tracked work`}</p>
         </div>
-        <ComplianceStateScope key={`${brokerageId}:${rolloutState}`} brokerageId={brokerageId} jurisdiction={rolloutState} paused={paused} />
+        <ComplianceStateScope key={`${brokerageId}:${rolloutState}`} brokerageId={brokerageId} jurisdiction={rolloutState}
+          paused={paused} initiallyOpen={startWithState} initialEntityId={stateTarget?.jurisdiction === rolloutState ? stateTarget.entityId : undefined}
+          active={active} openReview={openReview} />
         <details className="document-form"><summary>Tracking by state</summary>
           <ul className="document-list">{rollout.states.map(item => <li key={item.jurisdiction} className="document-item">
             <div><strong>{item.name}</strong><p>{item.tracked} of {item.total} review areas tracked · {item.requirements} specific requirements</p></div>

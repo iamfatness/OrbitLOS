@@ -15,6 +15,110 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
 const { staffApplications } = await import("../src/lib/applications.ts");
 
+test("Michigan loan practices preserve independent findings, scope and term boundaries on the pilot loan", t => {
+  const { db, work, addLoan, officer, processor, unrelated } = fixture(t);
+  const loanId = addLoan({ state: " mi " });
+  const other = addLoan({ state: "OH" });
+  assert.equal(staffApplications(db, loanId)[0].hasMichiganProperty, true);
+  assert.equal(staffApplications(db, loanId)[0].draft, null);
+  assert.equal(staffApplications(db, other)[0].hasMichiganProperty, undefined);
+  const record = (input, actor) => work({ type: "michiganLoanPractices", input }, actor);
+  const read = (id, actor) => record({ operation: "read", state: "MI", loanId: id }, actor);
+  const evidence = { reference: "Fictional evidence", result: "No concern recorded" };
+  const service = { key: "appraisal", reference: "Fictional vendor record", feeCharged: "Yes", provided: "No",
+    thirdPartyAmount: "Discrepancy" };
+  const term = { reference: "Fictional note", startsOn: "2026-11-01", maturesOn: "2027-11-01",
+    regularPaymentsAmortize: "No", bridgeForPrincipalDwelling: "Yes" };
+  const facts = { state: "MI", reviewedOn: "2026-11-06", zone: "America/Detroit", scope: "Unresolved",
+    scopeReference: "Fictional scope record", serviceInventory: "Listed charges reviewed",
+    serviceInventoryReference: "Fictional charge inventory", services: [service],
+    representations: evidence, applicationChanges: { ...evidence, result: "Concern recorded" },
+    appraisalPayment: { ...evidence, result: "Unresolved" }, appraisalInfluence: evidence,
+    premium: { reference: "Fictional credit life premium", financedSinglePremiumCreditCoverage: "Yes" }, term };
+  const request = { operation: "save", loanId, expectedRevision: 0, requestId: crypto.randomUUID(), facts };
+  assert.ok(read(other, officer).error);
+  assert.ok(read(loanId, unrelated).error);
+  assert.ok(record(request, processor).error);
+  assert.ok(record({ ...request, facts: { ...facts, reviewedOn: "2026-11-15" } }, officer).error);
+  assert.ok(record({ ...request, facts: { ...facts, services: [service, { ...service, key: "Appraisal" }] } }, officer).error);
+  assert.ok(record({ ...request, facts: { ...facts, term: { ...term, maturesOn: term.startsOn } } }, officer).error);
+  const saved = record(request, officer);
+  assert.equal(saved.revision, 1);
+  assert.equal(saved.review.scope, "Unresolved");
+  const outcomes = result => Object.fromEntries(result.review.reviews.map(row =>
+    [row.requirement, row.findings.map(finding => finding.status)]));
+  assert.deepEqual(outcomes(saved), {
+    "REQ-MI-LOAN-CMPA-SERVICE": ["Review concern", "Review concern"],
+    "REQ-MI-LOAN-CMPA-INTEGRITY": ["Review concern", "Evidence gap"],
+    "REQ-MI-LOAN-CMPA-APPRAISAL": ["Evidence gap"],
+    "REQ-MI-LOAN-CMPA-PREMIUM": ["Review concern"],
+    "REQ-MI-LOAN-CMPA-TERM": ["Review concern"],
+  });
+  assert.equal(record(request, officer).history.length, 1);
+  assert.ok(record({ ...request, requestId: crypto.randomUUID() }, officer).error);
+  assert.ok(record({ ...request, expectedRevision: 1, requestId: crypto.randomUUID() }, officer).error);
+  const correct = (expectedRevision, fields) => record({ ...request, expectedRevision, requestId: crypto.randomUUID(),
+    correction: "Fictional schedule correction", facts: { ...facts, term: { ...term, ...fields } } }, officer);
+  assert.deepEqual(outcomes(correct(1, { maturesOn: "2027-10-31" }))["REQ-MI-LOAN-CMPA-TERM"], []);
+  assert.deepEqual(outcomes(correct(2, { maturesOn: "2031-11-01" }))["REQ-MI-LOAN-CMPA-TERM"], []);
+  const leap = correct(3, { startsOn: "2024-02-29", maturesOn: "2025-02-28" });
+  assert.deepEqual(outcomes(leap)["REQ-MI-LOAN-CMPA-TERM"], ["Evidence gap"]);
+  const history = read(loanId, processor).history;
+  assert.equal(history[3].facts.term.maturesOn, "2027-11-01");
+  assert.equal(history[0].correction, "Fictional schedule correction");
+  const noProof = record({ ...request, expectedRevision: 4, requestId: crypto.randomUUID(), correction: "Fictional no-charge review",
+    facts: { ...facts, serviceInventory: "No charges identified", serviceInventoryReference: undefined, services: [] } }, officer);
+  assert.deepEqual(outcomes(noProof)["REQ-MI-LOAN-CMPA-SERVICE"], ["Evidence gap"]);
+  db.prepare("UPDATE loans SET disposition='Paused' WHERE id=?").run(loanId);
+  assert.match(correct(5, {}).error, /paused/);
+});
+
+test("Kansas notice keeps consumer-specific trigger reviews, rule dates and version history", (t) => {
+  const { db, work, addLoan, officer, processor, unrelated, admin, staff, roster, brokerageId } = fixture(t);
+  const loanId = addLoan({ state: " ks " });
+  const other = addLoan({ state: "MI" });
+  const record = (input, actor) => work({ type: "kansasNotice", input }, actor);
+  const read = (id, actor) => record({ operation: "read", state: "KS", loanId: id }, actor);
+  assert.equal(staffApplications(db, loanId)[0].hasKansasProperty, true);
+  assert.equal(staffApplications(db, loanId)[0].draft, null);
+  assert.ok(read(other, officer).error);
+  assert.ok(read(loanId, unrelated).error);
+  const input = { type: "kansasNotice", input: { operation: "read", state: "KS", loanId } };
+  const actor = staff(admin);
+  assert.deepEqual(complianceCaseWork(db, input, {
+    ...actor, brokerage: { ...actor.brokerage, features: { compliance: false, uwm: false } },
+  }, brokerageId, roster, at), unavailable);
+  assert.deepEqual(complianceCaseWork(db, input, {
+    ...actor, brokerage: { ...actor.brokerage, pilot: false, features: { compliance: true, uwm: false } },
+  }, brokerageId, roster, at), unavailable);
+  const date = (on, time) => ({ on, time, reference: "Fictional dated record" });
+  const notice = (on, time) => ({ ...date(on, time), version: "Fictional notice v1", reviewedContents: true });
+  const primary = { recipient: "Primary consumer", notice: notice("2026-11-03", "09:00"), reviewedTriggers: true,
+    contract: date("2026-11-03", "09:30"), compensation: date("2026-11-03", "08:00") };
+  const additional = { recipient: "Additional consumer", notice: notice("2026-11-05"), reviewedTriggers: true,
+    transfer: date("2026-10-21") };
+  const facts = { state: "KS", zone: "America/Chicago", recipientScope: "Two consumers",
+    scopeReference: "Fictional Kansas role review", consumers: [primary, additional] };
+  const request = { operation: "save", loanId, expectedRevision: 0, requestId: crypto.randomUUID(), facts };
+  assert.ok(record(request, processor).error);
+  assert.ok(record({ ...request, facts: { ...facts, consumers: [primary, primary] } }, officer).error);
+  assert.ok(record({ ...request, facts: { ...facts, consumers: [{ ...primary, contract: date("2026-11-15") }, additional] } }, officer).error);
+  const saved = record(request, officer);
+  assert.equal(saved.revision, 1);
+  assert.deepEqual(saved.review.consumers[0].timing.map(item => item.result), ["Before", "After"]);
+  assert.equal(saved.review.consumers[1].cutoff, "2026-11-05");
+  assert.equal(saved.review.consumers[1].timing[0].result, "Same date, order unresolved");
+  assert.equal(record(request, officer).history.length, 1);
+  assert.ok(record({ ...request, requestId: crypto.randomUUID() }, officer).error);
+  assert.ok(record({ ...request, expectedRevision: 1, requestId: crypto.randomUUID() }, officer).error);
+  const historical = record({ ...request, expectedRevision: 1, requestId: crypto.randomUUID(), correction: "Fictional earlier notice record",
+    facts: { ...facts, consumers: [{ ...primary, notice: notice("2026-07-23"), compensation: date("2026-07-23") }] } }, officer);
+  assert.match(historical.review.scopeGaps[0], /additional consumer/);
+  assert.match(historical.review.consumers[0].gaps[0], /before July 24/);
+  assert.equal(historical.history[1].facts.consumers.length, 2);
+  assert.equal(read(loanId, processor).revision, 2);
+});
+
 test("state refinance benefit review preserves different state evidence and closing checks", (t) => {
   const { db, work, addLoan, officer, processor, unrelated } = fixture(t);
   const mn = addLoan({ state: " mn ", purpose: "Refinance" });
@@ -410,6 +514,8 @@ test("manual status and older sample evidence cannot resolve or review another p
   assert.match(edit(reviewed.item, review).error, /workbench/);
   addPackage(loanId, 2);
   assert.equal(read(item.id).packageState, "Superseded");
+  assert.equal(read(item.id).latestPackageVersion, 2);
+  assert.equal(read(item.id).evidencePackageRevision, null);
   assert.equal(read(item.id).history[0].action, "recordSampleReview");
   assert.match(edit(reviewed.item, review).error, /workbench/);
   const newer = open(loanId, 2);
@@ -418,6 +524,9 @@ test("manual status and older sample evidence cannot resolve or review another p
   assert.equal(newer.sampleReview, null);
   assert.match(edit(newer.item, review).error, /workbench/);
   assert.deepEqual(work({ type: "list", kind: "Operational finding" }).counts, { cases: 2, files: 1 });
+  db.prepare("UPDATE disclosure_packages SET supersededAt = ? WHERE loanId = ? AND version = 2").run(at, loanId);
+  assert.equal(read(item.id).latestPackageVersion, null);
+  assert.equal(read(item.id).history[0].action, "recordSampleReview");
 });
 
 test("daily findings follow the current owner and hand off a revision-bound review request to the manager", (t) => {
