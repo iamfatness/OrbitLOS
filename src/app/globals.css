@@ -69,7 +69,7 @@ button:disabled { cursor: default; }
 .mobile-workspace-label { display: none; }
 .nav-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; border-radius: 8px; padding: 8px; color: #e2daee; text-align: left; font-size: 14px; font-weight: 500; }
 .nav-item svg { flex-shrink: 0; }
-.nav-item:not(:disabled):hover { background: #352849; }
+.nav-item:not(:disabled, .selected):hover { background: #352849; }
 .nav-item.selected { color: #271749; background: var(--orbit-lilac); font-weight: 600; }
 .nav-item:disabled, .shell .brand:disabled, .connection-chip:disabled, .guide-controls .view-toggle button:disabled { opacity: .6; cursor: wait; }
 .sidebar :focus-visible { outline: 2px solid #d9c7ff; outline-offset: 1px; }
@@ -877,7 +877,39 @@ button:disabled { cursor: default; }
 .loan-retention button { min-height: 44px; }
 .loan-retention .retention-search { align-items: end; }
 .loan-retention .retention-search .field { flex: 1 1 12rem; min-width: 0; }
-.compliance-overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 8px; }
+.compliance-filing-filters { grid-template-columns: minmax(0, 2fr) minmax(110px, 1fr) minmax(0, 2fr); align-items: start; }
+.compliance-filing-filters select { min-width: 0; }
+@media (max-width: 650px) {
+  .compliance-filing-filters { grid-template-columns: minmax(0, 1fr); }
+}
+.compliance-home { display: grid; gap: 16px; }
+.compliance-home-branch { max-width: 420px; }
+.compliance-home-branch select { width: 100%; min-width: 0; min-height: 44px; }
+.compliance-home-setup, .compliance-home-attention { display: grid; gap: 8px; }
+.compliance-home-row > div { min-width: 0; overflow-wrap: anywhere; }
+.compliance-home-attention > section { padding-block: 8px; }
+.compliance-home-attention h3, .compliance-home-tools h3 { font-size: 14px; font-weight: 600; }
+.compliance-home-list { margin: 0; padding: 0; list-style: none; }
+.compliance-home-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 16px; padding-block: 12px; border-bottom: 1px solid var(--line); }
+.compliance-home-row:last-child { border-bottom: 0; }
+.compliance-home-row p { margin-top: 4px; }
+.compliance-home-row button, .compliance-home-next button { min-height: 40px; }
+.compliance-home-next { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; }
+.compliance-home-disclosure { border-top: 1px solid var(--line); }
+.compliance-home-shortcuts { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.compliance-home-shortcuts button { min-height: 40px; }
+.compliance-home-shortcuts .loan-application-actions { margin: 0; }
+.compliance-home-disclosure summary { min-height: 44px; padding-block: 12px; font-weight: 600; cursor: pointer; }
+.compliance-home-tools nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 16px; }
+.compliance-home-tools nav h3 { margin-bottom: 8px; }
+.compliance-home-tools > p { margin-top: 16px; }
+@media (max-width: 420px) {
+  .topbar { gap: 4px; }
+  .topbar-actions { gap: 2px; }
+}
+@media (max-width: 480px) {
+  .compliance-home-row { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+}
 .brokerage-overview { max-width: 1100px; container-type: inline-size; }
 .brokerage-overview .integration { max-width: none; min-width: 0; }
 .brokerage-overview .section-heading { margin-bottom: 0; flex-wrap: wrap; }

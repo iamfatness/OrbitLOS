@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { easternDate } from "./client-retention";
+import { michiganDispositionEvidence, michiganLoanState, type MichiganDispositionEvidence } from "./michigan-retention";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -8,18 +9,22 @@ const days = z.number().int().min(1).max(36500).nullable();
 const reference = z.string().trim().min(4).max(240);
 const offset = z.number().int().min(0).max(10000);
 const outcomes = ["Continue retaining", "Recommend disposition"] as const;
+const counselReview = z.object({ retainThrough:z.iso.date(), reference });
 export const dispositionRequest = z.discriminatedUnion("type", [
   z.object({type:z.literal("dispositionQueue"),offset}),
   z.object({type:z.literal("saveDispositionPolicy"),id:z.uuid(),expected:z.number().int().nonnegative(),
     fundedDays:days,closedDays:days,reference}),
   z.object({type:z.literal("saveDispositionReview"),id:z.uuid(),loanId:z.string().min(1).max(200),
-    policyVersion:z.number().int().positive(),basis:z.string().max(150),previous:z.uuid().nullable(),
-    outcome:z.enum(outcomes),reference,offset}),
+    policyVersion:z.number().int().positive(),basis:z.string().max(320),previous:z.uuid().nullable(),
+    outcome:z.enum(outcomes),reference,offset,counsel:counselReview.optional()}),
 ]);
 type Command = z.infer<typeof dispositionRequest>;
 type Policy = {version:number; fundedDays:number|null; closedDays:number|null; reference:string; at:string; actor:string};
-type Decision = {id:string; outcome:typeof outcomes[number]; reference:string; at:string; actor:string};
-type Candidate = {id:string; borrower:string; category:string; eventDate:string; reviewOn:string; basis:string; decision:Decision|null};
+type Decision = {id:string; outcome:typeof outcomes[number]; reference:string; at:string; actor:string;
+  counsel?:z.infer<typeof counselReview>};
+export type MichiganDispositionReview = { evidence:MichiganDispositionEvidence; counsel:z.infer<typeof counselReview>|null };
+type Candidate = {id:string; borrower:string; category:string; eventDate:string; reviewOn:string; basis:string;
+  decision:Decision|null; michigan:MichiganDispositionEvidence|null; retainMichiganThroughToday:boolean };
 export type DispositionQueue = {kind:"disposition"; policy:Policy|null; rows:Candidate[]; offset:number; next:number|null; message?:string};
 
 export function initializeRetentionDisposition(db:Store) {
@@ -31,11 +36,13 @@ export function initializeRetentionDisposition(db:Store) {
   );
   CREATE TABLE IF NOT EXISTS loan_retention_reviews (
     id TEXT PRIMARY KEY, loanId TEXT NOT NULL, policyVersion INTEGER NOT NULL, basis TEXT NOT NULL, previous TEXT,
-    outcome TEXT NOT NULL, reference TEXT NOT NULL, at TEXT NOT NULL, actor TEXT NOT NULL, actorEmail TEXT NOT NULL
+    outcome TEXT NOT NULL, reference TEXT NOT NULL, at TEXT NOT NULL, actor TEXT NOT NULL, actorEmail TEXT NOT NULL, michiganReview TEXT
   );
   CREATE INDEX IF NOT EXISTS retention_reviews_by_loan ON loan_retention_reviews(loanId,policyVersion,basis);
   CREATE INDEX IF NOT EXISTS retention_closed_loans ON loans(disposition,dispositionDate,id)
     WHERE disposition IN ('Withdrawn','Lost') AND dispositionDate IS NOT NULL;`);
+  if (!db.prepare("PRAGMA table_info(loan_retention_reviews)").all().some(row=>row.name==="michiganReview"))
+    db.exec("ALTER TABLE loan_retention_reviews ADD COLUMN michiganReview TEXT");
 }
 
 function candidates(db:Store, policy:Policy, today:string, loanId:string|null, offset:number):Candidate[] {
@@ -55,14 +62,27 @@ function candidates(db:Store, policy:Policy, today:string, loanId:string|null, o
   ), due AS (
     SELECT *, date(eventDate,'+' || days || ' days') AS reviewOn FROM outcome WHERE days IS NOT NULL
   )
-  SELECT d.id,d.borrower,d.category,d.eventDate,d.reviewOn,d.basis,r.id AS decisionId,r.outcome,r.reference,r.at,r.actor
-  FROM due d LEFT JOIN loan_retention_reviews r ON r.id=(
-    SELECT id FROM loan_retention_reviews WHERE loanId=d.id AND policyVersion=? AND basis=d.basis ORDER BY rowid DESC LIMIT 1
-  ) WHERE d.reviewOn<=? ORDER BY d.reviewOn,d.id LIMIT 16 OFFSET ?`)
-    .all(policy.fundedDays,policy.closedDays,loanId,loanId,policy.version,today,offset);
-  return rows.map(({decisionId,outcome,reference,at,actor,...row})=>({
-    ...row,decision:decisionId ? {id:decisionId,outcome,reference,at,actor} : null,
-  })) as Candidate[];
+  SELECT d.id,d.borrower,d.category,d.eventDate,d.reviewOn,d.basis,
+    nullif(${michiganLoanState("a.draft")},'') AS propertyState
+  FROM due d LEFT JOIN applications a ON a.loanId=d.id
+  WHERE d.reviewOn<=? ORDER BY d.reviewOn,d.id LIMIT 16 OFFSET ?`)
+    .all(policy.fundedDays,policy.closedDays,loanId,loanId,today,offset) as
+    (Pick<Candidate,"id"|"borrower"|"category"|"eventDate"|"reviewOn"|"basis"> & {propertyState:string|null})[];
+  const readDecision = db.prepare(`SELECT id,outcome,reference,at,actor,michiganReview FROM loan_retention_reviews
+    WHERE loanId=? AND policyVersion=? AND basis=? ORDER BY rowid DESC LIMIT 1`);
+  return rows.map(({propertyState,...row})=>{
+    const michigan = michiganDispositionEvidence(db,row.id,propertyState,row.category);
+    const basis = michigan ? [row.basis,"MI",propertyState??"",...michigan.versions.map(version=>version.id)].join("/") : row.basis;
+    const saved = readDecision.get(row.id,policy.version,basis) as (Decision & {michiganReview:string|null})|undefined;
+    let decision:Decision|null = null;
+    if (saved) {
+      const {michiganReview,...review} = saved;
+      const counsel = michiganReview ? (JSON.parse(michiganReview) as MichiganDispositionReview).counsel : null;
+      decision = counsel ? {...review,counsel} : review;
+    }
+    return {...row,basis,michigan,decision,
+      retainMichiganThroughToday:!!michigan?.stateReviewDate && michigan.stateReviewDate>=today};
+  });
 }
 
 // Runs inside loanRetentionWork's owner-scoped transaction.
@@ -91,8 +111,10 @@ export function retentionDispositionWork(db:Store, data:Command, staff:Workspace
   }
   const prior = db.prepare("SELECT * FROM loan_retention_reviews WHERE id=?").get(data.id);
   if (prior) {
+    const priorMichigan = prior.michiganReview ? JSON.parse(String(prior.michiganReview)) as MichiganDispositionReview : null;
     if (prior.actorEmail!==staff.email || prior.loanId!==data.loanId || prior.policyVersion!==data.policyVersion ||
-      prior.basis!==data.basis || prior.previous!==data.previous || prior.outcome!==data.outcome || prior.reference!==data.reference)
+      prior.basis!==data.basis || prior.previous!==data.previous || prior.outcome!==data.outcome || prior.reference!==data.reference ||
+      JSON.stringify(priorMichigan?.counsel??null)!==JSON.stringify(data.counsel??null))
       return {error:"This request belongs to a different disposition review."};
     return queue(current??null,data.offset,"Disposition review recorded.");
   }
@@ -100,8 +122,25 @@ export function retentionDispositionWork(db:Store, data:Command, staff:Workspace
   const row = candidates(db,current,today,data.loanId,0)[0];
   if (!row || row.basis!==data.basis || (row.decision?.id??null)!==data.previous)
     return {error:"This loan changed or is no longer due for review. Refresh the queue."};
-  db.prepare("INSERT INTO loan_retention_reviews VALUES (?,?,?,?,?,?,?,?,?,?)")
-    .run(data.id,data.loanId,current.version,data.basis,data.previous,data.outcome,data.reference,now,staff.name,staff.email);
+  const recommending = data.outcome==="Recommend disposition";
+  if (data.counsel && (!row.michigan || !recommending))
+    return {error:"Counsel evidence belongs with a Michigan disposition recommendation."};
+  if (row.michigan && recommending) {
+    if (row.michigan.gap || !row.michigan.stateReviewDate)
+      return {error:row.michigan.gap??"Resolve the Michigan evidence before recommending disposition."};
+    if (row.retainMichiganThroughToday)
+      return {error:`Retain the record through the Michigan review date of ${row.michigan.stateReviewDate}.`};
+    if (!data.counsel)
+      return {error:"Record counsel’s review reference and retain-through date before recommending disposition."};
+    if (data.counsel.retainThrough<row.michigan.stateReviewDate)
+      return {error:"The counsel-reviewed date is earlier than the latest Michigan date. Reconcile the evidence."};
+    if (data.counsel.retainThrough>=today)
+      return {error:`Retain the record through the counsel-reviewed date of ${data.counsel.retainThrough}.`};
+  }
+  const michiganReview = row.michigan ? JSON.stringify({evidence:row.michigan,counsel:data.counsel??null} satisfies MichiganDispositionReview) : null;
+  db.prepare(`INSERT INTO loan_retention_reviews
+    (id,loanId,policyVersion,basis,previous,outcome,reference,at,actor,actorEmail,michiganReview) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(data.id,data.loanId,current.version,data.basis,data.previous,data.outcome,data.reference,now,staff.name,staff.email,michiganReview);
   accessEvent(db,staff,"Recorded retention disposition review",data.loanId,now);
   return queue(current,data.offset,"Disposition review recorded.");
 }

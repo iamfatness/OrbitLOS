@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { ObligationReviewBasis } from "./compliance-obligations-model";
+import type { StateScopeFacts } from "./compliance-state-scope-model";
 import { propertyStateCodes } from "./property-state";
 
 export const licenseJurisdictions = propertyStateCodes;
@@ -74,6 +76,8 @@ export type LicenseHistory = { kind: "licenseHistory"; entries: { id: string; ac
   note: string; evidence: string; expiresOn: string | null; status: string; renewalOwner: string | null | undefined }[]; more: boolean };
 export const programCategories = ["Reporting preparation", "Training review", "Policy review", "Quality control", "License review", "Management review"] as const;
 export const programStatuses = ["Planned", "In progress", "Awaiting evidence", "Awaiting review", "Completed"] as const;
+export type StateReviewBasis = { jurisdiction: string; revision: number; entityName: string; facts: StateScopeFacts;
+  source: { key: string; title: string; sourceUrl: string } | null };
 export const programMonth = z.string().regex(/^(20\d{2})-(0[1-9]|1[0-2])$/);
 const title = z.string().trim().min(3).max(160);
 const note = z.string().trim().min(5).max(1500);
@@ -81,6 +85,7 @@ const change = { requestId: z.uuid() };
 const scope = { entityId: z.uuid(), month: programMonth };
 export const programRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("entities") }),
+  z.strictObject({ operation: z.literal("ownerHome"), branchId: z.uuid().optional(), stateOffset: z.int().min(0).max(2500).optional() }),
   z.strictObject({ operation: z.literal("createEntity"), ...change, name: title, nmls: z.string().regex(/^\d{0,15}$/), scopeNote: note }),
   z.strictObject({ operation: z.literal("licenseRenewals"), scope: z.enum(["mine", "brokerage"]).optional(), after: licenseRenewalCursor.optional() }),
   z.strictObject({ operation: z.literal("licenseHistory"), entityId: z.uuid(), licenseId: z.uuid() }),
@@ -100,9 +105,31 @@ export type ProgramRequest = z.infer<typeof programRequest>;
 export type ProgramEntity = { id: string; name: string; nmls: string; scopeNote: string; createdAt: string };
 export type ProgramItem = { id: string; title: string; category: typeof programCategories[number]; status: typeof programStatuses[number];
   ownerEmail: string; ownerRevision: number; internalTarget: string; instructions: string; evidence: string; revision: number;
-  updatedAt: string; ownerAvailable: boolean; overdue: boolean };
+  updatedAt: string; ownerAvailable: boolean; overdue: boolean; obligation?: ObligationReviewBasis; stateReview?: StateReviewBasis };
 export type ProgramMonth = { kind: "programMonth"; entity: ProgramEntity; month: string; items: ProgramItem[]; fingerprint: string;
   owners: { email: string; name: string }[]; counts: { total: number; open: number; overdue: number; unavailableOwners: number };
   reviews: { id: string; actor: string; at: string; note: string; current: boolean; snapshot: string }[];
   history: { id: string; actor: string; at: string; action: string; note: string }[]; moreHistory: boolean;
   coverage: "Regulatory applicability not evaluated" };
+
+export type StateScopeTarget = { entityId: string; jurisdiction: string };
+export const stateScopePageSize = 5;
+export type StateScopeSummary = StateScopeTarget & {
+  entityName: string; revision: number;
+  openQuestions: number; completedQuestions: number;
+  changes: ("Company details changed" | "License records changed" | "Research sources changed" | "License records were not captured")[];
+};
+
+export type ComplianceOwnerHomeData = {
+  kind: "ownerHome"; branchId?: string; asOf: string; through: string;
+  branches: { id: string; name: string; licenseCount: number; active: boolean }[];
+  entityCount: number; companyLicenseCount: number; savedStateCount: number;
+  stateScopes: { total: number; needsRecheck: number; items: StateScopeSummary[] };
+  renewals: { total: number; items: (LicenseRenewalItem & { branchId: string | null })[] };
+  reviews: { total: number; items: {
+    id: string; entityId: string; entityName: string; month: string; title: string; internalTarget: string;
+    status: ProgramItem["status"]; ownerName: string | null;
+  }[] };
+};
+
+export type ProgramReviewTarget = { entityId: string; month: string; itemId: string };

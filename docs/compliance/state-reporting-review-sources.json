@@ -131,9 +131,13 @@
     ]
   },
   "ID": {
-    "summary": "Mortgage Broker/Lender (includes servicing); regulated-lender and exempt-entity categories separate Regulator forms establish licensing categories and NMLS route. N baseline candidate. Idaho mortgage forms",
-    "gap": "Additional reports, financial statements, zero treatment and exemptions unresolved. Corporate Secretary of State annual filings are not substitutes for mortgage reports.",
+    "summary": "Idaho Code §26-31-208(5)–(6) specifies quarterly mortgage call reports and a separate annual financial-condition report through NMLS, each within 45 days of its respective period end.",
+    "gap": "Confirm current license-specific components and filings, no-activity and exemption treatment, and the statutory annual timing alongside current NMLS instructions.",
     "sources": [
+      {
+        "label": "Idaho Code §26-31-208",
+        "url": "https://legislature.idaho.gov/statutesrules/idstat/Title26/T26CH31/SECT26-31-208/"
+      },
       {
         "label": "Idaho mortgage forms",
         "url": "https://www.finance.idaho.gov/consumer-finance-bureau/mortgage/mortgage-forms/"
@@ -446,16 +450,16 @@
     ]
   },
   "OR": {
-    "summary": "Banker/broker annual business report under ORS 86A.112; NMLS reporting additionally documented in agency enforcement. ORS chapter 86A, 2023 agency order. Statute: annual business report May 1 or another director-established date. Historic order: MCR quarterly within 45 days. Not verified.",
-    "gap": "Determine whether current MCR satisfies/substitutes annual report, current director dates and FC rules. Do not double-count or silently remove annual duty.",
+    "summary": "ORS 86A.112 addresses an annual business report by May 1 or another director-established date. OAR 441-865-0025 specifies filing an NMLS report of condition within 45 days after each calendar quarter.",
+    "gap": "Confirm current director instructions, how the rule's preceding-year language applies, financial-condition and no-activity instructions, and whether the NMLS filing satisfies the annual duty.",
     "sources": [
       {
         "label": "ORS chapter 86A",
         "url": "https://www.oregonlegislature.gov/bills_laws/ors/ors086A.html?ID=17699"
       },
       {
-        "label": "2023 agency order",
-        "url": "https://dfr.oregon.gov/AdminOrders/SOTLFinalOrder_SIGG.pdf"
+        "label": "OAR 441-865-0025",
+        "url": "https://secure.sos.state.or.us/oard/viewSingleRule.action?ruleVrsnRsn=114949"
       }
     ]
   },

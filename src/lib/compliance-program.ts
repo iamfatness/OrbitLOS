@@ -1,11 +1,14 @@
+import type { ObligationDraft, ObligationReviewBasis } from "./compliance-obligations-model";
 import { createHash } from "node:crypto";
 import { readBranches } from "./branches";
 import { branchStaffCurrent } from "./branch-model";
 import { storedQuoteRouting } from "./quote-intake-model";
-import type { Store } from "./store";
+import type { SqlValue, Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
-import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseRenewalQueue, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
+import { stateScopeBasisChanges, stateScopeLicenseSnapshot, stateScopeSourceBasis } from "./compliance-state-basis";
+import { stateScopePageSize, type StateScopeSummary } from "./compliance-program-model";
+import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth, type ComplianceOwnerHomeData } from "./compliance-program-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -66,6 +69,73 @@ function renewalWindow(now: string) {
   return { today, renewalThrough: new Date(Date.parse(today) + licenseRenewalLookahead * 86400000).toISOString().slice(0, 10) };
 }
 
+function licenseHolderChoices(branches: ReturnType<typeof readBranches>, roster: readonly VersionedBrokerageMember[]): LicenseHolderChoice[] {
+  return [
+    ...branches.filter(branch => branch.active).map(branch => ({ holder: { kind: "Branch" as const, id: branch.id }, label: branch.name })),
+    ...roster.filter(member => member.status === "Active" && member.role !== "Processor").map(member => ({
+      holder: { kind: "Loan officer" as const, id: member.email, accessRevision: member.accessRevision ?? 0 }, label: member.name,
+    })),
+  ];
+}
+
+function licenseRecord(row: Record<string, SqlValue>, choices: ReadonlyMap<string, string>, owners: ReadonlyMap<string, OwnerChoice>,
+  today: string, renewalThrough: string) {
+  const { holder: rawHolder, renewalOwner: rawOwner, ...record } = row;
+  const saved = licenseHolderRecord(rawHolder);
+  const label = choices.get(JSON.stringify(saved.holder));
+  const holderAvailable = saved.holder.kind === "Company" || label !== undefined;
+  const expiresOn = typeof record.expiresOn === "string" ? record.expiresOn : null;
+  const renewal = expiresOn && (record.status === "Active" || record.status === "Expired") ?
+    expiresOn < today ? "Past expiration" : record.status === "Active" && expiresOn <= renewalThrough ? "Expires soon" : null : null;
+  return { ...record, holder: saved.holder, holderLabel: label ?? saved.label, holderAvailable, renewalOwner: renewalOwnerRecord(rawOwner, owners), renewal } as ProgramLicense;
+}
+
+function ownerStateScopes(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>,
+  holderChoices: readonly LicenseHolderChoice[], offset: number) {
+  const scopes = db.prepare(`WITH questions AS (
+    SELECT r.entityId,r.jurisdiction,r.scopeRevision,count(*) AS total,
+      sum(CASE WHEN i.status='Completed' THEN 1 ELSE 0 END) AS completed
+    FROM compliance_scope_reviews r JOIN compliance_program_items i ON i.brokerageId=r.brokerageId AND i.id=r.workId
+    WHERE r.brokerageId=? GROUP BY r.entityId,r.jurisdiction,r.scopeRevision
+  )
+    SELECT s.entityId,s.jurisdiction,s.revision,s.sourceHash,s.entitySnapshot,s.licenseSnapshots,e.name,e.nmls,e.scopeNote,
+      COALESCE(q.total,0)-COALESCE(q.completed,0) AS openQuestions,COALESCE(q.completed,0) AS completedQuestions
+    FROM compliance_state_scope_versions s JOIN compliance_program_entities e ON e.brokerageId=s.brokerageId AND e.id=s.entityId
+    LEFT JOIN questions q ON q.entityId=s.entityId AND q.jurisdiction=s.jurisdiction AND q.scopeRevision=s.revision
+    WHERE s.brokerageId=? AND s.revision=(SELECT max(v.revision) FROM compliance_state_scope_versions v
+      WHERE v.brokerageId=s.brokerageId AND v.entityId=s.entityId AND v.jurisdiction=s.jurisdiction)
+    ORDER BY s.jurisdiction,e.name,s.entityId`).all(tenant, tenant);
+  if (!scopes.length) return { total: 0, needsRecheck: 0, items: [] };
+  const { today, renewalThrough } = renewalWindow(now);
+  const holders = new Map(holderChoices.map(choice => [JSON.stringify(choice.holder), choice.label]));
+  const licenses = Map.groupBy(db.prepare(`SELECT l.entityId,l.id,l.jurisdiction,l.licenseType,l.licenseNumber,l.status,l.effectiveOn,l.expiresOn,
+      l.evidence,l.revision,l.updatedAt,l.holder,l.renewalOwner FROM compliance_program_licenses l
+    WHERE l.brokerageId=? AND EXISTS (SELECT 1 FROM compliance_state_scope_versions s
+      WHERE s.brokerageId=l.brokerageId AND s.entityId=l.entityId AND s.jurisdiction=l.jurisdiction)
+    ORDER BY l.jurisdiction,l.licenseType,l.licenseNumber`).all(tenant), row => `${row.entityId}:${row.jurisdiction}`);
+  const items: StateScopeSummary[] = scopes.map(row => {
+    const { entityId, jurisdiction, name, nmls, scopeNote } = row;
+    const changes: StateScopeSummary["changes"] = [];
+    const basis = stateScopeBasisChanges(row, {
+      sourceHash: stateScopeSourceBasis(String(jurisdiction))?.sourceHash,
+      entitySnapshot: JSON.stringify({ id: entityId, name, nmls, scopeNote }),
+      licenseSnapshots: stateScopeLicenseSnapshot((licenses.get(`${entityId}:${jurisdiction}`) ?? [])
+        .map(license => licenseRecord(license, holders, owners, today, renewalThrough))),
+    });
+    if (basis.entityChanged) changes.push("Company details changed");
+    if (basis.licensesChanged) changes.push("License records changed");
+    if (basis.sourceChanged) changes.push("Research sources changed");
+    if (basis.licenseBasisMissing) changes.push("License records were not captured");
+    return {
+      entityId: String(entityId), entityName: String(name), jurisdiction: String(jurisdiction), revision: Number(row.revision),
+      openQuestions: Number(row.openQuestions), completedQuestions: Number(row.completedQuestions), changes,
+    };
+  });
+  items.sort((a, b) => Number(!!b.changes.length) - Number(!!a.changes.length) ||
+    Number(b.openQuestions > 0) - Number(a.openQuestions > 0));
+  return { total: items.length, needsRecheck: items.filter(item => item.changes.length).length, items: items.slice(offset, offset + stateScopePageSize) };
+}
+
 function licenseRenewalFilter(tenant: string, now: string, owner?: LicenseRenewalOwner) {
   const { today, renewalThrough } = renewalWindow(now);
   const where = `l.brokerageId=? AND l.expiresOn IS NOT NULL AND l.status IN ('Active','Expired')
@@ -82,8 +152,10 @@ export function countMyLicenseRenewals(db: Store, staff: WorkspaceStaff, now: st
 }
 
 function licenseRenewals(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, after?: LicenseRenewalCursor,
-  owner?: LicenseRenewalOwner): LicenseRenewalQueue {
-  const { where, args, today } = licenseRenewalFilter(tenant, now, owner);
+  owner?: LicenseRenewalOwner, branchId?: string) {
+  const { where: filter, args, today } = licenseRenewalFilter(tenant, now, owner);
+  const where = branchId ? `${filter} AND json_extract(NULLIF(l.holder,''),'$.holder.kind')='Branch' AND json_extract(NULLIF(l.holder,''),'$.holder.id')=?` : filter;
+  if (branchId) args.push(branchId);
   const total = Number(db.prepare(`SELECT count(*) AS total FROM compliance_program_licenses l WHERE ${where}`).get(...args)?.total);
   const limit = 8;
   const rows = db.prepare(`SELECT l.id,l.entityId,l.jurisdiction,l.licenseType,l.licenseNumber,l.expiresOn,l.holder,l.renewalOwner,e.name
@@ -97,11 +169,12 @@ function licenseRenewals(db: Store, tenant: string, now: string, owners: Readonl
     return { licenseId: String(row.id), entityId: String(row.entityId), entityName: String(row.name), jurisdiction: String(row.jurisdiction),
       licenseType: String(row.licenseType), licenseNumber: String(row.licenseNumber), expiresOn,
       holderLabel: holder.holder.kind === "Company" ? "Company" : `${holder.holder.kind} · ${holder.label}`,
+      branchId: holder.holder.kind === "Branch" ? holder.holder.id : null,
       renewalOwner: renewalOwnerRecord(row.renewalOwner, owners),
       renewal: expiresOn < today ? "Past expiration" as const : "Expires soon" as const };
   });
   const last = items.at(-1);
-  return { kind: "licenseRenewals", total, items, ...(owner ? {} : { coverage: licenseCoverage(db, tenant, today) }),
+  return { kind: "licenseRenewals" as const, total, items, ...(owner || branchId ? {} : { coverage: licenseCoverage(db, tenant, today) }),
     next: rows.length > limit && last ?
     { expiresOn: last.expiresOn, entityId: last.entityId, licenseId: last.licenseId } : null };
 }
@@ -121,6 +194,43 @@ function licenseCoverage(db: Store, tenant: string, asOf: string): LicenseCovera
   return { currentCompanyStates: [...states].sort(), entityCount, entitiesWithoutCurrentCompanyRecords: entityCount - entityIds.size };
 }
 
+function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, roster: readonly VersionedBrokerageMember[],
+  requestedBranch?: string, stateOffset = 0): ComplianceOwnerHomeData {
+  const { today, renewalThrough } = renewalWindow(now);
+  const licenseCounts = new Map(db.prepare(`SELECT COALESCE(json_extract(NULLIF(holder,''),'$.holder.kind'),'Company') AS kind,
+    json_extract(NULLIF(holder,''),'$.holder.id') AS holderId, count(*) AS total
+    FROM compliance_program_licenses WHERE brokerageId=? GROUP BY kind,holderId`).all(tenant)
+    .map(row => [`${row.kind}:${row.holderId ?? ""}`, Number(row.total)]));
+  const branchRecords = readBranches(db);
+  const branches = branchRecords.map(({ id, name, active }) => ({
+    id, name, active, licenseCount: licenseCounts.get(`Branch:${id}`) ?? 0,
+  }));
+  const branchId = branches.some(branch => branch.id === requestedBranch) ? requestedBranch : undefined;
+  const renewals = licenseRenewals(db, tenant, now, owners, undefined, undefined, branchId);
+  const reviewFilter = `FROM compliance_program_items i JOIN compliance_program_entities e
+    ON e.brokerageId=i.brokerageId AND e.id=i.entityId
+    WHERE i.brokerageId=? AND i.status<>'Completed' AND i.internalTarget<=?`;
+  const items = db.prepare(`SELECT i.id,i.entityId,e.name AS entityName,i.month,i.title,i.internalTarget,i.status,i.ownerEmail,i.ownerRevision
+    ${reviewFilter} ORDER BY i.internalTarget,i.id LIMIT 8`).all(tenant, renewalThrough).map(row => {
+      const owner = owners.get(String(row.ownerEmail));
+      return {
+        id: String(row.id), entityId: String(row.entityId), entityName: String(row.entityName), month: String(row.month),
+        title: String(row.title), internalTarget: String(row.internalTarget), status: row.status as ProgramItem["status"],
+        ownerName: owner && owner.accessRevision === row.ownerRevision ? owner.name : null,
+      };
+    });
+  const entityCount = Number(db.prepare("SELECT count(*) AS total FROM compliance_program_entities WHERE brokerageId=?").get(tenant)?.total);
+  const savedStateCount = Number(db.prepare(`SELECT count(DISTINCT jurisdiction) AS total
+    FROM compliance_state_scope_versions WHERE brokerageId=?`).get(tenant)?.total);
+  return {
+    kind: "ownerHome", branchId, asOf: today, through: renewalThrough, branches,
+    entityCount, companyLicenseCount: licenseCounts.get("Company:") ?? 0, savedStateCount,
+    stateScopes: ownerStateScopes(db, tenant, now, owners, licenseHolderChoices(branchRecords, roster), stateOffset),
+    renewals: { total: renewals.total, items: renewals.items },
+    reviews: { total: Number(db.prepare(`SELECT count(*) AS total ${reviewFilter}`).get(tenant, renewalThrough)?.total), items },
+  };
+}
+
 function entities(db: Store, tenant: string) {
   return { kind: "programEntities", entities: db.prepare("SELECT id,name,nmls,scopeNote,createdAt FROM compliance_program_entities WHERE brokerageId=? ORDER BY name,id LIMIT 51")
     .all(tenant).map(row => ({ ...row } as ProgramEntity)) } as const;
@@ -131,9 +241,45 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   const owners = roster.filter(m => m.status === "Active" && m.role === "Admin");
   const items = rows.map(row => ({ ...row, ownerAvailable: owners.some(m => m.email === row.ownerEmail && (m.accessRevision ?? 0) === row.ownerRevision),
     overdue: row.status !== "Completed" && String(row.internalTarget) < now.slice(0, 10) } as ProgramItem));
+  const bases = db.prepare(`SELECT w.workId,o.obligationId,o.period,o.version,o.status,o.snapshot
+    FROM compliance_obligation_work w JOIN compliance_obligation_occurrences o
+      ON o.brokerageId=w.brokerageId AND o.entityId=w.entityId AND o.obligationId=w.obligationId AND o.period=w.period
+    WHERE w.brokerageId=? AND w.entityId=? AND w.month=?`).all(staff.brokerage.id, entity.id, period);
+  const byItem = new Map(items.map(item => [item.id, item]));
+  const stateReviews = db.prepare(`SELECT r.workId,r.jurisdiction,r.scopeRevision,r.source,s.facts,s.entitySnapshot
+    FROM compliance_scope_reviews r
+    JOIN compliance_program_items i ON i.brokerageId=r.brokerageId AND i.id=r.workId
+    JOIN compliance_state_scope_versions s ON s.brokerageId=r.brokerageId AND s.entityId=r.entityId
+      AND s.jurisdiction=r.jurisdiction AND s.revision=r.scopeRevision
+    WHERE i.brokerageId=? AND i.entityId=? AND i.month=?`).all(staff.brokerage.id, entity.id, period);
+  for (const row of stateReviews) {
+    const item = byItem.get(String(row.workId));
+    if (item) item.stateReview = {
+      jurisdiction: String(row.jurisdiction), revision: Number(row.scopeRevision),
+      entityName: JSON.parse(String(row.entitySnapshot)).name,
+      facts: JSON.parse(String(row.facts)), source: JSON.parse(String(row.source)),
+    };
+  }
+  for (const row of bases) {
+    const item = byItem.get(String(row.workId));
+    if (!item) continue;
+    const { draft, stateBasis, reportingBasis } = JSON.parse(String(row.snapshot)) as {
+      draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"]; reportingBasis?: ObligationReviewBasis["reportingBasis"];
+    };
+    const [year, month] = String(row.period).split("-");
+    item.obligation = {
+      obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version), status: String(row.status),
+      sourceUrl: draft.sourceUrl, authority: draft.authority, reportingBasis,
+      stateBasis: stateBasis && { jurisdiction: stateBasis.jurisdiction, revision: stateBasis.revision, sourceKey: stateBasis.sourceKey,
+        title: stateBasis.title, authority: stateBasis.authority, sourceUrl: stateBasis.sourceUrl },
+      report: draft.preparation === "Mortgage Call Report" ? { year, quarter: Math.ceil(Number(month) / 3) } : undefined,
+    };
+  }
   const counts = { total: items.length, open: items.filter(i => i.status !== "Completed").length,
     overdue: items.filter(i => i.overdue).length, unavailableOwners: items.filter(i => !i.ownerAvailable).length };
-  const fingerprint = hash([entity, period, rows, owners.map(m => [m.email, m.accessRevision ?? 0]).sort(), now.slice(0, 10)]);
+  const basisVersions = items.flatMap(item => item.stateReview ? [[item.id, item.stateReview.revision]] : []);
+  const fingerprint = hash([entity, period, rows, owners.map(m => [m.email, m.accessRevision ?? 0]).sort(), now.slice(0, 10),
+    ...(basisVersions.length ? [basisVersions] : [])]);
   const reviews = db.prepare("SELECT id,actor,at,note,snapshot,fingerprint FROM compliance_program_reviews WHERE brokerageId=? AND entityId=? AND month=? ORDER BY at DESC,rowid DESC LIMIT 20")
     .all(staff.brokerage.id, entity.id, period).map(row => ({ id: String(row.id), actor: String(row.actor), at: String(row.at), note: String(row.note),
       snapshot: String(row.snapshot), current: row.fingerprint === fingerprint }));
@@ -208,6 +354,7 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   if (data.operation === "licenseStateCheck") return checkLicenseState(db, tenant, data, roster, now.slice(0, 10));
   const owners = new Map(roster.filter(member => member.status === "Active" && member.role === "Admin").map(member => [member.email,
     { email: member.email, accessRevision: member.accessRevision ?? 0, name: member.name }]));
+  if (data.operation === "ownerHome") return ownerHome(db, tenant, now, owners, roster, data.branchId, data.stateOffset);
   if (data.operation === "licenseRenewals") {
     const owner = data.scope === "mine" ? { email: staff.email, accessRevision: staff.brokerage.accessRevision ?? 0 } : undefined;
     return licenseRenewals(db, tenant, now, owners, data.after, owner);
@@ -247,29 +394,13 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
     return history;
   }
   if (data.operation === "licenses" || data.operation === "saveLicense") {
-    const holderChoices: LicenseHolderChoice[] = [
-      ...readBranches(db).filter(branch => branch.active).map(branch => ({
-        holder: { kind: "Branch" as const, id: branch.id }, label: branch.name,
-      })),
-      ...roster.filter(member => member.status === "Active" && member.role !== "Processor").map(member => ({
-        holder: { kind: "Loan officer" as const, id: member.email, accessRevision: member.accessRevision ?? 0 },
-        label: member.name,
-      })),
-    ];
+    const holderChoices = licenseHolderChoices(readBranches(db), roster);
     const choices = new Map(holderChoices.map(choice => [JSON.stringify(choice.holder), choice.label]));
     const { today, renewalThrough } = renewalWindow(now);
     const list = (): ProgramLicenses => ({ kind: "programLicenses", entity, asOf: today, holderChoices, renewalOwners: [...owners.values()], licenses: db.prepare(`SELECT id,jurisdiction,
       licenseType,licenseNumber,status,effectiveOn,expiresOn,evidence,revision,updatedAt,holder,renewalOwner FROM compliance_program_licenses
-      WHERE brokerageId=? AND entityId=? ORDER BY jurisdiction,licenseType,licenseNumber`).all(tenant, entity.id).map(row => {
-      const { holder: rawHolder, renewalOwner: rawOwner, ...record } = row;
-      const saved = licenseHolderRecord(rawHolder);
-      const label = choices.get(JSON.stringify(saved.holder));
-      const holderAvailable = saved.holder.kind === "Company" || label !== undefined;
-      const expiresOn = typeof record.expiresOn === "string" ? record.expiresOn : null;
-      const renewal = expiresOn && (record.status === "Active" || record.status === "Expired") ?
-        expiresOn < today ? "Past expiration" : record.status === "Active" && expiresOn <= renewalThrough ? "Expires soon" : null : null;
-      return { ...record, holder: saved.holder, holderLabel: label ?? saved.label, holderAvailable, renewalOwner: renewalOwnerRecord(rawOwner, owners), renewal } as ProgramLicense;
-    }) });
+      WHERE brokerageId=? AND entityId=? ORDER BY jurisdiction,licenseType,licenseNumber`).all(tenant, entity.id)
+      .map(row => licenseRecord(row, choices, owners, today, renewalThrough)) });
     if (data.operation === "licenses" || replay) return list();
     const current = db.prepare("SELECT revision,holder,renewalOwner FROM compliance_program_licenses WHERE brokerageId=? AND entityId=? AND id=?")
       .get(tenant, entity.id, data.id);
@@ -326,7 +457,7 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   if (!owner) return { error: "Choose an active admin to own this work." };
   if (data.operation === "schedule") {
     if (Number(db.prepare("SELECT count(*) n FROM compliance_program_items WHERE brokerageId=? AND entityId=? AND month=?").get(tenant, entity.id, data.month)!.n) >= 200)
-      return { error: "This pilot supports 200 work items per entity and month. No items have been omitted." };
+      return { error: "This workspace supports 200 work items per entity and month. No items have been omitted." };
     const id = crypto.randomUUID();
     db.prepare("INSERT INTO compliance_program_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(tenant, entity.id, data.month, id, data.title,
       data.category, "Planned", owner.email, owner.accessRevision ?? 0, data.internalTarget, data.instructions, "", 1, now);

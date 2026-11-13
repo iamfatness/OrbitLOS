@@ -35,14 +35,15 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
   if(before.activeLoanHolds || current.activeLoanHolds)
     result.push("A loan has an active retention hold. Keep the workspace paused and use the incident recovery review.");
   const programTables=["compliance_program_entities","compliance_program_licenses","compliance_program_items","compliance_program_events","compliance_program_reviews","compliance_state_scope_versions","compliance_state_readiness_versions",
-    "compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work",
+    "compliance_scope_reviews","compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts","compliance_filing_receipt_references",
     "compliance_learning_versions","compliance_learning_assignments","compliance_learning_events","compliance_trid_evidence",
-    "compliance_broker_agreement_versions","compliance_refinance_benefit_versions"];
+    "compliance_broker_agreement_versions","compliance_refinance_benefit_versions","compliance_kansas_notice_versions",
+    "compliance_michigan_loan_practices_versions"];
   if(programTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Compliance program records changed. Reconcile entity profiles, work and review evidence before restoring.");
   if(["settlement_imports", "settlement_feed_receipts", "settlement_feed_corrections"].some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Imported settlement evidence changed. Choose a checkpoint that retains its source records.");
-  const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews"];
+  const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews","michigan_retention_reviews"];
   if(retentionTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Loan retention evidence changed. This checkpoint requires a separate retention review.");
   result.push(...processorRestoreBlockers(before,current));

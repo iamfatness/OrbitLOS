@@ -1,8 +1,7 @@
-import { createHash } from "node:crypto";
-import { stateRequirementSources, stateRolloutSources, sourceSnapshot } from "./compliance-research-model";
+import { stateScopeBasisChanges, stateScopeLicenseSnapshot, stateScopeSourceBasis } from "./compliance-state-basis";
 import type { StateScopeFacts, StateScopeRequest } from "./compliance-state-scope-model";
 import { complianceProgramWork } from "./compliance-program";
-import { countLicenseRecords, licenseHolderKinds, type ProgramLicense } from "./compliance-program-model";
+import { countLicenseRecords, licenseHolderKinds } from "./compliance-program-model";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -20,13 +19,6 @@ export function initializeStateScope(db: Store) {
   }
 }
 
-export function stateScopeLicenseSnapshot(licenses: readonly ProgramLicense[]) {
-  return JSON.stringify(licenses.map(({ id, revision, licenseType, licenseNumber, status, effectiveOn, expiresOn,
-    evidence, holder, holderLabel, holderAvailable }) => ({
-    id, revision, licenseType, licenseNumber, status, effectiveOn, expiresOn, evidence, holder, holderLabel, holderAvailable,
-  })));
-}
-
 const unavailable = { error: "Choose a legal entity and one of the 50 rollout states." };
 const changed = { error: "This state scope changed. Refresh and review before saving." };
 
@@ -34,14 +26,12 @@ export function complianceStateScopeWork(db: Store, input: StateScopeRequest, st
   if (staff.brokerage.role !== "Admin") return unavailable;
   const tenant = staff.brokerage.id;
   const { entityId, jurisdiction } = input;
-  const sources = stateRolloutSources.filter(source => source.jurisdiction === jurisdiction);
-  if (!sources.length) return unavailable;
+  const sourceBasis = stateScopeSourceBasis(jurisdiction);
+  if (!sourceBasis) return unavailable;
   const entity = db.prepare(`SELECT id,name,nmls,scopeNote FROM compliance_program_entities
     WHERE brokerageId=? AND id=?`).get(tenant, entityId);
   if (!entity) return unavailable;
-  const sourceSnapshots = JSON.stringify([...sources, ...stateRequirementSources.map(item => item.source)
-    .filter(source => source.jurisdiction === jurisdiction)].map(sourceSnapshot));
-  const sourceHash = createHash("sha256").update(sourceSnapshots).digest("hex");
+  const { sourceSnapshots, sourceHash } = sourceBasis;
   const entitySnapshot = JSON.stringify(entity);
   const register = complianceProgramWork(db, { operation: "licenses", entityId }, staff, roster, now);
   if ("error" in register || register.kind !== "programLicenses") return unavailable;
@@ -68,9 +58,8 @@ export function complianceStateScopeWork(db: Store, input: StateScopeRequest, st
       savedBasis: row ? { entity: String(row.entitySnapshot), sources: String(row.sourceSnapshots),
         licenses: typeof row.licenseSnapshots === "string" ? row.licenseSnapshots : null } : null,
       licenseSummary,
-      licensesChanged: typeof row?.licenseSnapshots === "string" && row.licenseSnapshots !== licenseSnapshots,
-      sourceChanged: Boolean(row && row.sourceHash !== sourceHash),
-      entityChanged: Boolean(row && row.entitySnapshot !== entitySnapshot),
+      ...(row ? stateScopeBasisChanges(row, { sourceHash, entitySnapshot, licenseSnapshots }) :
+        { sourceChanged: false, entityChanged: false, licensesChanged: false, licenseBasisMissing: false }),
       history: history.map(item => ({ revision: Number(item.revision), actor: String(item.actor), savedAt: String(item.savedAt) })),
       legalApproval: false as const,
     };
