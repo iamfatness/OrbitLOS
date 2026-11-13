@@ -41,6 +41,17 @@ test("UTC final-month targets clamp leap years and enforce cadence anchors",()=>
   assert.equal(obligationPeriod("2026-01","Fiscal quarterly",31,2),null);
 });
 
+test("obligation owner options include only active brokerage admins", t => {
+  const f=fixture(t);
+  const roster=[{...f.actor,name:"Fictional Owner"},
+    {email:"next@example.test",name:"Second Admin",role:"Admin",status:"Active"},
+    {email:"invited@example.test",name:"Invited Admin",role:"Admin",status:"Invited"},
+    {email:"officer@example.test",name:"Loan Officer",role:"LO",status:"Active"}];
+  assert.deepEqual(f.run({operation:"list",entityId:f.entityId},f.staff,roster).owners,[
+    {email:f.actor.email,name:"Fictional Owner"},{email:"next@example.test",name:"Second Admin"},
+  ]);
+});
+
 test("period history preserves original versions and remains entity scoped",t=>{
  const f=fixture(t);f.run(f.save());f.run(f.generate());
  f.run(f.save({expectedRevision:1,draft:{...f.draft,title:"Revised internal basis"}}));

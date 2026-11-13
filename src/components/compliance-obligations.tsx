@@ -11,7 +11,8 @@ import { IllinoisAuditEvidence } from "./illinois-audit-evidence";
 
 const row = z.object({ id:z.string(),revision:z.number(),draft:obligationDraft,ownerAvailable:z.boolean(),
   stateBasis:obligationStateSource.optional(),stateBasisChanged:z.boolean().optional() });
-const registry = z.object({kind:z.literal("obligationRegistry"),items:z.array(row),more:z.boolean()});
+const registry = z.object({kind:z.literal("obligationRegistry"),items:z.array(row),more:z.boolean(),
+  owners:z.array(z.object({email:z.email(),name:z.string()})).optional()});
 const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.array(obligationStateSource)});
 const plannedReview = z.object({ entityId: z.uuid(), month: z.string(), itemId: z.uuid() });
 const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
@@ -39,6 +40,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
  const [entities,setEntities]=useState<{id:string;name:string}[]>([]);
  const [entityId,setEntity]=useState("");
  const [items,setItems]=useState<Row[]>([]);
+ const [owners,setOwners]=useState<z.infer<typeof registry>["owners"]>();
  const [more,setMore]=useState(false),[offset,setOffset]=useState(0),[revision,refresh]=useState(0);
  const [selected,setSelected]=useState<Row|null>(),[history,setHistory]=useState<z.infer<typeof periods>>();
  const [planned,setPlanned]=useState<ProgramReviewTarget>();
@@ -101,7 +103,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
      if(r.kind!=="obligations")throw new Error("Unexpected response. Refresh to retry.");
      const parsed=registry.safeParse(r.result);
      if(!parsed.success)throw new Error("Could not read obligations. Refresh to retry.");
-     setItems(parsed.data.items);setMore(parsed.data.more);
+     setItems(parsed.data.items);setMore(parsed.data.more);setOwners(parsed.data.owners);
    }).catch(e=>{if(current)setError(e instanceof Error?e.message:"Could not load obligations.");}).finally(()=>{if(current)setLoading(false);});
    return()=>{current=false;};
  },[brokerageId,entityId,offset,paused,revision]);
@@ -254,7 +256,14 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
        </>}
        {([ ["basis","Requirement and scope"],["applicabilityReason","Applicability reasoning"],["reviewerEvidence","Internal review evidence reference"] ] as const).map(([name,label])=><label className="field" key={name}>{label}<textarea name={name} required={name!=="reviewerEvidence"} minLength={name==="reviewerEvidence"?0:5} maxLength={1500} defaultValue={draft[name]}/></label>)}
        <div className="form-grid"><label className="field">Applicability<select name="applicability" defaultValue={draft.applicability??"Needs review"}>{["Needs review","Required","Not applicable"].map(s=><option key={s}>{s}</option>)}</select></label>
-       <label className="field">Active admin owner email<input type="email" name="ownerEmail" required defaultValue={draft.ownerEmail}/></label>
+       {owners ? <label className="field">Accountable admin<select name="ownerEmail" required
+         defaultValue={selected?.ownerAvailable ? draft.ownerEmail : ""}>
+         <option value="">Choose an active admin</option>
+         {owners.map(owner=><option key={owner.email} value={owner.email}>
+           {owner.name}{owners.some(other=>other.email!==owner.email&&other.name===owner.name) ? ` · ${owner.email}` : ""}
+         </option>)}
+       </select></label> : <label className="field">Active admin owner email<input type="email" name="ownerEmail" required defaultValue={draft.ownerEmail}/></label>}
+       {selected && !selected.ownerAvailable && <p className="muted">The previous owner is unavailable. Choose a current admin.</p>}
        <label className="field">Effective from<input name="effectiveFrom" type="date" required defaultValue={draft.effectiveFrom}/></label><label className="field">Effective through (optional)<input name="effectiveThrough" type="date" defaultValue={draft.effectiveThrough}/></label>
        <label className="field">Internal cadence<select name="cadence" value={cadence}
          onChange={event=>setCadence(event.target.value as ObligationDraft["cadence"])}>{obligationDraft.shape.cadence.options.map(s=><option key={s}>{s}</option>)}</select></label>

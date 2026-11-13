@@ -268,6 +268,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       ORDER BY id LIMIT 51 OFFSET ?`).all(tenant, data.entityId, data.offset);
     let currentSources: StateBasis[] | undefined;
     return { kind: "obligationRegistry", notice: obligationPlanningNotice, more: rows.length > 50, offset: data.offset,
+      owners: roster.filter(member => member.status === "Active" && member.role === "Admin")
+        .map(({ email, name }) => ({ email, name: name || email })),
       items: rows.slice(0, 50).map(row => {
         const { stateBasis, ...draft } = JSON.parse(String(row.draft)) as StoredDraft;
         const owner = active(draft.ownerEmail);
