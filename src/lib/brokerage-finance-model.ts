@@ -55,6 +55,9 @@ export const financeInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("settlementQueue"), view: z.enum(settlementQueueViews), after: settlementCursor.optional() }),
   z.object({ type: z.literal("settlementEvidencePreview"), ...record, evidence: settlementEvidence }),
   z.object({ type: z.literal("settlementEvidenceImport"), ...write, evidence: settlementEvidence }),
+  z.object({ type: z.literal("settlementFeed"), ...record }),
+  z.object({ type: z.literal("pullSettlementFeed"), ...record, fundingDate: date }),
+  z.object({ type: z.literal("reviewSettlementFeed"), ...record, evidenceId: evidenceIdentity, note: note.min(5) }),
   z.object({ type: z.literal("estimate"), ...write, expectedCents: cents.nullable(), commissionCents: cents.nullable(), expenseReviewed: z.boolean() }),
   z.object({ type: z.literal("post"), ...write, kind: z.enum(["Receipt", "Expense"]), amountCents: cents.min(1), occurredOn: date,
     reference: z.string().trim().min(1).max(120), note }),
@@ -66,6 +69,12 @@ export const financeInput = z.discriminatedUnion("type", [
 export type FinanceInput = z.infer<typeof financeInput>;
 export type SettlementEvidenceInput = Extract<FinanceInput, { type: "settlementEvidencePreview" | "settlementEvidenceImport" }>;
 export type SettlementEvidencePreview = { kind: "settlementEvidencePreview"; amountCents: number; alreadyRecorded: boolean; revision: number };
+export type SettlementFeedRow = {
+  evidenceId: string; fundingReference: string; kind: SettlementEvidence["kind"];
+  amountCents: number; status: "Imported" | "Already recorded" | "Needs review" | "Reviewed";
+  detail: string; reviewNote: string | null; reviewedBy: string | null; reviewedAt: string | null;
+};
+export type SettlementFeed = { kind: "settlementFeed"; rows: SettlementFeedRow[] };
 export type FinanceListQuery = Extract<FinanceInput, { type: "list" }>;
 export type SettlementQueueQuery = Extract<FinanceInput, { type: "settlementQueue" }>;
 export type SettlementQueueRow = z.infer<typeof settlementCursor> & {
@@ -103,7 +112,7 @@ export type FinanceEntry = { sequence: number; id: string; kind: "Estimate" | "R
   at: string; actorName: string };
 export type FinanceResult = { kind: "list"; loans: FinanceLoan[]; totals: FinanceTotals; next: z.infer<typeof cursor> | null } |
   { kind: "detail"; loan: FinanceLoan; entries: FinanceEntry[]; before: number | null; today: string; settlement: SettlementWork; settlementFees?: SettlementFeeWork } |
-  { kind: "export"; csv: string; count: number } | { kind: "saved"; message: string } | SettlementQueuePage | SettlementEvidencePreview | { error: string };
+  { kind: "export"; csv: string; count: number } | { kind: "saved"; message: string } | SettlementQueuePage | SettlementEvidencePreview | SettlementFeed | { error: string };
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 export const financeMoney = (amount: number | null) => amount === null ? "Unknown" : usd.format(amount / 100);

@@ -172,6 +172,34 @@ test("fictional settlement matches partial receipts, preserves corrections, and 
   assert.deepEqual(queue("Missing evidence").rows.map(row => [row.id, row.cycle, row.status]), [[loanId, 2, "Awaiting advice"]]);
 });
 
+test("simulated settlement feed imports exact matches and records unmatched evidence without counting it", async t => {
+  const { db, admin, officer, loanId, apply, closing, initialFunding, correctedFunding } = fundingFixture(t);
+  const owner = { ...admin, brokerage: { ...admin.brokerage, financeAccess: true } };
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 });
+  await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 });
+  const finance = (input, actor = owner) => brokerageFinanceWork(db, { loanId, cycle: 1, ...input }, actor, owner.brokerage.id);
+  const pull = { type: "pullSettlementFeed", fundingDate: initialFunding };
+  assert.match(finance(pull, officer).error, /workspace owner/);
+  assert.match(finance({ ...pull, fundingDate: correctedFunding }).error, /cycle changed/);
+  assert.deepEqual(finance({ type: "settlementFeed" }).rows, []);
+  const result = finance(pull);
+  assert.deepEqual(result.rows.map(row => row.status), ["Imported", "Imported", "Already recorded", "Needs review"]);
+  assert.deepEqual(finance(pull), result);
+  const detail = () => finance({ type: "detail" }).settlement;
+  assert.equal(detail().receivedCents, 34_875_000);
+  assert.equal(detail().revision, 2);
+  assert.equal(detail().status, "Ready to confirm");
+  const review = { type: "reviewSettlementFeed", evidenceId: result.rows[3].evidenceId, note: "Wrong funding reference." };
+  assert.match(finance({ ...review, evidenceId: result.rows[1].evidenceId }).error, /changed/);
+  const reviewed = finance(review);
+  assert.equal(reviewed.rows[3].status, "Reviewed");
+  assert.equal(reviewed.rows[3].reviewNote, review.note);
+  assert.deepEqual(finance(review), reviewed);
+  assert.match(finance({ ...review, note: "Changed after the fact." }).error, /changed/);
+  assert.equal(detail().revision, 2);
+  assert.deepEqual(finance({ type: "settlementFeed" }), reviewed);
+});
+
 test("sample settlement import validates the exact cycle and retains source identity across replay and late evidence", async t => {
   const { db, admin, officer, loanId, apply, closing, initialFunding, day } = fundingFixture(t);
   const owner = { ...admin, brokerage: { ...admin.brokerage, financeAccess: true } };

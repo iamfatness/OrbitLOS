@@ -6,6 +6,7 @@ import type { Store } from "./store";
 import { readSettlementFees, saveSettlementFees } from "./settlement-fees";
 import { accessEvent } from "./workspace-access";
 import { importSettlementEvidence, readSettlement, readSettlementQueue, saveSettlement, settlementStatuses } from "./settlement-reconciliation";
+import { settlementFeedWork } from "./settlement-feed";
 
 const pageSize = 20;
 const exportLimit = 1000;
@@ -157,6 +158,10 @@ export function brokerageFinanceWork(db: Store, input: unknown, staff: Workspace
   if (data.type === "list" || data.type === "export") return financePage(db, data, staff, at);
   if (data.type === "detail") return financeDetail(db, data, today);
   if (data.type === "settlementQueue") return readSettlementQueue(db, data);
+  if (data.type === "settlementFeed" || data.type === "pullSettlementFeed" || data.type === "reviewSettlementFeed") {
+    return db.transaction(() => settlementFeedWork(db, data, financeRecord(db, data.loanId, data.cycle) ??
+      (data.type === "settlementFeed" ? financeRecord(db, data.loanId, data.cycle, true) : undefined), staff, at, today));
+  }
   if (data.type === "settlementEvidencePreview" || data.type === "settlementEvidenceImport") {
     return db.transaction(() => importSettlementEvidence(db, data, financeRecord(db, data.loanId, data.cycle), staff, at, today));
   }

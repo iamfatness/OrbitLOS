@@ -13,6 +13,7 @@ import { SettlementExceptionQueue } from "./settlement-exception-queue";
 import { SettlementReconciliation } from "./settlement-reconciliation";
 import { SettlementFeeComparison } from "./settlement-fee-comparison";
 import { SettlementEvidenceImport } from "./settlement-evidence-import";
+import { SettlementFeed } from "./settlement-feed";
 import { Button } from "./ui/button";
 
 type List = Extract<FinanceResult, { kind: "list" }>;
@@ -226,8 +227,11 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
       <div className="section-heading"><h3>{data.loan.borrower}</h3>{!data.loan.reversedAt && <Button size="sm" variant="outline" disabled={busy} onClick={() => openFunding(data.loan.id)}>Open funding record</Button>}</div>
       <p className="muted">Funded {dateLabel(data.loan.date)} · Cycle {data.loan.cycle}{data.loan.reversedAt && ` · Reversed ${dateTime(data.loan.reversedAt)} ET · Archived ledger`}</p>
       <SettlementReconciliation work={data.settlement} today={data.today} active={!data.loan.reversedAt} busy={busy} save={save}
-        importEvidence={!data.loan.reversedAt && <SettlementEvidenceImport brokerageId={brokerageId} loan={data.loan} busy={busy}
-          onSaved={(message) => { setFeedback({ text: message }); setVersion(value => value + 1); }} />}
+        importEvidence={<>
+          <SettlementFeed key={`${data.loan.id}:${data.loan.cycle}`} brokerageId={brokerageId} loan={data.loan} onImported={() => setVersion(value => value + 1)} />
+          {!data.loan.reversedAt && <SettlementEvidenceImport brokerageId={brokerageId} loan={data.loan} busy={busy}
+            onSaved={(message) => { setFeedback({ text: message }); setVersion(value => value + 1); }} />}
+        </>}
         currentPage={!selection?.settlementBefore} onPage={(settlementBefore) => setSelection((current) => current && { ...current, settlementBefore })} />
       {data.settlementFees && <SettlementFeeComparison work={data.settlementFees} today={data.today} active={!data.loan.reversedAt} busy={busy}
         focus={selection?.focusFees} save={save} currentPage={!selection?.feeBefore}
