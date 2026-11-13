@@ -1094,6 +1094,8 @@ test("Texas borrower-file review retains lender retrieval, an unclosed file and 
  const {strFromU8,unzipSync}=await import("fflate");
  const {db,staff,capture}=ownerFixture(t);
  initializeStore(db,false);
+ db.exec("ALTER TABLE loan_retention_reviews DROP COLUMN texasReview");
+ initializeStore(db,false);
  const scope=staff.brokerage.id, now="2026-11-13T05:30:00Z", entityId=crypto.randomUUID();
  db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'004456','Fictional scope',?)")
    .run(scope,entityId,"Fictional Texas mortgage company",now);
@@ -1103,17 +1105,25 @@ test("Texas borrower-file review retains lender retrieval, an unclosed file and 
      ('withdrawn','borrower','LO','',1,'Purchase','Processing','2026-11-01'),
      ('outside','borrower','LO','',1,'Purchase','Processing','2026-11-01');
    UPDATE loans SET disposition='Withdrawn',dispositionDate='2026-11-03' WHERE id='withdrawn';
-   INSERT INTO past_client_profiles (loanId,closingDate) VALUES ('tx','2026-11-02');`);
+   INSERT INTO past_client_profiles (loanId,closingDate) VALUES ('tx','2026-11-02');
+   INSERT INTO closing_progress (loanId,fundingDate) VALUES ('tx','2026-11-02');`);
  const addApp=db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES (?,?, '2027-01-01',?, '2026-11-12')");
  for(const [id,state] of [["tx","TX"],["withdrawn","TX"],["outside","MI"]])
    addApp.run(id,id,JSON.stringify({propertyLocation:{state}}));
  const before=capture();
- const work=(command,actor=staff)=>loanRetentionWork(db,command,actor,scope,now);
+ const work=(command,actor=staff,at=now)=>loanRetentionWork(db,command,actor,scope,at);
+ assert.equal(work({type:"saveDispositionPolicy",id:crypto.randomUUID(),expected:0,fundedDays:1,closedDays:1,
+  reference:"Fictional Texas retention policy"}).kind,"disposition");
+ const candidate=(at=now,loanId="tx")=>work({type:"dispositionQueue",offset:0},staff,at).rows.find(row=>row.id===loanId);
+ const decide=(row,counsel)=>({type:"saveDispositionReview",id:crypto.randomUUID(),loanId:row.id,policyVersion:1,
+  basis:row.basis,previous:row.decision?.id??null,outcome:"Recommend disposition",reference:"Fictional Texas recommendation",offset:0,counsel});
+ const initialCandidate=candidate();
+ assert.match(work(decide(initialCandidate)).error,/Texas borrower-file evidence/);
  const event=on=>({on,reference:"Fictional dated evidence"});
  const item={status:"On file",reference:"Fictional indexed evidence"};
  const exempt={status:"Not applicable",reference:"Fictional reviewed applicability"};
  const facts={entityId,authority:"SML mortgage company",authorityReference:"Fictional SML registration",
-  zone:"America/Chicago",role:"Brokered",application:event("2026-10-01"),inventory:"Fictional indexed loan file",
+  zone:"America/Denver",role:"Brokered",application:event("2026-10-01"),inventory:"Fictional indexed loan file",
   records:{application:item,disclosures:item,communications:item,creditAndFees:item,settlement:item,
     lender:exempt,adverseOutcome:exempt,homeEquity:exempt,other:exempt},
   archive:{location:"NMLS MU1 designated location",reference:"Fictional MU1 location",retrieval:event("2026-11-05")},
@@ -1127,6 +1137,8 @@ test("Texas borrower-file review retains lender retrieval, an unclosed file and 
  const initial=work(submitted);
  assert.deepEqual(initial.currentFinding.findings.map(item=>item.key),["lenderCopies","examination"]);
  assert.equal(work(submitted).versions.length,1);
+ assert.match(work(decide(initialCandidate)).error,/changed/);
+ assert.match(work(decide(candidate())).error,/lender/);
  const late=work(save({...facts,lenderCopies:event("2026-11-03"),examination:{...facts.examination,production:event("2026-11-09")}},1));
  assert.deepEqual(late.currentFinding.findings.map(item=>item.key),["lenderCopiesTiming"]);
  const corrected=save({...late.versions[0].facts,lenderCopies:event("2026-11-02")},2);
@@ -1136,8 +1148,22 @@ test("Texas borrower-file review retains lender retrieval, an unclosed file and 
    records:{...facts.records,settlement:exempt,adverseOutcome:item},examination:undefined},0,"withdrawn"));
  assert.equal(withdrawn.currentFinding.stateReviewDate,null);
  assert.deepEqual(withdrawn.currentFinding.findings.map(item=>item.key),["ruleEdition"]);
+ assert.match(work(decide(candidate(now,"withdrawn"))).error,/November 23, 2024/);
+ assert.match(work(decide(candidate())).error,/Retain the record through the Texas review date/);
+ const beforeMidnight="2029-11-03T05:30:00Z", afterMidnight="2029-11-03T06:30:00Z";
+ assert.equal(candidate(beforeMidnight).retainTexasThroughToday,true);
+ assert.equal(candidate(afterMidnight).retainTexasThroughToday,false);
+ assert.match(work(decide(candidate(afterMidnight)),staff,afterMidnight).error,/counsel/);
+ const counsel={retainThrough:"2029-11-02",reference:"Fictional counsel reviewed Texas dates"};
+ const decision=decide(candidate(afterMidnight),counsel);
+ assert.equal(work(decision,staff,afterMidnight).rows.find(row=>row.id==="tx").decision.id,decision.id);
+ assert.equal(work(decision,staff,afterMidnight).rows.find(row=>row.id==="tx").decision.id,decision.id);
  const audit=JSON.parse(work({type:"exportRetentionAudit",policyVersion:null}).json);
  assert.equal(audit.texasRecordkeeping.length,4);
+ const proof=audit.decisions.find(item=>item.id===decision.id).texasReview;
+ assert.equal(proof.evidence.version,3);
+ assert.equal(proof.evidence.facts.lenderCopies.on,"2026-11-02");
+ assert.deepEqual(proof.counsel,counsel);
  const reviewed=reviewRetentionExport(db,staff,scope,"tx");
  const archive=await retentionExportResponse(undefined,scope,reviewed,async fingerprint=>auditRetentionExport(db,staff,scope,"tx",fingerprint));
  const manifest=JSON.parse(strFromU8(unzipSync(new Uint8Array(await archive.arrayBuffer()))["manifest.json"]));

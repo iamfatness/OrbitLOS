@@ -42,10 +42,28 @@ function reviewFile(facts: TexasRecordkeepingFacts, loan: Loan) {
   ] };
 }
 
-function texasRetentionLocalDate(now: string, zone: TexasRecordkeepingFacts["zone"]) {
+export function texasRetentionLocalDate(now: string, zone: TexasRecordkeepingFacts["zone"]) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" })
     .format(new Date(now));
 }
+
+export function texasDispositionEvidence(db: Store, brokerageId: string, loan: Loan & { id: string }) {
+  const row = db.prepare(`SELECT version,facts,entity FROM texas_recordkeeping_reviews
+    WHERE brokerageId=? AND loanId=? ORDER BY version DESC LIMIT 1`).get(brokerageId, loan.id);
+  if (!row && loan.propertyState !== "TX" && loan.reportState !== "TX") return null;
+  const facts = row ? JSON.parse(String(row.facts)) as TexasRecordkeepingFacts : null;
+  const review = facts ? reviewFile(facts, loan) : null;
+  return {
+    version: row ? Number(row.version) : null,
+    entity: row ? JSON.parse(String(row.entity)) as Version["entity"] : null,
+    propertyState: loan.propertyState, reportState: loan.reportState,
+    facts, stateReviewDate: review?.stateReviewDate ?? null,
+    gap: !review ? "Record Texas borrower-file evidence for this loan." : review.findings.find(item => item.key !== "lenderCopiesTiming")?.message ?? null,
+    findings: review?.findings ?? [], source: texasRecordkeepingSources.rules,
+  };
+}
+
+export type TexasDispositionEvidence = NonNullable<ReturnType<typeof texasDispositionEvidence>>;
 
 // The enclosing loan retention transaction authorizes current pilot owners.
 export function texasRecordkeepingWork(db: Store, command: TexasRecordkeepingRequest, staff: WorkspaceStaff, now: string): TexasRecordkeepingResult {

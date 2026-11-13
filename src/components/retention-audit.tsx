@@ -133,6 +133,12 @@ export function RetentionAudit({ brokerageId, onBack, openLoan }:{
             {decision.floridaReview.evidence.gap && <p>{decision.floridaReview.evidence.gap}</p>}
             {decision.floridaReview.counsel && <p className="break-words">Reviewed retain-through date {decision.floridaReview.counsel.retainThrough} · {decision.floridaReview.counsel.reference}</p>}
           </div>}
+          {decision.texasReview && <div>
+            <p><strong>Texas evidence</strong> · {decision.texasReview.evidence.version === null ? "Evidence missing" : `Borrower-file version ${decision.texasReview.evidence.version}`}
+              {decision.texasReview.evidence.stateReviewDate && ` · State review date ${decision.texasReview.evidence.stateReviewDate}`}</p>
+            {decision.texasReview.evidence.gap && <p>{decision.texasReview.evidence.gap}</p>}
+            {decision.texasReview.counsel && <p className="break-words">Reviewed retain-through date {decision.texasReview.counsel.retainThrough} · {decision.texasReview.counsel.reference}</p>}
+          </div>}
           {decision.coloradoReview && <div>
             <p><strong>Colorado evidence</strong> · {decision.coloradoReview.evidence.gap ?? decision.coloradoReview.evidence.stateReviewDate}
               {decision.coloradoReview.evidence.responseStatus && <> · {decision.coloradoReview.evidence.responseStatus}</>}</p>

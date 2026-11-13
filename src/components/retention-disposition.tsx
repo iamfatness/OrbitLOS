@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { accessLoanRetention } from "@/app/actions";
 import type { DispositionQueue } from "@/lib/retention-disposition";
+import { TexasRecordkeeping } from "./texas-recordkeeping";
 import { FloridaRecordkeeping } from "./florida-recordkeeping";
 import { ColoradoRecordkeeping } from "./colorado-recordkeeping";
 import { CaliforniaDreRecordkeeping } from "./california-dre-recordkeeping";
@@ -35,6 +36,13 @@ function CaliforniaRetentionStatus({ row }: { row: Candidate }) {
   </p>);
 }
 
+function TexasRetentionStatus({ row }: { row: Candidate }) {
+  const evidence = row.texas;
+  if (!evidence) return null;
+  return <p><strong>Texas retention</strong> · {evidence.gap ??
+    (row.retainTexasThroughToday ? `Retain through ${evidence.stateReviewDate}` : `Review date ${evidence.stateReviewDate}`)}</p>;
+}
+
 function FloridaRetentionStatus({ row }: { row: Candidate }) {
   const evidence = row.florida;
   if (!evidence) return null;
@@ -55,7 +63,7 @@ export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
   brokerageId:string; openLoan:(id:string)=>void; onBack:()=>void;
 }) {
   const [showAudit,setShowAudit] = useState(false);
-  const [evidence,setEvidence] = useState<{row: Candidate; authority: "MI" | "DRE" | "DFPI" | "CO" | "FL"}>();
+  const [evidence,setEvidence] = useState<{row: Candidate; authority: "MI" | "DRE" | "DFPI" | "CO" | "FL" | "TX"}>();
   const auditLink = useRef<HTMLButtonElement>(null);
   const evidenceLinks = useRef(new Map<string,HTMLButtonElement>());
   const returnEvidenceId = useRef<string>(null);
@@ -122,8 +130,9 @@ export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
   const canRecommend = review?.kind==="loan" && (!review.row.michigan || (!review.row.michigan.gap && !review.row.retainMichiganThroughToday)) &&
     !review.row.retainCaliforniaThroughToday && !review.row.california.some(item=>item.gap || !item.stateReviewDate) &&
     (!review.row.colorado || (!review.row.colorado.gap && !!review.row.colorado.stateReviewDate && !review.row.retainColoradoThroughToday)) &&
-    (!review.row.florida || (!review.row.florida.gap && !!review.row.florida.stateReviewDate && !review.row.retainFloridaThroughToday));
-  const needsCounsel = review?.kind==="loan" && (!!review.row.michigan || !!review.row.california.length || !!review.row.colorado || !!review.row.florida) && review.outcome==="Recommend disposition";
+    (!review.row.florida || (!review.row.florida.gap && !!review.row.florida.stateReviewDate && !review.row.retainFloridaThroughToday)) &&
+    (!review.row.texas || (!review.row.texas.gap && !!review.row.texas.stateReviewDate && !review.row.retainTexasThroughToday));
+  const needsCounsel = review?.kind==="loan" && (!!review.row.michigan || !!review.row.california.length || !!review.row.colorado || !!review.row.florida || !!review.row.texas) && review.outcome==="Recommend disposition";
 
   if (evidence) {
     const {row, authority} = evidence;
@@ -134,7 +143,7 @@ export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
     };
     if (authority === "MI") return <MichiganRetention brokerageId={brokerageId}
       target={{kind:"loan",id:row.id,label:row.borrower}} backLabel="Back to disposition review" onBack={back} />;
-    const Evidence = { DRE: CaliforniaDreRecordkeeping, DFPI: CaliforniaDfpiRecordkeeping, CO: ColoradoRecordkeeping, FL: FloridaRecordkeeping }[authority];
+    const Evidence = { DRE: CaliforniaDreRecordkeeping, DFPI: CaliforniaDfpiRecordkeeping, CO: ColoradoRecordkeeping, FL: FloridaRecordkeeping, TX: TexasRecordkeeping }[authority];
     return <Evidence brokerageId={brokerageId} loan={{id:row.id,label:row.borrower}}
       backLabel="Back to disposition review" onBack={back} />;
   }
@@ -197,6 +206,7 @@ export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
         <CaliforniaRetentionStatus row={review.row} />
         <ColoradoRetentionStatus row={review.row} />
         <FloridaRetentionStatus row={review.row} />
+        <TexasRetentionStatus row={review.row} />
         <p className="muted">Recording a recommendation leaves the loan and documents in place.</p>
         <label className="field w-full max-w-2xl">Review outcome
           <select value={review.outcome} disabled={busy} onChange={event=>setReview({...review,id:crypto.randomUUID(),
@@ -238,18 +248,19 @@ export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
         <CaliforniaRetentionStatus row={row} />
         <ColoradoRetentionStatus row={row} />
         <FloridaRetentionStatus row={row} />
+        <TexasRetentionStatus row={row} />
         {row.decision && <p>{row.decision.reference} · {row.decision.actor}</p>}
         <div className="loan-application-actions">
           <Button type="button" variant="outline" disabled={busy||!!review} onClick={()=>openLoan(row.id)}>Open loan</Button>
-          {(["MI", "DRE", "DFPI", "CO", "FL"] as const).map(authority =>
-            ({ MI: row.michigan, CO: row.colorado, FL: row.florida, DRE: row.california.some(item => item.authority === "DRE"),
+          {(["MI", "DRE", "DFPI", "CO", "FL", "TX"] as const).map(authority =>
+            ({ MI: row.michigan, CO: row.colorado, FL: row.florida, TX: row.texas, DRE: row.california.some(item => item.authority === "DRE"),
               DFPI: row.california.some(item => item.authority !== "DRE") }[authority]) &&
             <Button key={authority} type="button" variant="outline" disabled={busy||!!review}
               ref={node => {
                 const key = authority + "/" + row.id;
                 if (node) evidenceLinks.current.set(key,node); else evidenceLinks.current.delete(key);
               }} onClick={()=>setEvidence({row, authority})}>
-              {{ MI: "Michigan evidence", CO: "Colorado evidence", FL: "Florida evidence", DRE: "California DRE evidence", DFPI: "California DFPI evidence" }[authority]}
+              {{ MI: "Michigan evidence", CO: "Colorado evidence", FL: "Florida evidence", TX: "Texas evidence", DRE: "California DRE evidence", DFPI: "California DFPI evidence" }[authority]}
             </Button>)}
           <Button type="button" variant="outline" disabled={busy||!!review} onClick={event=>{
             origin.current=event.currentTarget;
