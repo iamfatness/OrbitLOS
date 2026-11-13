@@ -19,6 +19,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   const [data, setData] = useState<ProgramMonth>();
   const [version, refresh] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [openingReview, setOpeningReview] = useState(!!target);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -51,7 +52,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         }
       }
     }).catch(() => { if (current) setError("Could not load the program. Refresh to try again."); })
-      .finally(() => { if (current) setLoading(false); });
+      .finally(() => { if (current) { setLoading(false); setOpeningReview(false); } });
     return () => { current = false; };
   }, [brokerageId, entityId, month, paused, version]);
   useEffect(() => {
@@ -79,13 +80,16 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         retry.current = undefined;
         if (result.kind === "programMonth") setData(result);
         else { setEntities(result.entities); setEntity(""); setData(undefined); }
-        setScreen("list"); setNotice("Saved internal review work.");
+        const savedStateReview = "operation" in input && input.operation === "update" && selected?.stateReview;
+        if (!savedStateReview) setScreen("list");
+        setNotice(savedStateReview ? "State review updated." : "Saved internal review work.");
       }
     } catch { if (active.current) setError("Save could not be confirmed. Retry the unchanged form to check the same request."); }
     finally { if (active.current) setBusy(false); }
   }
   const current = data?.entity.id === entityId && data.month === month ? data : undefined;
   const selected = current?.items.find(i => i.id === itemId);
+  const readyToComplete = selected?.status === "Awaiting review";
   const obligation = selected?.obligation;
   const reporting = obligation?.reportingBasis;
   const obligationSource = obligation && <>
@@ -107,6 +111,10 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   const formTitle = screen === "entity" ? "Add entity profile" : screen === "schedule" ? "Schedule review work" : screen === "review" ? "Record monthly review" :
     selected?.stateReview ? "State review question" : selected?.title ?? "Monthly review";
   if (paused) return <p>Program work is unavailable while the workspace is paused.</p>;
+  if (openingReview && loading && !error) return <section className="integration manager-panel record-form compliance-pilot-form" aria-label="Compliance program">
+    <h2>Review work</h2>
+    <p role="status">Loading the selected review…</p>
+  </section>;
   return <section className="integration manager-panel record-form compliance-pilot-form" aria-label="Compliance program">
     <h2 ref={heading} tabIndex={-1}>{screen === "list" ? "Monthly review" : formTitle}</h2>
     {screen === "item" && current && !selected?.stateReview && <p className="muted">{current.entity.name}{!reporting && ` · Review month ${current.month}`}</p>}
@@ -190,14 +198,20 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
           {screen === "schedule" ? <><label className="field">Review title<input name="title" required minLength={3} maxLength={160} /></label>
             <label className="field">Category<select name="category">{programCategories.map(c => <option key={c}>{c}</option>)}</select></label>
             <label className="field">Work to review<textarea name="instructions" required minLength={5} maxLength={1500} /></label></> : <>{!selected?.stateReview && !reporting && <p>{selected?.instructions}</p>}
-            <label className="field">Work status<select name="status" defaultValue={selected?.status}>{programStatuses.map(s => <option key={s}>{s}</option>)}</select></label></>}
+            <label className="field">Work status<select name="status" defaultValue={selected?.status} aria-describedby="compliance-review-status-help">
+              {programStatuses.map(s => <option key={s} disabled={s === "Completed" && !readyToComplete && selected?.status !== s}>{s}</option>)}
+            </select></label>
+            <p className="muted" id="compliance-review-status-help">{readyToComplete
+              ? "Once the review is finished, choose Completed and record the evidence and outcome below."
+              : selected?.status === "Completed"
+                ? "This review is complete. Choose a different status to reopen it."
+                : "When the work is ready for review, choose Awaiting review and save."}</p></>}
           <div className="form-grid"><label className="field">Accountable admin<select name="ownerEmail" required defaultValue={selected?.ownerAvailable ? selected.ownerEmail : ""}>
             <option value="">Select an active admin</option>{current?.owners.map(o => <option key={o.email} value={o.email}>{o.name}</option>)}</select></label>
             <label className="field">Internal target (UTC)<input name="internalTarget" type="date" required defaultValue={selected?.internalTarget ?? `${month}-28`} /></label></div>
           {screen === "item" && <><label className="field">Evidence reference<textarea name="evidence" maxLength={1500} defaultValue={selected?.evidence}
               aria-describedby="compliance-review-evidence-help" /></label>
-            <p className="muted" id="compliance-review-evidence-help">{selected?.stateReview ? "For an outside answer, use a reference your team can retrieve. " : ""}
-              Keep borrower data and privileged material out of these notes. Completion requires Awaiting review and an evidence reference.</p>
+            <p className="muted" id="compliance-review-evidence-help">Use a reference your team can retrieve, such as a ticket number or a link to a restricted file. Keep borrower data and privileged material out of these notes.</p>
             <label className="field">{selected?.stateReview ? "Decision or next action (required)" : "Reason or progress note"}
               <textarea name="note" required minLength={5} maxLength={1500} /></label></>}
         </>}
