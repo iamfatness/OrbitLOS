@@ -195,7 +195,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
               aria-describedby="compliance-review-evidence-help" /></label>
             <p className="muted" id="compliance-review-evidence-help">{selected?.stateReview ? "For an outside answer, use a reference your team can retrieve. " : ""}
               Keep borrower data and privileged material out of these notes. Completion requires Awaiting review and an evidence reference.</p>
-            <label className="field">{selected?.stateReview ? "Decision or next action" : "Reason or progress note"}
+            <label className="field">{selected?.stateReview ? "Decision or next action" : "Reason or progress note"} (required)
               <textarea name="note" required minLength={5} maxLength={1500} /></label></>}
         </>}
         <div className="loan-application-actions"><Button type="submit">{busy ? "Saving…" : "Save review work"}</Button><Button type="button" variant="outline" onClick={() => { navigate("list"); reload(); }}>Back to monthly review</Button></div>
