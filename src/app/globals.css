@@ -717,7 +717,7 @@ button:disabled { cursor: default; }
   .pipeline-list td .pipeline-mobile-stage { display: block; margin-top: 3px; color: #513b8b; font-weight: 700; }
 }
 @media (max-width: 520px) {
-  .manual-offer-text { grid-column: 1 / -1; }
+  .manual-offer-text, .pricing-scenario-occupancy, .pricing-scenario-property-type { grid-column: 1 / -1; }
   .nav-group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topbar > span > .muted, .topbar .slash { display: none; }
   .application-shell { width: calc(100% - 20px); }

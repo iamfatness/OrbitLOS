@@ -74,7 +74,11 @@ test("approval attaches to accepted evidence and prevents reuse of a stale prici
   } };
   assert.match((await send({ ...price, incomeReviewRevision: 3 })).error, /reviewed income/i);
   assert.match((await send({ ...price, scenario: { ...price.scenario, monthlyIncome: 6500 } })).error, /reviewed income/i);
-  const run = (await send(price)).state.pricingRuns[0];
+  const providerCall = t.mock.method(globalThis, "fetch", () => assert.fail("Reviewed sample income must stay in Orbit"));
+  const stage = { ORBIT_PRICING_MODE: "uwm-stage", UWM_EQ_CLIENT_ID: "fictional", UWM_EQ_CLIENT_SECRET: "fictional" };
+  const run = (await executeCommand(db, { loanId, ...price }, officer, { uwmEnvironment: stage })).state.pricingRuns[0];
+  assert.equal(providerCall.mock.callCount(), 0);
+  providerCall.mock.restore();
   assert.equal(run.mode, "mock");
   assert.equal(run.incomeReviewRevision, 4);
   assert.equal(run.incomeReviewCurrent, true);

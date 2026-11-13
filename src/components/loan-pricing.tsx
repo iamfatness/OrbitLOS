@@ -380,9 +380,9 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
           setIncomeRevision(undefined);
           change("monthlyIncome", value);
         }} />}
-        <label className="field"><span>Occupancy</span><select disabled={dscr} value={dscr ? "Investment property" : form.occupancy}
+        <label className="field pricing-scenario-occupancy"><span>Occupancy</span><select disabled={dscr} value={dscr ? "Investment property" : form.occupancy}
           onChange={(event) => change("occupancy", event.target.value)}>{occupancies.map((value) => <option key={value}>{value}</option>)}</select></label>
-        <label className="field"><span>Property type</span><select value={form.propertyType} onChange={(event) => change("propertyType", event.target.value)}>{propertyTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
+        <label className="field pricing-scenario-property-type"><span>Property type</span><select value={form.propertyType} onChange={(event) => change("propertyType", event.target.value)}>{propertyTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
       </div>
       {form.program === "Conventional" && openIncome && <div className="pricing-actions">
         <p className={incomeOutdated ? "quote-disclaimer" : "muted"}>{incomeOutdated ? repriceIncomeMessage :
@@ -426,8 +426,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         <Button size="sm" variant="outline" disabled={busy} onClick={loadCurrentApplication}>{application ? "Load current 1003 inputs" : "Reload loan inputs"}</Button>
         {canRehearseUnsupported && <Button size="sm" variant="outline" disabled={busy} onClick={loadSample}>Load sample scenario</Button>}
         <Button type="submit" disabled={busy || formOutdated || incomeOutdated}><Calculator /> {pricing ? "Saving…" :
-          canRehearseUnsupported ? "Run pricing" : "Start manual quote"}</Button>
-        {canRunSamplePricing && form.program === "Conventional" && form.purpose === "Purchase" &&
+          canRehearseUnsupported ? useIncomeRevision ? "Run sample pricing" : "Run pricing" : "Start manual quote"}</Button>
+        {canRunSamplePricing && !(canRehearseUnsupported && useIncomeRevision) && form.program === "Conventional" && form.purpose === "Purchase" &&
           <Button type="submit" value="sample" size="sm" variant="outline" disabled={busy || formOutdated || incomeOutdated}>Run sample pricing</Button>}
         {canRehearseUnsupported && <Button type="submit" value="manual" size="sm" variant="outline"
           disabled={busy || formOutdated || incomeOutdated}>Start manual quote</Button>}

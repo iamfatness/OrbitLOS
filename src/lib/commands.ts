@@ -678,12 +678,14 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       if (simulate && (!data.scenario.nonAgency || (!isDemoStaff(staff) && !staff?.brokerage.pilot))) {
         throw new WorkspaceError("Unsupported EQ rehearsal is available for Non-QM scenarios in fictional workspaces.");
       }
-      const result = data.manualLender ? { provider: "Manual lender", mode: "manual" as const, reference: null, offers: [], notices: [], outcome: undefined } :
-        await pricingProvider(data.sampleOnly ? { ORBIT_PRICING_MODE: "mock" } : simulate ? { ORBIT_PRICING_MODE: "uwm-stage" } :
-          uwmPricingEnvironment(uwmEnvironment, staff)).quote(data.scenario).catch((error: unknown) => {
-            if (!(error instanceof PricingError) || error.code !== "unsupported") throw error;
-            return unsupportedPricingResult(simulate, error.message);
-          });
+      const environment = data.manualLender ? null : data.sampleOnly ? { ORBIT_PRICING_MODE: "mock" } :
+        simulate ? { ORBIT_PRICING_MODE: "uwm-stage" } : uwmPricingEnvironment(uwmEnvironment, staff);
+      if (environment && data.incomeReviewRevision !== undefined) environment.ORBIT_PRICING_MODE = "mock";
+      const result = environment === null ? { provider: "Manual lender", mode: "manual" as const, reference: null, offers: [], notices: [], outcome: undefined } :
+        await pricingProvider(environment).quote(data.scenario).catch((error: unknown) => {
+          if (!(error instanceof PricingError) || error.code !== "unsupported") throw error;
+          return unsupportedPricingResult(simulate, error.message);
+        });
       return db.transaction(() => {
         authorizeLoanOfficer(db, data, staff);
         if (currentRevision() !== data.applicationRevision) throw new WorkspaceError("The 1003 changed while pricing. Reload its inputs and try again.");
