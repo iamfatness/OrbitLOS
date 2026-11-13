@@ -123,7 +123,10 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
       return [email, member ? [member.role, member.accessRevision ?? 0] : null];
     }) ?? [];
     const unavailable = checked.length ? "unavailable.id IS NOT NULL AND package.version IS NOT NULL" : "0";
-    const accessCte = checked.length ? `WITH unavailable_reviews AS MATERIALIZED (
+    const accessCte = checked.length ? `WITH current_packages AS MATERIALIZED (
+      SELECT package.loanId, package.version, package.revision FROM disclosure_packages package
+      WHERE ${currentSignedClosingPackageSql}
+    ), unavailable_reviews AS MATERIALIZED (
       SELECT review.id FROM loan_reviews review JOIN loans loan ON loan.id = review.loanId ${loanJoins}
       JOIN json_each(?) member ON json_extract(member.value, '$[0]') = review.reviewerEmail
       WHERE ${activePipeline} AND review.category = '${closingPackageReviewCategory}' AND review.status = 'Requested'
@@ -149,8 +152,9 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
         SELECT candidate.sequence FROM loan_review_events candidate
         WHERE candidate.reviewId = review.id AND candidate.action IN ('Requested', 'Resubmitted') ORDER BY candidate.sequence DESC LIMIT 1
       ) JOIN loan_review_closing_packages pinned ON pinned.eventId = event.id
-      LEFT JOIN disclosure_packages package ON package.loanId = loan.id AND package.version = pinned.version AND package.revision = pinned.revision
-        AND ${currentSignedClosingPackageSql}
+      LEFT JOIN ${checked.length ? "current_packages" : "disclosure_packages"} package
+        ON package.loanId = loan.id AND package.version = pinned.version AND package.revision = pinned.revision
+        ${checked.length ? "" : `AND ${currentSignedClosingPackageSql}`}
       WHERE ${activePipeline} AND review.category = '${closingPackageReviewCategory}' AND review.status IN ('Requested', 'Changes requested')
         AND (review.dueOn < ? OR review.escalatedAt IS NOT NULL OR ${packageRequesterActs} OR (${unavailable}))`,
     "review.dueOn", "loan.id", "review.id", [...(checked.length ? [JSON.stringify(checked)] : []), today, today], "NULL", accessCte);
