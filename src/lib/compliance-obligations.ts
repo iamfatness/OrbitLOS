@@ -25,7 +25,7 @@ type OccurrenceSnapshot = {
   stateBasis?: StateBasis;
   reportingBasis?: ReturnType<typeof obligationReportingBasis>;
 };
-function hasNewYorkVoorEvidence(snapshot: OccurrenceSnapshot) {
+function hasNewYorkVoorEvidence(snapshot: Pick<OccurrenceSnapshot, "stateBasis" | "draft">) {
   return isNewYorkVoorSource(snapshot.stateBasis?.sourceKey) && snapshot.draft.cadence === "Annual" &&
     (snapshot.draft.annualStartMonth ?? 1) === 1 && snapshot.draft.applicability !== "Not applicable";
 }
@@ -526,7 +526,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
         Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable";
       const audit = illinoisAudit && typeof auditEvidence === "string"
         ? reviewIllinoisAuditEvidence(JSON.parse(auditEvidence) as IllinoisAuditEvidence, asOf) : undefined;
-      return { ...row, reportingBasis, illinoisAudit, newYorkVoor: hasNewYorkVoorEvidence({ draft, stateBasis, period, reportingBasis }),
+      return { ...row, reportingBasis, illinoisAudit, newYorkVoor: hasNewYorkVoorEvidence({ draft, stateBasis }),
         coloradoCompanyRenewal: stateBasis?.sourceKey === "REQ-CO-LICENSING-CO-RENEW" &&
           Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable",
         newYorkEmployment: stateBasis?.sourceKey === "REQ-NY-REPORTING-QRES" &&
