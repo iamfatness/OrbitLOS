@@ -237,6 +237,10 @@ const filings: Partial<Record<string, FilingRule>> = {
   "REQ-CO-REPORTING-MCR": quarter("NMLS Mortgage Call Report", "Confirm registration, current FV7 components and applicable periods."),
   "REQ-CO-REPORTING-STD-FC": { route: "NMLS Financial Condition", cadence: "Fiscal annual", due: () => null,
     review: "Reconcile Colorado's standard-section fiscal-year rule with current FV7 and confirm the filing basis with counsel." },
+  "REQ-IL-REPORTING-ANNUAL-AUDIT": { route: "Illinois IDFPR or applicable NMLS filing", cadence: "Fiscal annual", due: after(90),
+    review: "The date reflects the IDFPR fiscal-year schedule. Confirm the applicable channel, NMLS instructions and any approved extension." },
+  "REQ-IL-REPORTING-AUDIT-EXT": { route: "Written request to Illinois IDFPR", cadence: "Fiscal annual", due: after(75),
+    review: "Use only when seeking an extension of the ordinary 90-day audit deadline. Verify the actual deadline, written request, receipt and any granted extension before changing the audit plan." },
   "REQ-IL-REPORTING-ACTIVITY": quarter("NMLS Mortgage Call Report",
     "Verify timely, accurate MCR evidence before relying on the Illinois substitution for listed annual activity reports."),
 };

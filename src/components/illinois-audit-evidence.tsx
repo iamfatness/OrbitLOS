@@ -175,7 +175,7 @@ export function IllinoisAuditEvidence({ brokerageId, entityId, obligationId, per
     } finally { setBusy(false); }
   }
 
-  return <section className="record-form compliance-pilot-form" aria-label="Illinois audit evidence">
+  return <section className="integration manager-panel record-form compliance-pilot-form" aria-label="Illinois audit evidence">
     <div className="section-heading"><h2 className="text-lg font-semibold" ref={title} tabIndex={-1}>Illinois audit evidence</h2>
       <Button className="min-h-11" variant="outline" disabled={busy} onClick={onBack}>Back to obligation</Button></div>
     <p>Fiscal period starting {period}{data && <> · Nominal filing date <time className="whitespace-nowrap" dateTime={data.nominalDueOn}>{data.nominalDueOn}</time></>}</p>

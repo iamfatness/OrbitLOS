@@ -366,6 +366,30 @@
   {
     "jurisdiction": "IL",
     "area": "REPORTING",
+    "id": "ANNUAL-AUDIT",
+    "title": "Illinois residential mortgage annual audit",
+    "authority": "205 ILCS 635/3-2(a), (d)",
+    "sourceUrl": "https://www.ilga.gov/ftp/ILCS/Ch%200205/Act%200635/020506350K3-2.html",
+    "summary": "The Act generally requires an independent annual audit and sets a 90-day fiscal-year deadline for filing with the regulator. It also addresses filing with NMLS when applicable and qualifying consolidated statements.",
+    "evidence": "License and activities, actual fiscal year end, certified audit and any supporting consolidating statements, applicable route and filing receipt.",
+    "counsel": "Confirm the IDFPR or NMLS route and calendar, any authorized extension, and the availability and evidence for consolidated statements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "REPORTING",
+    "id": "AUDIT-EXT",
+    "title": "Illinois annual audit extension request",
+    "authority": "38 Ill. Adm. Code §1050.430 and 205 ILCS 635/3-2",
+    "sourceUrl": "https://www.ilga.gov/commission/jcar/admincode/038/038010500D04300R.html",
+    "summary": "A licensee seeking an extension applies in writing at least 15 days before the audit deadline. The ordinary 90-day deadline yields a nominal request date 75 days after fiscal year end.",
+    "evidence": "Fiscal year end, applicable audit deadline, circumstances supporting the request, written request and delivery evidence, and IDFPR decision.",
+    "counsel": "Confirm eligibility, the operative deadline and channel, and which date governs after a written extension is granted.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "REPORTING",
     "id": "ACTIVITY",
     "title": "NMLS reports in lieu of listed activity reports",
     "authority": "Illinois IDFPR Mortgage Brokers and Bankers Forms",
