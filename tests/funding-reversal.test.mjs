@@ -183,6 +183,7 @@ test("simulated settlement feed imports exact matches and records unmatched evid
   assert.match(finance({ ...pull, fundingDate: correctedFunding }).error, /cycle changed/);
   assert.deepEqual(finance({ type: "settlementFeed" }).rows, []);
   const result = finance(pull);
+  assert.equal(result.checkedFundingDate, initialFunding);
   assert.deepEqual(result.rows.map(row => row.status), ["Imported", "Imported", "Already recorded", "Needs review"]);
   assert.deepEqual(finance(pull), result);
   const detail = () => finance({ type: "detail" }).settlement;
@@ -198,6 +199,12 @@ test("simulated settlement feed imports exact matches and records unmatched evid
   assert.match(finance({ ...review, note: "Changed after the fact." }).error, /changed/);
   assert.equal(detail().revision, 2);
   assert.deepEqual(finance({ type: "settlementFeed" }), reviewed);
+  await apply({ type: "recordFunding", fundingDate: correctedFunding, revision: 1 });
+  assert.deepEqual(finance({ type: "settlementFeed" }), reviewed);
+  assert.match(finance({ ...pull, fundingDate: correctedFunding }).error, /earlier funding date/);
+  assert.match(finance(review).error, /earlier funding date/);
+  assert.equal(detail().revision, 2);
+  assert.equal(detail().receivedCents, 34_875_000);
 });
 
 test("sample settlement import validates the exact cycle and retains source identity across replay and late evidence", async t => {

@@ -74,7 +74,7 @@ export type SettlementFeedRow = {
   amountCents: number; status: "Imported" | "Already recorded" | "Needs review" | "Reviewed";
   detail: string; reviewNote: string | null; reviewedBy: string | null; reviewedAt: string | null;
 };
-export type SettlementFeed = { kind: "settlementFeed"; rows: SettlementFeedRow[] };
+export type SettlementFeed = { kind: "settlementFeed"; checkedFundingDate: string | null; rows: SettlementFeedRow[] };
 export type FinanceListQuery = Extract<FinanceInput, { type: "list" }>;
 export type SettlementQueueQuery = Extract<FinanceInput, { type: "settlementQueue" }>;
 export type SettlementQueueRow = z.infer<typeof settlementCursor> & {

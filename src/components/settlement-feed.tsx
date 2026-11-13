@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessBrokerageFinance } from "@/app/actions";
 import { financeMoney, type FinanceInput, type FinanceLoan, type SettlementFeed as Feed } from "@/lib/brokerage-finance-model";
+import { dateLabel } from "@/lib/client-retention";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -17,7 +18,8 @@ export function SettlementFeed({ brokerageId, loan, onImported }: {
   const [refresh, setRefresh] = useState(0);
   const pending = useRef(false);
   const feedback = useRef<HTMLDivElement>(null);
-  const { id: loanId, cycle } = loan;
+  const { id: loanId, cycle, date } = loan;
+  const earlierFundingDate = feed?.checkedFundingDate && feed.checkedFundingDate !== date ? feed.checkedFundingDate : null;
 
   useEffect(() => {
     if (!open) return;
@@ -28,7 +30,7 @@ export function SettlementFeed({ brokerageId, loan, onImported }: {
       else if (result.kind === "settlementFeed") setFeed(result);
     }, () => { if (current) setError("Could not load provider deliveries. Try again."); });
     return () => { current = false; };
-  }, [open, loanId, cycle, brokerageId, refresh]);
+  }, [open, loanId, cycle, date, brokerageId, refresh]);
 
   async function save(input: FinanceInput) {
     if (pending.current) return;
@@ -70,7 +72,11 @@ export function SettlementFeed({ brokerageId, loan, onImported }: {
       {!feed && error && <div><Button size="sm" variant="outline" className="min-h-11"
         onClick={() => { setError(""); setRefresh(value => value + 1); }}>Retry loading deliveries</Button></div>}
       {feed && <>
-        {!loan.reversedAt && <div><Button size="sm" className="min-h-11" disabled={busy}
+        {earlierFundingDate && <p className="application-message" role="status">
+          Provider deliveries were checked for {dateLabel(earlierFundingDate)}. The recorded funding date is now {dateLabel(date)}.
+          Compare the saved deliveries before reviewing the corrected settlement.
+        </p>}
+        {!loan.reversedAt && !earlierFundingDate && <div><Button size="sm" className="min-h-11" disabled={busy}
           onClick={() => void save({ type: "pullSettlementFeed", loanId, cycle, fundingDate: loan.date })}>
           {busy ? "Checking…" : feed.rows.length ? "Check provider again" : "Pull sample evidence"}</Button></div>}
         {feed.rows.length === 0 ? <p className="muted">No deliveries recorded for this cycle.</p> :
@@ -79,7 +85,7 @@ export function SettlementFeed({ brokerageId, loan, onImported }: {
             <p>{row.detail}</p>
             <p className="muted">Funding reference {row.fundingReference} · Evidence {row.evidenceId}</p>
             {row.reviewedAt && <p>{row.reviewNote} · {row.reviewedBy} · {dateTime(row.reviewedAt)} ET</p>}
-            {row.status === "Needs review" && !loan.reversedAt && <form className="record-form" onSubmit={event => review(event, row.evidenceId)}>
+            {row.status === "Needs review" && !loan.reversedAt && !earlierFundingDate && <form className="record-form" onSubmit={event => review(event, row.evidenceId)}>
               <label className="field">Review note<textarea name="note" rows={2} minLength={5} maxLength={280} required disabled={busy} /></label>
               <div><Button size="sm" type="submit" variant="outline" className="min-h-11" disabled={busy}>Keep out of this cycle</Button></div>
             </form>}

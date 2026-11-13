@@ -36,9 +36,15 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
     return { error: "This funding cycle changed. Reopen it before pulling settlement evidence." };
   }
   const args = [loan.id, loan.cycle] as const;
+  // Simulated deliveries use the funding date as their occurrence date, including receipts saved before date checks.
+  const batch = db.prepare(`SELECT json_extract(payload, '$.occurredOn') AS date
+    FROM settlement_feed_receipts WHERE loanId = ? AND cycle = ? AND sequence = 1`).get(...args);
+  let checkedFundingDate = typeof batch?.date === "string" ? batch.date : null;
+  if (input.type !== "settlementFeed" && checkedFundingDate && checkedFundingDate !== loan.date) {
+    return { error: "These provider deliveries belong to the earlier funding date. Compare the saved deliveries and review the corrected cycle." };
+  }
   if (input.type === "pullSettlementFeed") {
-    const delivered = db.prepare("SELECT 1 FROM settlement_feed_receipts WHERE loanId = ? AND cycle = ?").get(...args);
-    if (!delivered) {
+    if (!batch) {
       for (const [index, record] of simulatedDeliveries(loan).entries()) {
         const { fundingReference: reference, ...fields } = record;
         let status: SettlementFeedRow["status"] = "Needs review";
@@ -66,6 +72,7 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
         db.prepare(`INSERT INTO settlement_feed_receipts (loanId, cycle, sequence, payload, status, detail)
           VALUES (?, ?, ?, ?, ?, ?)`).run(...args, index + 1, JSON.stringify(record), status, detail);
       }
+      checkedFundingDate = loan.date;
     }
   } else if (input.type === "reviewSettlementFeed") {
     const row = db.prepare(`SELECT status, reviewNote FROM settlement_feed_receipts WHERE loanId = ? AND cycle = ?
@@ -77,7 +84,7 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
   }
   const receipts = db.prepare(`SELECT payload, status, detail, reviewNote, reviewedBy, reviewedAt
     FROM settlement_feed_receipts WHERE loanId = ? AND cycle = ? ORDER BY sequence`).all(...args) as unknown as Receipt[];
-  return { kind: "settlementFeed", rows: receipts.map(({ payload, ...receipt }) => {
+  return { kind: "settlementFeed", checkedFundingDate, rows: receipts.map(({ payload, ...receipt }) => {
     const record = JSON.parse(payload) as ProviderEvidence;
     return { ...receipt, evidenceId: record.evidenceId, fundingReference: record.fundingReference, kind: record.kind,
       amountCents: evidenceAmount(record) };
