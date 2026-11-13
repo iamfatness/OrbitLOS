@@ -150,7 +150,9 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused, initia
       </h3>}
       <div className="loan-application-actions licensing-controls state-scope-controls">
         <label className="field">Legal entity<select value={entityId} disabled={busy || paused || !entities} onChange={event => {
-          setEntity(event.target.value); setVersion(undefined); setData(undefined); setDraft(undefined); setError(""); setNotice("");
+          const nextEntityId = event.currentTarget.value;
+          if (nextEntityId === entityId) return;
+          setEntity(nextEntityId); setVersion(undefined); setData(undefined); setDraft(undefined); setError(""); setNotice("");
         }}><option value="">Choose a legal entity</option>{entities?.map(entity => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>
         <Button type="button" variant="outline" size="sm" className="min-h-11" disabled={busy || paused} onClick={() => {
           setError(""); setNotice(""); setRefresh(value => value + 1);
@@ -162,7 +164,9 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused, initia
       {(error || notice) && <p ref={feedback} tabIndex={-1} role={error ? "alert" : "status"}>{error || notice}</p>}
       {entityId && !current && !error && !paused && <p role="status">Loading scope…</p>}
       {!!data?.history.length && <label className="field">Scope version<select value={version ?? ""} disabled={busy || paused} onChange={event => {
-        setVersion(event.target.value ? Number(event.target.value) : undefined); setError(""); setNotice("");
+        const nextVersion = event.currentTarget.value ? Number(event.currentTarget.value) : undefined;
+        if (nextVersion === version) return;
+        setVersion(nextVersion); setError(""); setNotice("");
       }}><option value="">Latest version · {data.latestRevision}</option>{data.history.map(item =>
         <option key={item.revision} value={item.revision}>Version {item.revision} · {item.savedAt.slice(0, 10)}</option>)}</select></label>}
       {current && <>
