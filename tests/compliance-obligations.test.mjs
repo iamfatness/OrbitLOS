@@ -284,7 +284,7 @@ test("California reporting links DRE, CFL and CRMLA obligations with distinct fi
 
 test("priority state reporting uses distinct periods and leaves unverified dates open",t=>{
  const f=fixture(t);
- for (const jurisdiction of ["FL","TX","NY","CO","IL","MI"]) {
+ for (const jurisdiction of ["CA","FL","TX","NY","CO","IL","MI"]) {
   const scope=complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction,
    expectedRevision:0,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional license",
     officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
@@ -305,6 +305,21 @@ test("priority state reporting uses distinct periods and leaves unverified dates
   assert.equal(occurrence.status,due ? "Internal preparation planned" : "Applicability review gap",sourceKey);
   return {id,basis};
  };
+ for (const [state,suffix,route,review] of [
+  ["CA","DRE-MLO-RNW","NMLS DRE individual MU4 endorsement renewal",/November 1.*following year/],
+  ["CA","DFPI-MLO-RNW","NMLS DFPI individual MLO renewal",/DFPI sponsor/],
+  ["FL","MLO-RENEW","NMLS Florida individual loan originator renewal",/before March 1/],
+  ["TX","MLO-RENEW","NMLS Texas SML individual RMLO renewal",/sponsor's renewal/],
+  ["NY","MLO-RENEW","NMLS New York individual MLO renewal",/statutory annual expiration/],
+  ["CO","MLO-RENEW","NMLS Colorado individual MLO renewal",/NMLS only for the 2026 cycle/],
+  ["IL","MLO-RENEW","NMLS Illinois individual MLO renewal",/last day of February/],
+ ]) {
+  const renewal=check(state,suffix,"Annual","2026-01",route,"2026-12-31",1,"LICENSING");
+  assert.match(renewal.basis.review,review);
+  check(state,suffix,"Annual","2025-01",route,null,1,"LICENSING");
+  check(state,suffix,"Annual","2026-07",route,null,7,"LICENSING");
+  if (state==="CO" || suffix==="DRE-MLO-RNW") check(state,suffix,"Annual","2027-01",route,null,1,"LICENSING");
+ }
  check("FL","MCR","Quarterly","2025-01","NMLS Residential Mortgage Loan Activity","2025-05-15");
  check("FL","BROKER-FC","Annual","2025-01","NMLS Financial Condition","2026-03-31");
  check("FL","BROKER-FC","Annual","2024-01","NMLS Financial Condition",null);

@@ -4581,5 +4581,137 @@
     "evidence": "Use New York examination records → DFS correspondence. Preserve direction, correspondence date, archive, retrieval and versioned export.",
     "counsel": "Confirm coverage, retention and separate requests or response deadlines.",
     "checkedOn": "2026-11-13"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "LICENSING",
+    "id": "DRE-MLO-RNW",
+    "title": "Individual DRE MLO endorsement renewal",
+    "authority": "California DRE 2026 endorsement renewal instructions",
+    "sourceUrl": "https://www.dre.ca.gov/Licensees/SafeAct.html",
+    "summary": "Individual MU4 endorsements generally require annual renewal through NMLS. Under the DRE issuance rule, an endorsement issued November 1 or later expires at the end of the following year.",
+    "evidence": "Underlying DRE license, actual endorsement issuance and expiration, NMLS education record, request, receipt, approval and sponsorship status.",
+    "counsel": "Confirm the endorsement expiry and November issuance exception. Verify what the individual can do while an approval or new sponsorship is pending.",
+    "checkedOn": "2026-11-13",
+    "relatedSources": [
+      {
+        "label": "DRE renewal FAQs",
+        "url": "https://www.dre.ca.gov/files/pdf/faqs/safe_faq_mlo_renewal.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "LICENSING",
+    "id": "DFPI-MLO-RNW",
+    "title": "Individual DFPI MLO license renewal",
+    "authority": "California DFPI MLO licensing FAQs, question 12",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/mortgage-loan-originators/mortgage-loan-originators-faqs/",
+    "summary": "DFPI describes a December 31 renewal request deadline and a reinstatement window through the last day of February after missed renewal.",
+    "evidence": "DFPI individual authority, correct DFPI sponsor, education, required background or credit items, renewal fee, request and regulator status.",
+    "counsel": "Confirm the effect of a timely pending request, sponsorship and restrictions. Verify the current cycle and late reinstatement treatment.",
+    "checkedOn": "2026-11-13"
+  },
+  {
+    "jurisdiction": "FL",
+    "area": "LICENSING",
+    "id": "MLO-RENEW",
+    "title": "Individual Florida loan originator renewal",
+    "authority": "Fla. Stat. §494.00313",
+    "sourceUrl": "https://www.flsenate.gov/Laws/Statutes/2026/494.00313",
+    "summary": "Florida requires a completed renewal, fees, continuing education documentation and credit authorization. If renewal requirements and fees remain unmet before March 1, the individual must apply for a new license.",
+    "evidence": "NMLS individual renewal receipt, education, fees or approved waiver, credit authorization, required items and OFR license status. Record references for sensitive checks.",
+    "counsel": "Confirm fee waiver eligibility, the effect of incomplete filings and pending reactivation, and active authority before allowing origination.",
+    "checkedOn": "2026-11-13",
+    "relatedSources": [
+      {
+        "label": "Fla. Admin. Code R. 69V-40.0313",
+        "url": "https://flrules.org/gateway/ruleno.asp?id=69V-40.0313"
+      },
+      {
+        "label": "Florida OFR loan originator instructions",
+        "url": "https://flofr.gov/divisions-offices/division-of-consumer-finance/loan-originator"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "LICENSING",
+    "id": "MLO-RENEW",
+    "title": "Individual Texas SML RMLO license renewal",
+    "authority": "Texas SML mortgage origination FAQs",
+    "sourceUrl": "https://www.sml.texas.gov/mortgage-origination/faqs/",
+    "summary": "SML describes annual NMLS renewal through December 31. Ongoing origination depends on the NMLS status and the sponsoring entity's authority and sponsorship.",
+    "evidence": "Individual SML authority, CE shown in NMLS, request, receipt, regulator status and sponsor license or registration renewal.",
+    "counsel": "Confirm the applicable SML versus OCCC authority, current reinstatement instructions and whether a specific approval or deficiency status permits origination.",
+    "checkedOn": "2026-11-13",
+    "relatedSources": [
+      {
+        "label": "Texas SML education requirement",
+        "url": "https://www.sml.texas.gov/news/announcement-continuing-education-requirement-for-mlos/"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "LICENSING",
+    "id": "MLO-RENEW",
+    "title": "Individual New York mortgage loan originator renewal",
+    "authority": "N.Y. Banking Law §599-i",
+    "sourceUrl": "https://www.nysenate.gov/legislation/laws/BNK/599-I",
+    "summary": "Article 12-E sets December 31 as annual expiration and requires an affirmed electronic renewal request, continued eligibility, required education and payment. The statute addresses reinstatement for failure to timely pay the fee.",
+    "evidence": "DFS annual instructions, affirmed request and receipt, continuing education, fee evidence, affiliation, and license status.",
+    "counsel": "Confirm the annual DFS submission cutoff and distinguish fee-only reinstatement from missing education or other deficiencies. Verify any inactive or affiliated status.",
+    "checkedOn": "2026-11-13",
+    "relatedSources": [
+      {
+        "label": "N.Y. Banking Law §599-b",
+        "url": "https://www.nysenate.gov/legislation/laws/BNK/599-B"
+      },
+      {
+        "label": "N.Y. Banking Law §599-j",
+        "url": "https://www.nysenate.gov/legislation/laws/BNK/599-J"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "CO",
+    "area": "LICENSING",
+    "id": "MLO-RENEW",
+    "title": "Individual Colorado mortgage loan originator renewal",
+    "authority": "Colorado Division of Real Estate October 2026 renewal guidance",
+    "sourceUrl": "https://content.govdelivery.com/accounts/CODORA/bulletins/42f200f",
+    "summary": "The October 2026 bulletin directs mortgage loan originators to renew through NMLS only for the November 1 to December 31, 2026 cycle. It describes education and active-status insurance and bond requirements.",
+    "evidence": "2026 NMLS request and receipt, CE, insurance and bond evidence for active status, contact update and regulator status.",
+    "counsel": "Confirm the effective rule and procedure for the particular cycle, active or inactive requirements, and reinstatement. Older Division material described a two-database procedure.",
+    "checkedOn": "2026-11-13",
+    "relatedSources": [
+      {
+        "label": "C.R.S. §12-10-708",
+        "url": "https://dre.colorado.gov/sites/dre/files/documents/2026_CREM_Ch%2008.pdf"
+      },
+      {
+        "label": "Prior Division handbook",
+        "url": "https://dre.colorado.gov/sites/dre/files/documents/New%20MLO%20Handbook%202025.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "LICENSING",
+    "id": "MLO-RENEW",
+    "title": "Individual Illinois mortgage loan originator renewal",
+    "authority": "Illinois IDFPR MLO renewal FAQs",
+    "sourceUrl": "https://idfpr.illinois.gov/banks/resfin/mlo/mlo-renewals-faqs.html",
+    "summary": "IDFPR lists December 31 as the end of regular renewal and the last day of February as the end of late renewal. The department distinguishes timely submission and complete renewal requirements from permission to originate.",
+    "evidence": "Individual authority, employer affiliation, education or first-year basis, NMLS request and fees, any late cycle and IDFPR approved status.",
+    "counsel": "Verify the exact approved status before origination, how a timely but pending request affects activity, and the treatment of a late or deficient filing.",
+    "checkedOn": "2026-11-13",
+    "relatedSources": [
+      {
+        "label": "Illinois IDFPR individual licensing",
+        "url": "https://idfpr.illinois.gov/banks/resfin/mlo.html"
+      }
+    ]
   }
 ]

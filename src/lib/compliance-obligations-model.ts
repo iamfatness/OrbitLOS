@@ -33,7 +33,9 @@ const change = { requestId: z.uuid() };
 const occurrence = { ...scope, id: z.uuid(), period: z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/) };
 const licensingSources = [
   "REQ-MI-LICENSING-FIRST-RENEW", "REQ-MI-LICENSING-SECOND-RENEW",
-  "REQ-MI-LICENSING-MLO-RENEW",
+  "REQ-MI-LICENSING-MLO-RENEW", "REQ-FL-LICENSING-MLO-RENEW", "REQ-TX-LICENSING-MLO-RENEW",
+  "REQ-NY-LICENSING-MLO-RENEW", "REQ-CO-LICENSING-MLO-RENEW", "REQ-IL-LICENSING-MLO-RENEW",
+  "REQ-CA-LICENSING-DRE-MLO-RNW", "REQ-CA-LICENSING-DFPI-MLO-RNW",
   "REQ-TX-LICENSING-CO-RENEW", "REQ-TX-LICENSING-BANKER-RENEW",
   "REQ-CA-LICENSING-CFL-ASSESS", "REQ-CA-LICENSING-DRE-RENEW",
 ];
@@ -159,6 +161,9 @@ const texasRenewal: FilingRule = {
   route: "NMLS company renewal", cadence: "Calendar annual", from: "2026-01-01", due: through => through,
   review: "Verify the applicable Texas SML renewal instructions, receipt and current license or registration status.",
 };
+function individualRenewal(route: string, review: string, due: FilingRule["due"] = through => through): FilingRule {
+  return { route, review, cadence: "Calendar annual", from: "2026-01-01", due };
+}
 function firstThreeFiscalQuarters(through: string, _: ObligationDraft["cadence"], annualStartMonth = 1) {
   return Number(through.slice(5, 7)) === ((annualStartMonth + 10) % 12) + 1 ? null : shiftReportDate(through, 30);
 }
@@ -168,6 +173,22 @@ const filings: Partial<Record<string, FilingRule>> = {
   "REQ-MI-LICENSING-MLO-RENEW": { route: "NMLS individual MLO renewal", cadence: "Calendar annual",
     from: "2026-01-01", due: through => through,
     review: "Review Michigan originators individually by NMLS ID. The May 2026 DIFS FAQ lists December 31. Verify current-year instructions against the older checklist, education before the request or a documented exception, sponsor, bond, fee, receipt and renewed status." },
+  "REQ-CA-LICENSING-DRE-MLO-RNW": individualRenewal("NMLS DRE individual MU4 endorsement renewal",
+    "Confirm the actual expiry. For an endorsement issued on or after November 1, DRE describes expiry at the end of the following year. Verify underlying DRE authority, education in NMLS, renewal approval and sponsorship.",
+    through => through === "2026-12-31" ? through : null),
+  "REQ-CA-LICENSING-DFPI-MLO-RNW": individualRenewal("NMLS DFPI individual MLO renewal",
+    "Verify the DFPI sponsor, CE, fees and background or credit items. Distinguish a timely pending renewal from expired authority and check reinstatement if December 31 was missed."),
+  "REQ-FL-LICENSING-MLO-RENEW": individualRenewal("NMLS Florida individual loan originator renewal",
+    "Verify the completed request, education, credit authorization, fees or waiver, and regulator status. For a missed renewal, review whether all requirements and fees were met before March 1."),
+  "REQ-TX-LICENSING-MLO-RENEW": individualRenewal("NMLS Texas SML individual RMLO renewal",
+    "Confirm SML authority, the sponsor's renewal, the approved status or applicable deficiency conditions, and current CE and reinstatement instructions."),
+  "REQ-NY-LICENSING-MLO-RENEW": individualRenewal("NMLS New York individual MLO renewal",
+    "December 31 is the statutory annual expiration. Confirm DFS filing instructions, affiliation and current license status. Review the statutory fee-only reinstatement provision separately."),
+  "REQ-CO-LICENSING-MLO-RENEW": individualRenewal("NMLS Colorado individual MLO renewal",
+    "The October 2026 Division guidance specifies NMLS only for the 2026 cycle. Confirm the current route for other years, active-status insurance and bond, education, and final regulator status.",
+    through => through === "2026-12-31" ? through : null),
+  "REQ-IL-LICENSING-MLO-RENEW": individualRenewal("NMLS Illinois individual MLO renewal",
+    "Verify education or first-year basis, employer affiliation, fees and IDFPR status. For late renewals, verify the last day of February cutoff and approval before origination."),
   "REQ-CA-REPORTING-DRE-MCR": quarter("NMLS Mortgage Call Report", "Confirm DRE company coverage and current NMLS quarterly instructions."),
   "REQ-CA-LICENSING-DRE-RENEW": { route: "NMLS DRE company endorsement renewal", cadence: "Calendar annual",
     from: "2026-01-01", due: through => through,
