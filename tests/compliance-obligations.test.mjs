@@ -830,8 +830,20 @@ test("Colorado company renewal preserves receipt gaps and the regulator outcome 
  assert.equal(second.finding.renewalStatus,"Pending");
  assert.equal(second.finding.rows.at(-1).nominalDueOn,"2026-03-31");
  assert.equal(second.finding.rows.at(-1).timing,"Nominal date passed without receipt");
+ const historicalItem={itemReference:"Fictional 2024 Q2 deficiency",identified:{on:"2025-03-03",reference:"Fictional NMLS notice"}};
+ const update={...changed,expected:2,requestId:crypto.randomUUID()};
+ const corrected={...historicalItem,clearance:{on:"2026-11-10",reference:"Fictional NMLS clearance"}};
+ assert.ok(f.run({...update,evidence:{...changed.evidence,olderDeficiencies:[historicalItem,
+   {...historicalItem,itemReference:historicalItem.itemReference.toUpperCase()}]}}).error);
+ assert.ok(f.run({...update,evidence:{...changed.evidence,olderDeficiencies:[{...corrected,clearance:{...corrected.clearance,on:"2025-03-01"}}]}}).error);
+ const third=f.run({...update,evidence:{...changed.evidence,olderDeficiencies:[historicalItem]}});
+ assert.equal(third.finding.olderDeficiencies[0].finding,"Clearance evidence needed");
+ assert.equal(third.finding.renewalStatus,"Pending");
+ const fourth=f.run({...update,expected:3,requestId:crypto.randomUUID(),evidence:{...changed.evidence,olderDeficiencies:[corrected]}});
+ assert.equal(fourth.finding.olderDeficiencies[0].finding,"Clearance evidence recorded");
  const history=f.run({...target,operation:"coloradoCompanyRenewalHistory"});
- assert.equal(history.versions.length,2);
- assert.deepEqual(history.versions[1].finding,first.finding);
+ assert.equal(history.versions.length,4);
+ assert.equal(history.versions[1].finding.olderDeficiencies[0].finding,"Clearance evidence needed");
+ assert.deepEqual(history.versions[3].finding,JSON.parse(JSON.stringify(first.finding)));
  assert.ok(f.run({...target,entityId:crypto.randomUUID(),operation:"coloradoCompanyRenewalHistory"}).error);
 });

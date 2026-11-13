@@ -18,9 +18,17 @@ export const coloradoCompanyRenewalEvidence = z.strictObject({
   filingInventoryReference: reference,
   priorFiscalYearEnd: z.iso.date().optional(),
   receipts: z.array(receipt).max(8),
+  olderDeficiencies: z.array(z.strictObject({
+    itemReference: reference,
+    identified: event,
+    clearance: event.optional(),
+  })).max(30).optional(),
   renewalRequest: event.optional(),
   regulatorStatus: event.extend({ status: z.enum(["Pending", "Renewed", "Expired", "Denied", "Other"]) }).optional(),
-}).superRefine(({ receipts }, ctx) => {
+}).superRefine(({ receipts, olderDeficiencies }, ctx) => {
+  const deficiencyKeys = olderDeficiencies?.map(item => item.itemReference.toLowerCase()) ?? [];
+  if (new Set(deficiencyKeys).size !== deficiencyKeys.length)
+    ctx.addIssue({ code: "custom", path: ["olderDeficiencies"], message: "Record each older filing deficiency once." });
   const keys = receipts.map(row => row.component + ":" + row.period);
   if (new Set(keys).size !== keys.length)
     ctx.addIssue({ code: "custom", path: ["receipts"], message: "Record one determination per component and period." });
@@ -58,6 +66,10 @@ export function reviewColoradoCompanyRenewal(evidence: ColoradoCompanyRenewalEvi
   });
   return {
     asOf, rows,
+    ...(evidence.olderDeficiencies ? { olderDeficiencies: evidence.olderDeficiencies.map(item => ({
+      ...item,
+      finding: item.clearance ? "Clearance evidence recorded" : "Clearance evidence needed",
+    })) } : {}),
     classificationNeedsReview: evidence.classification === "Needs review",
     renewalStatus: evidence.regulatorStatus?.status ?? "No regulator status recorded",
     requestRecorded: Boolean(evidence.renewalRequest),

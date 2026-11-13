@@ -394,6 +394,9 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       if (row.disposition.status === "Filed" && ((reportEnd && row.disposition.receipt.on < reportEnd) || row.disposition.receipt.on > asOf))
         return { error: "Record a filing receipt dated on or after period end and on or before today." };
     }
+    if (evidence.olderDeficiencies?.some(({ identified, clearance }) =>
+      identified.on > asOf || (clearance && (clearance.on < identified.on || clearance.on > asOf))))
+      return { error: "Check the dates and order of older filing deficiencies and clearance evidence." };
     const { renewalRequest, regulatorStatus } = evidence;
     if ([renewalRequest?.on, regulatorStatus?.on].some(on => on && (on < snapshot.period.from || on > asOf)) ||
       (renewalRequest && regulatorStatus?.status === "Renewed" && regulatorStatus.on < renewalRequest.on))

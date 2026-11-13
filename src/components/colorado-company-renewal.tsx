@@ -187,6 +187,7 @@ export function ColoradoCompanyRenewal({ brokerageId, entityId, obligationId, pe
         { status, receipt: dated(prefix) } : { status, reference: get(prefix + "Reference") } }] : [];
     });
     const evidence = coloradoCompanyRenewalEvidence.safeParse({
+      olderDeficiencies: latest?.evidence.olderDeficiencies,
       classification: get("classification"), classificationReference: get("classificationReference"),
       filingInventoryReference: get("filingInventoryReference"), priorFiscalYearEnd: get("priorFiscalYearEnd") || undefined, receipts,
       renewalRequest: form.has("renewal") ? dated("renewal") : undefined,
