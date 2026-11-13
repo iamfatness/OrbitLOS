@@ -40,13 +40,13 @@ function evidenceFromRow(row: Row): IncomeEvidence {
     recipient: (row.recipient ?? primaryDocumentRecipient) as DocumentRecipient };
 }
 
-function verificationEvidence(db: Store, loanId: string): IncomeEvidence[] {
+function verificationEvidence(db: Store, loanId: string, applicationRevision: number): IncomeEvidence[] {
   return db.prepare(`SELECT service.id, service.revision, service.kind, service.recipient,
     json_extract(receipt.value, '$.reference') AS returnReference, json_extract(receipt.value, '$.returnedAt') AS returnedAt,
     json_extract(receipt.value, '$.review.at') AS acceptedAt, json_extract(receipt.value, '$.review.actor') AS acceptedBy
     FROM service_orders service JOIN json_each(service.returns) receipt
-    WHERE service.loanId = ? AND service.recipient IS NOT NULL AND ${acceptedIncomeVerificationSql}
-    ORDER BY service.kind, returnedAt DESC, service.id LIMIT ?`).all(loanId, serviceOrderLimit).map((row) => ({
+    WHERE service.loanId = ? AND service.applicationRevision = ? AND service.recipient IS NOT NULL AND ${acceptedIncomeVerificationSql}
+    ORDER BY service.kind, returnedAt DESC, service.id LIMIT ?`).all(loanId, applicationRevision, serviceOrderLimit).map((row) => ({
     ...evidenceFromRow(row), returnReference: String(row.returnReference), verification: {
       kind: row.kind as NonNullable<IncomeEvidence["verification"]>["kind"],
       returnedAt: String(row.returnedAt), acceptedAt: String(row.acceptedAt), acceptedBy: String(row.acceptedBy),
@@ -60,7 +60,7 @@ function worksheetRecord(row: Row): IncomeWorksheetRecord {
 
 function validEvidence(db: Store, loanId: string, revision: number) {
   return Boolean(db.prepare(`SELECT 1 FROM loan_income_worksheets income WHERE income.loanId = ? AND income.revision = ?
-    AND ${incomeEvidenceMatchesSql("income.loanId", "income.evidence")}`).get(loanId, revision));
+    AND ${incomeEvidenceMatchesSql("income.loanId", "income.evidence", "income.applicationRevision")}`).get(loanId, revision));
 }
 
 function readWorksheet(db: Store, loanId: string, currentFile: Row, staff: WorkspaceStaff, asOf: string): IncomeWorksheetPage {
@@ -78,7 +78,7 @@ function readWorksheet(db: Store, loanId: string, currentFile: Row, staff: Works
   const eligible = applicationRevision === null ? [] : [
     ...db.prepare(`SELECT id, revision, kind, recipient FROM document_requests
       WHERE loanId = ? AND ${acceptableEvidence} ORDER BY kind, requestedAt DESC, id LIMIT 60`).all(loanId).map(evidenceFromRow),
-    ...verificationEvidence(db, loanId),
+    ...verificationEvidence(db, loanId, applicationRevision),
   ];
   return { applicationRevision, reviewed: Boolean(currentFile.reviewedAt), canEdit: Boolean(currentFile.active) && applicationRevision !== null,
     canApprove: staff.brokerage.role !== "Processor", asOf, recipients: documentRecipients.slice(0, currentFile.joint ? 2 : 1),

@@ -8,7 +8,7 @@ export const acceptedIncomeVerificationSql = `service.status = 'Completed'
   AND json_extract(receipt.value, '$.review.decision') = 'Accepted'`;
 
 // The caller supplies trusted SQL expressions. The predicate checks the exact accepted revisions used in the review.
-export function incomeEvidenceMatchesSql(loanId: string, evidence: string) {
+export function incomeEvidenceMatchesSql(loanId: string, evidence: string, applicationRevision: string) {
   return `NOT EXISTS (SELECT 1 FROM json_each(${evidence}) linked WHERE NOT (
     (json_extract(linked.value, '$.returnReference') IS NULL AND EXISTS (
       SELECT 1 FROM document_requests request WHERE request.loanId = ${loanId}
@@ -17,6 +17,7 @@ export function incomeEvidenceMatchesSql(loanId: string, evidence: string) {
     OR EXISTS (
       SELECT 1 FROM service_orders service JOIN json_each(service.returns) receipt
       WHERE service.loanId = ${loanId} AND service.id = json_extract(linked.value, '$.id')
+        AND service.applicationRevision = ${applicationRevision}
         AND service.revision = json_extract(linked.value, '$.revision') AND service.recipient = json_extract(linked.value, '$.recipient')
         AND json_extract(receipt.value, '$.reference') = json_extract(linked.value, '$.returnReference')
         AND ${acceptedIncomeVerificationSql})
@@ -29,7 +30,7 @@ export function approvedIncomeSql(loanId: string, revision: string) {
       AND income.revision = (SELECT max(latest.revision) FROM loan_income_worksheets latest WHERE latest.loanId = income.loanId)
       AND app.revision = income.applicationRevision AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL
       AND coalesce(app.correctionNote, '') = '' AND json_extract(app.draft, '$.confirmedDemo') = 1
-      AND ${incomeEvidenceMatchesSql("income.loanId", "income.evidence")}`;
+      AND ${incomeEvidenceMatchesSql("income.loanId", "income.evidence", "income.applicationRevision")}`;
 }
 
 export function approvedIncomeAmount(db: Store, loanId: string, revision: number) {

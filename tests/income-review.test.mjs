@@ -102,7 +102,8 @@ test("income verification approval pins the borrower and return through an older
   const db = sqliteStore(sqlite);
   initializeStore(db, false);
   const now = new Date(), at = now.toISOString();
-  const loanId = randomUUID(), tenant = randomUUID(), token = portalToken(tenant), revision = 1;
+  const loanId = randomUUID(), tenant = randomUUID(), token = portalToken(tenant);
+  let revision = 1;
   const officer = { name: "Fictional LO", email: "lo@example.test", brokerage: { id: tenant, role: "LO", pilot: true } };
   const processor = { name: "Fictional Processor", email: "processor@example.test", brokerage: { ...officer.brokerage, role: "Processor" } };
   const outsider = { ...processor, email: "another@example.test" };
@@ -120,6 +121,17 @@ test("income verification approval pins the borrower and return through an older
   const work = (input, actor = officer) => incomeWorksheetWork(db, { loanId, ...input }, actor, tenant, now);
   const mutate = (type, version, fields = {}) => ({ type, revision: version, applicationRevision: revision, requestId: randomUUID(), ...fields });
   const orderId = randomUUID(), assetId = randomUUID();
+  const prior = { type: "createServiceOrder", orderId: randomUUID(), kind: "Employment verification", dueOn: easternDate(now),
+    recipient: "Co-borrower", note: "" };
+  db.prepare("UPDATE applications SET submittedAt = NULL WHERE loanId = ?").run(loanId);
+  assert.ok((await send(prior, processor)).message);
+  db.prepare("UPDATE applications SET submittedAt = ? WHERE loanId = ?").run(at, loanId);
+  assert.match((await send(prior, processor)).message, /already recorded/);
+  const delayedReturn = { type: "updateServiceOrder", orderId: prior.orderId, revision: 0, action: "Simulate return", note: "" };
+  assert.ok((await send(delayedReturn, processor)).message);
+  assert.ok((await send({ ...delayedReturn, revision: 1, action: "Accept" }, processor)).message);
+  assert.equal(db.prepare("SELECT applicationRevision FROM service_orders WHERE id = ?").get(prior.orderId).applicationRevision, null);
+  assert.deepEqual(work({ type: "read" }).page.eligible, []);
   for (const [id, kind] of [[orderId, "Income verification"], [assetId, "Asset verification"]]) {
     const created = await send({ type: "createServiceOrder", orderId: id, kind, dueOn: easternDate(now), recipient: "Co-borrower", note: "" }, processor);
     assert.ok(created.message, created.error);
@@ -159,7 +171,7 @@ test("income verification approval pins the borrower and return through an older
   assert.deepEqual(work({ type: "read", worksheetRevision: quote.incomeReviewRevision }).page.requested, approved);
   assert.match(work({ type: "read", worksheetRevision: 100 }).error, /unavailable/);
   assert.match(work({ type: "read", worksheetRevision: approved.revision }, outsider).error, /fictional loans/);
-  db.prepare("DELETE FROM service_orders WHERE id = ?").run(orderId);
+  db.prepare("UPDATE service_orders SET revision = revision + 1 WHERE id = ?").run(orderId);
   assert.equal(work({ type: "read" }).page.stale, "Evidence changed");
   assert.match((await send({ type: "selectOffer", runId: quote.id, offerId: quote.offers[0].id })).error, /reviewed income/i);
   const updated = work(mutate("save", approved.revision, { sources: [] })).page.record;
@@ -167,4 +179,17 @@ test("income verification approval pins the borrower and return through an older
   const historical = work({ type: "read", worksheetRevision: quote.incomeReviewRevision }).page;
   assert.equal(historical.record.revision, approved.revision + 1);
   assert.deepEqual(historical.requested, approved);
+
+  revision += 2;
+  db.prepare("UPDATE applications SET revision = ? WHERE loanId = ?").run(revision, loanId);
+  const corrected = work({ type: "read", worksheetRevision: approved.revision }).page;
+  assert.equal(corrected.stale, "1003 changed");
+  assert.deepEqual(corrected.requested, approved);
+  assert.deepEqual(corrected.eligible, []);
+  assert.match(work(mutate("save", updated.revision, { sources: [source] }), processor).error, /evidence changed/);
+  const newOrder = { ...prior, orderId: randomUUID(), kind: "Income verification" };
+  assert.ok((await send(newOrder, processor)).message);
+  assert.ok((await send({ ...delayedReturn, orderId: newOrder.orderId }, processor)).message);
+  assert.ok((await send({ ...delayedReturn, orderId: newOrder.orderId, revision: 1, action: "Accept" }, processor)).message);
+  assert.deepEqual(work({ type: "read" }).page.eligible.map(({ id }) => id), [newOrder.orderId]);
 });

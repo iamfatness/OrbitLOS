@@ -86,8 +86,10 @@ export function changeServiceOrder(db: Store, data: ServiceOrderCommand, staff: 
     if (Number(db.prepare("SELECT count(*) AS total FROM service_orders WHERE loanId = ?").get(loanId)?.total) >= serviceOrderLimit) {
       return { error: `This sample loan already has ${serviceOrderLimit} service orders.` };
     }
-    db.prepare(`INSERT INTO service_orders (id, loanId, kind, dueOn, originalDueOn, createdAt, createdBy, note, recipient)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(orderId, loanId, data.kind, data.dueOn, data.dueOn, at, actor, data.note, recipient);
+    const applicationRevision = recipient ? db.prepare(`SELECT revision FROM applications
+      WHERE loanId = ? AND submittedAt IS NOT NULL AND coalesce(correctionNote, '') = ''`).get(loanId)?.revision ?? null : null;
+    db.prepare(`INSERT INTO service_orders (id, loanId, kind, dueOn, originalDueOn, createdAt, createdBy, note, recipient, applicationRevision)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(orderId, loanId, data.kind, data.dueOn, data.dueOn, at, actor, data.note, recipient, applicationRevision);
     addApplicationActivity(db, loanId, `Recorded mock ${data.kind.toLowerCase()} order${recipient ? ` · ${recipient}` : ""} · Due ${data.dueOn} · ${actor}`, at);
     return { message: `Mock ${data.kind.toLowerCase()} order recorded.` };
   }
