@@ -103,7 +103,8 @@ function FilingSummary({ entry, review = entry.finding }: { entry: Version; revi
   </div>;
 }
 
-export function MichiganFilingEvidence({ brokerageId, entityId, obligationId, period, onBack }: Target & { onBack: () => void }) {
+export function MichiganFilingEvidence({ brokerageId, entityId, obligationId, period, onBack, backLabel = "Back to obligation" }:
+  Target & { onBack: () => void; backLabel?: string }) {
   const [data, setData] = useState<History>();
   const [load, setLoad] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -187,7 +188,7 @@ export function MichiganFilingEvidence({ brokerageId, entityId, obligationId, pe
 
   return <section className="record-form compliance-pilot-form" aria-label="Michigan filing evidence">
     <div className="section-heading"><h2 className="text-lg font-semibold" ref={title} tabIndex={-1}>Michigan filing evidence</h2>
-      <Button className="min-h-11" variant="outline" disabled={busy} onClick={onBack}>Back to obligation</Button></div>
+      <Button className="min-h-11" variant="outline" disabled={busy} onClick={onBack}>{backLabel}</Button></div>
     <p>{data ? <>{data.component} · {data.bounds.from} through {data.bounds.through}</> : period}</p>
     {data?.scopeChanged && <p role="status">The linked brokerage scope or source has changed. Review the current scope before relying on this record.</p>}
     {feedback && <p ref={message} tabIndex={-1} role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}

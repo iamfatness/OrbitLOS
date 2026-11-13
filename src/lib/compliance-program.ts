@@ -12,6 +12,7 @@ import { stateScopeBasisChanges, stateScopeLicenseSnapshot, stateScopeSourceBasi
 import { stateScopePageSize, type StateScopeSummary } from "./compliance-program-model";
 import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth, type ComplianceOwnerHomeData } from "./compliance-program-model";
 import { currentFilingProgress } from "./compliance-filing-progress";
+import { michiganFilingComponent } from "./michigan-filing-evidence-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -290,6 +291,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
       obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version), status: String(row.status),
       sourceUrl: draft.sourceUrl, authority: draft.authority, reportingBasis,
       filingReceipts: supportsFilingReceipts({ draft, stateBasis, reportingBasis }),
+      michiganFiling: draft.applicability !== "Not applicable" && Boolean(michiganFilingComponent(stateBasis?.sourceKey ?? "", draft)),
       stateBasis: stateBasis && { jurisdiction: stateBasis.jurisdiction, revision: stateBasis.revision, sourceKey: stateBasis.sourceKey,
         title: stateBasis.title, authority: stateBasis.authority, sourceUrl: stateBasis.sourceUrl },
       report: draft.preparation === "Mortgage Call Report" ? { year, quarter: Math.ceil(Number(month) / 3) } : undefined,

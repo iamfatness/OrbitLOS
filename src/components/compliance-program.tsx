@@ -6,6 +6,7 @@ import { programCategories, programStatuses, type ProgramEntity, type ProgramMon
 import type { ObligationReviewBasis } from "@/lib/compliance-obligations-model";
 import { dateLabel } from "@/lib/client-retention";
 import { ComplianceFilingReceipts } from "./compliance-filing-receipts";
+import { MichiganFilingEvidence } from "./michigan-filing-evidence";
 import { Button } from "./ui/button";
 
 const value = (form: FormData, name: string) => String(form.get(name) ?? "");
@@ -28,10 +29,13 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   const pendingTarget = useRef(target);
   const [status, setStatus] = useState("");
   const [evidenceGapsOnly, setEvidenceGapsOnly] = useState(false);
+  const [filingOpen, setFilingOpen] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const feedback = useRef<HTMLDivElement>(null);
   const returnToWork = useRef(false);
   const workButton = useRef<HTMLButtonElement>(null);
+  const filingButton = useRef<HTMLButtonElement>(null);
+  const returnToFilingButton = useRef(false);
   const active = useRef(false);
   const retry = useRef<{ body: string; id: string }>(undefined);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, [brokerageId]);
@@ -73,6 +77,11 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
     (workButton.current ?? heading.current)?.focus();
   }, [screen, loading]);
   useEffect(() => { if (error || notice) feedback.current?.focus(); }, [error, notice]);
+  useEffect(() => {
+    if (loading || !returnToFilingButton.current) return;
+    returnToFilingButton.current = false;
+    (filingButton.current ?? heading.current)?.focus();
+  }, [loading]);
   function reload() { setLoading(true); setError(""); setNotice(""); setData(undefined); refresh(v => v + 1); }
   function navigate(next: typeof screen) { setError(""); setNotice(""); setScreen(next); }
   async function save(input: Omit<Extract<ProgramRequest, { requestId: string }>, "requestId"> | object) {
@@ -122,6 +131,10 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   const formTitle = screen === "entity" ? "Add entity profile" : screen === "schedule" ? "Schedule review work" : screen === "review" ? "Record monthly review" :
     selected?.stateReview ? "State review question" : selected?.title ?? "Monthly review";
   if (paused) return <p>Program work is unavailable while the workspace is paused.</p>;
+  if (filingOpen && current && selected?.obligation?.michiganFiling) return <MichiganFilingEvidence
+    brokerageId={brokerageId} entityId={current.entity.id} obligationId={selected.obligation.obligationId}
+    period={selected.obligation.period} backLabel="Back to review work"
+    onBack={() => { returnToFilingButton.current = true; setFilingOpen(false); reload(); }} />;
   if (openingReview && loading && !error) return <section className="integration manager-panel record-form compliance-pilot-form" aria-label="Compliance program">
     <h2>Review work</h2>
     <p role="status">Loading the selected review…</p>
@@ -216,9 +229,11 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
           {screen === "schedule" ? <><label className="field">Review title<input name="title" required minLength={3} maxLength={160} /></label>
             <label className="field">Category<select name="category">{programCategories.map(c => <option key={c}>{c}</option>)}</select></label>
             <label className="field">Work to review<textarea name="instructions" required minLength={5} maxLength={1500} /></label></> : <>{!selected?.stateReview && !reporting && <p>{selected?.instructions}</p>}
-            {selected?.filingProgress && <div><h3>Filing evidence</h3><p>{selected.filingProgress.summary}</p>
+            {selected?.filingProgress && <div className="record-form"><h3>Filing evidence</h3><p>{selected.filingProgress.summary}</p>
               {selected.filingProgress.gaps.length > 0 && <ul className="list-disc pl-5">
-                {selected.filingProgress.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul>}</div>}
+                {selected.filingProgress.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul>}
+              {selected.obligation?.michiganFiling && <div><Button ref={filingButton} type="button" size="sm" variant="outline"
+                className="min-h-11" onClick={() => setFilingOpen(true)}>Review Michigan filing evidence</Button></div>}</div>}
             <label className="field">Work status<select name="status" defaultValue={selected?.status} aria-describedby="compliance-review-status-help">
               {programStatuses.map(s => <option key={s} disabled={s === "Completed" && !readyToComplete && selected?.status !== s}>{s}</option>)}
             </select></label>
