@@ -11,6 +11,7 @@ import { NewYorkEmploymentEvidence } from "./new-york-employment-evidence";
 import { ColoradoCompanyRenewal } from "./colorado-company-renewal";
 import { IllinoisAuditEvidence } from "./illinois-audit-evidence";
 import { NewYorkVoorEvidence } from "./new-york-voor-evidence";
+import { MichiganFilingEvidence } from "./michigan-filing-evidence";
 import { MichiganMloRenewal } from "./michigan-mlo-renewal";
 import { FloridaAmendments } from "./florida-amendments";
 
@@ -22,7 +23,7 @@ const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.
 const plannedReview = z.object({ entityId: z.uuid(), month: z.string(), itemId: z.uuid() });
 const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
   reportingBasis: reportingDateBasis.optional(), period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(), ownerEmail: z.string(), from: z.string(), through: z.string(),
-  coloradoCompanyRenewal: z.boolean().optional(), newYorkEmployment: z.boolean().optional(), newYorkVoor: z.boolean().optional(), illinoisAudit: z.boolean().optional(), michiganMloRenewal: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
+  coloradoCompanyRenewal: z.boolean().optional(), newYorkEmployment: z.boolean().optional(), newYorkVoor: z.boolean().optional(), illinoisAudit: z.boolean().optional(), michiganMloRenewal: z.boolean().optional(), michiganFiling: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
 })) });
 type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
@@ -50,7 +51,7 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
  const [selected,setSelected]=useState<Row|null>(),[history,setHistory]=useState<z.infer<typeof periods>>();
  const [planned,setPlanned]=useState<ProgramReviewTarget>();
  const [historyOffset,setHistoryOffset]=useState(0);
- const [evidence,setEvidence]=useState<{ type: "illinoisAudit" | "michiganMloRenewal" | "newYorkEmployment" | "newYorkVoor" | "coloradoCompanyRenewal"; period: string }>();
+ const [evidence,setEvidence]=useState<{ type: "illinoisAudit" | "michiganMloRenewal" | "michiganFiling" | "newYorkEmployment" | "newYorkVoor" | "coloradoCompanyRenewal"; period: string }>();
  const evidenceReturn=useRef<HTMLButtonElement>(null);
  const [floridaAmendments,setFloridaAmendments]=useState(false);
  const floridaReturn=useRef<HTMLButtonElement>(null);
@@ -210,6 +211,8 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
  {selected && evidence?.type === "newYorkVoor" && <NewYorkVoorEvidence brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
+ {selected && evidence?.type === "michiganFiling" && <MichiganFilingEvidence brokerageId={brokerageId} entityId={entityId}
+   obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
  {selected && evidence?.type === "coloradoCompanyRenewal" && <ColoradoCompanyRenewal brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
  {selected && evidence?.type === "illinoisAudit" && <IllinoisAuditEvidence brokerageId={brokerageId} entityId={entityId}
@@ -340,6 +343,9 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
              {period.michiganMloRenewal && <Button className="min-h-11" variant="outline" disabled={busy}
                onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: "michiganMloRenewal", period: period.period }); }}>
                Review Michigan renewal evidence</Button>}
+             {period.michiganFiling && <Button className="min-h-11" variant="outline" disabled={busy}
+               onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: "michiganFiling", period: period.period }); }}>
+               Review Michigan filing evidence</Button>}
          </li>)}</ul>
          {!history.items.length && <p>No periods recorded.</p>}
          {(historyOffset > 0 || history.more) && <div className="loan-application-actions">
