@@ -616,4 +616,20 @@ test("Florida amendments preserve distinct clocks and versioned evidence through
   assert.ok(work({ ...updated, requestId: crypto.randomUUID(), expected: 2, facts: { ...updated.facts,
     status: { on: "2026-11-02", reference: "Fictional status", outcome: "Acknowledged" } } }).error);
   assert.equal(work({ operation: "list" }).items.length, 4);
+  const filed = { on: "2026-10-07", reference: "Fictional OFR notice receipt" };
+  const instituted = { on: "2026-09-04", reference: "Fictional court docket reference" };
+  const broker = work(save({ kind: "Bankruptcy" }, { effective: instituted, filed })).versions[0];
+  assert.equal(broker.finding.authority, "Fla. Stat. §494.004(1)(c)");
+  assert.equal(broker.finding.dueOn, "2026-10-04");
+  assert.equal(broker.finding.timingStatus, "Filed after nominal date");
+  const lender = { authority: "Mortgage lender", effective: instituted, filed };
+  assert.equal(work(save({ kind: "Bankruptcy" }, lender)).versions[0].finding.timingStatus, "Verify business-day calendar");
+  const bankruptcyCalendar = { ...calendar, through: "2026-10-19", holidays: ["2026-09-07", "2026-10-12"] };
+  assert.equal(work(save({ kind: "Bankruptcy", calendar: bankruptcyCalendar }, lender)).versions[0].finding.dueOn, null);
+  const lenderNotice = save({ kind: "Bankruptcy", calendar: { ...bankruptcyCalendar, through: "2026-10-20" } }, lender);
+  const lenderFinding = work(lenderNotice).versions[0].finding;
+  assert.equal(lenderFinding.authority, "Fla. Stat. §494.0067(6)");
+  assert.equal(lenderFinding.dueOn, "2026-10-20");
+  assert.equal(lenderFinding.timingStatus, "Filed by nominal date");
+  assert.ok(work(save({ kind: "Bankruptcy" }, { effective: instituted, filed: { ...filed, on: "2026-09-03" } })).error);
 });
