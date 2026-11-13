@@ -1,3 +1,4 @@
+import { readColoradoRecordkeepingExport } from "./colorado-recordkeeping";
 import { readCaliforniaDfpiExport } from "./california-dfpi-recordkeeping";
 import { readCaliforniaDreRecordkeepingExport } from "./california-dre-recordkeeping";
 import { z } from "zod";
@@ -71,9 +72,13 @@ export function retentionAuditWork(db:Store, command:Command, staff:WorkspaceSta
     const californiaDfpi=version===null?readCaliforniaDfpiExport(db,staff.brokerage.id,null,exportLimit+1):undefined;
     if ((californiaDreRecordkeeping?.length ?? 0)>exportLimit || (californiaDfpi?.length ?? 0)>exportLimit)
       return {error:"This export exceeds 1,000 California evidence versions. Choose a policy version or export the selected loan."};
+    const coloradoRecordkeeping=version===null?readColoradoRecordkeepingExport(db,staff.brokerage.id,null,exportLimit+1):undefined;
+    if ((coloradoRecordkeeping?.length ?? 0)>exportLimit)
+      return {error:"This export exceeds 1,000 Colorado evidence versions. Choose a policy version or export the selected loan."};
     const json=JSON.stringify({format:1,exportedAt:now,brokerageId:staff.brokerage.id,policyVersion:version,
       latestVersion,policies,decisions:reviews.map(row=>row.decision),michiganRetention,
-      ...(californiaDreRecordkeeping?.length ? {californiaDreRecordkeeping} : {}), ...(californiaDfpi?.length ? {californiaDfpi} : {})},null,2);
+      ...(californiaDreRecordkeeping?.length ? {californiaDreRecordkeeping} : {}), ...(californiaDfpi?.length ? {californiaDfpi} : {}),
+      ...(coloradoRecordkeeping?.length ? {coloradoRecordkeeping} : {})},null,2);
     accessEvent(db,staff,"Prepared retention audit export",version===null?"All policies":`Policy version ${version}`,now);
     return {kind:"retentionAuditExport",json};
   }

@@ -1,3 +1,5 @@
+import { coloradoRecordkeepingRequest } from "./colorado-recordkeeping-model";
+import { coloradoRecordkeepingWork, initializeColoradoRecordkeeping, type ColoradoRecordkeepingResult } from "./colorado-recordkeeping";
 import { crmlaRegisterRequest } from "./crmla-register-model";
 import { crmlaRegisterWork, initializeCrmlaRegister, type CrmlaRegisterResult } from "./crmla-register";
 import { californiaDfpiRequest } from "./california-dfpi-recordkeeping-model";
@@ -21,6 +23,7 @@ const request = z.discriminatedUnion("type", [
   ...michiganRetentionRequest.options,
   ...californiaDreRecordkeepingRequest.options,
   ...californiaDfpiRequest.options,
+  ...coloradoRecordkeepingRequest.options,
   crmlaRegisterRequest,
   z.object({ type: z.literal("list"), heldOnly: z.boolean(), search: z.string().trim().max(100), offset: z.number().int().min(0).max(10000) }),
   z.object({ type: z.literal("history"), loanId }),
@@ -37,6 +40,7 @@ export function initializeLoanRetention(db: Store) {
   initializeMichiganRetention(db);
   initializeCaliforniaDreRecordkeeping(db);
   initializeCaliforniaDfpi(db);
+  initializeColoradoRecordkeeping(db);
   initializeCrmlaRegister(db);
   db.exec(`CREATE TABLE IF NOT EXISTS loan_retention_holds (
     id TEXT PRIMARY KEY, loanId TEXT NOT NULL, reference TEXT NOT NULL, placedAt TEXT NOT NULL, placedBy TEXT NOT NULL, placedByEmail TEXT NOT NULL,
@@ -79,10 +83,10 @@ export function initializeLoanRetention(db: Store) {
 type Hold = { id: string; reference: string; placedAt: string; placedBy: string; releaseReference: string | null;
   releasedAt: string | null; releasedBy: string | null };
 type LoanRow = { id: string; borrower: string; address: string; purpose: string; stage: string; requests: number; pdfs: number;
-  holdId: string | null; propertyState: string | null; canReviewCaliforniaDre: boolean; canReviewCaliforniaDfpi: boolean };
+  holdId: string | null; propertyState: string | null; canReviewCaliforniaDre: boolean; canReviewCaliforniaDfpi: boolean; canReviewColorado: boolean };
 type Work = { kind: "list"; loans: LoanRow[]; total: number; held: number; next: number | null } |
   { kind: "history"; holds: Hold[] } | { kind: "saved"; message: string } | DispositionQueue | RetentionAuditResult |
-  MichiganRetentionResult | MichiganBusinessRecords | CaliforniaDreRecordkeepingResult | CaliforniaDfpiResult | CrmlaRegisterResult | { error: string };
+  MichiganRetentionResult | MichiganBusinessRecords | CaliforniaDreRecordkeepingResult | CaliforniaDfpiResult | ColoradoRecordkeepingResult | CrmlaRegisterResult | { error: string };
 export type LoanRetentionResult = Work;
 
 export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceStaff, workspaceId: string, now = new Date().toISOString()): Work {
@@ -97,6 +101,8 @@ export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceSta
     if (data.type === "californiaDfpiHistory" || data.type === "saveCaliforniaDfpi") return californiaDfpiWork(db,data,staff,now);
     if (data.type === "californiaDreRecordkeepingHistory" || data.type === "saveCaliforniaDreRecordkeeping")
       return californiaDreRecordkeepingWork(db,data,staff,now);
+    if (data.type === "coloradoRecordkeepingHistory" || data.type === "saveColoradoRecordkeeping")
+      return coloradoRecordkeepingWork(db,data,staff,now);
     if (data.type === "crmlaRegister") return crmlaRegisterWork(db,data,staff,now);
     if (data.type === "retentionAudit" || data.type === "exportRetentionAudit")
       return retentionAuditWork(db,data,staff,now);
@@ -114,17 +120,21 @@ export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceSta
         EXISTS (SELECT 1 FROM california_dfpi_recordkeeping_reviews review WHERE review.brokerageId=? AND review.loanId=loan.id) AS dfpiHistory,
         EXISTS (SELECT 1 FROM call_report_facts report WHERE report.loanId=loan.id
           AND upper(trim(json_extract(report.facts,'$.state')))='CA') AS californiaReporting,
+        (EXISTS (SELECT 1 FROM colorado_recordkeeping_reviews review WHERE review.brokerageId=? AND review.loanId=loan.id)
+          OR EXISTS (SELECT 1 FROM call_report_facts report WHERE report.loanId=loan.id
+            AND upper(trim(json_extract(report.facts,'$.state')))='CO')) AS coloradoHistoryOrReporting,
         (SELECT count(*) FROM document_requests request WHERE request.loanId=loan.id) AS requests,
         (SELECT count(*) FROM (
           SELECT objectId FROM loan_retention_pdf_references WHERE loanId=loan.id
           UNION SELECT objectId FROM loan_retention_objects WHERE holdId=hold.id
         )) AS pdfs
-        ${source} ORDER BY contact.name COLLATE NOCASE,loan.id LIMIT 16 OFFSET ?`).all(workspaceId, workspaceId, ...args, data.offset) as
-        (Omit<LoanRow, "canReviewCaliforniaDre" | "canReviewCaliforniaDfpi"> & {dreHistory:number; dfpiHistory:number; californiaReporting:number})[];
+        ${source} ORDER BY contact.name COLLATE NOCASE,loan.id LIMIT 16 OFFSET ?`).all(workspaceId, workspaceId, workspaceId, ...args, data.offset) as
+        (Omit<LoanRow, "canReviewCaliforniaDre" | "canReviewCaliforniaDfpi" | "canReviewColorado"> & {dreHistory:number; dfpiHistory:number; californiaReporting:number; coloradoHistoryOrReporting:number})[];
       const held = Number(db.prepare("SELECT count(*) AS n FROM loan_retention_holds WHERE releasedAt IS NULL").get()?.n ?? 0);
-      return { kind: "list", loans: loans.slice(0, 15).map(({dreHistory, dfpiHistory, californiaReporting, ...loan}) => ({
+      return { kind: "list", loans: loans.slice(0, 15).map(({dreHistory, dfpiHistory, californiaReporting, coloradoHistoryOrReporting, ...loan}) => ({
         ...loan, canReviewCaliforniaDre: loan.propertyState === "CA" || Boolean(dreHistory || californiaReporting),
         canReviewCaliforniaDfpi: loan.propertyState === "CA" || Boolean(dfpiHistory || californiaReporting),
+        canReviewColorado: loan.propertyState === "CO" || Boolean(coloradoHistoryOrReporting),
       })), total: Number(count), held, next: loans.length > 15 ? data.offset + 15 : null };
     }
     if (!db.prepare("SELECT 1 FROM loans WHERE id=?").get(data.loanId)) return { error: "This loan is unavailable." };
