@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { shiftReportDate } from "./report-date-range";
 import { newYorkEmploymentEvidence } from "./new-york-employment-model";
+import { coloradoCompanyRenewalEvidence } from "./colorado-company-renewal-model";
 import { illinoisAuditEvidence } from "./illinois-audit-evidence-model";
 import { michiganMloRenewalEvidence, michiganOriginatorId } from "./michigan-mlo-renewal-model";
 
@@ -102,6 +103,9 @@ export const obligationRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("newYorkEmploymentHistory"), ...occurrence, before: z.int().positive().optional() }),
   z.strictObject({ operation: z.literal("saveNewYorkEmployment"), ...occurrence, ...change, expected: z.int().nonnegative(),
     evidence: newYorkEmploymentEvidence, correction: note.optional() }),
+  z.strictObject({ operation: z.literal("coloradoCompanyRenewalHistory"), ...occurrence, before: z.int().positive().optional() }),
+  z.strictObject({ operation: z.literal("saveColoradoCompanyRenewal"), ...occurrence, ...change, expected: z.int().nonnegative(),
+    evidence: coloradoCompanyRenewalEvidence, correction: note.optional() }),
   z.strictObject({ operation: z.literal("illinoisAuditHistory"), ...occurrence, before: z.int().positive().optional() }),
   z.strictObject({ operation: z.literal("saveIllinoisAudit"), ...occurrence, ...change, expected: z.int().nonnegative(),
     evidence: illinoisAuditEvidence, correction: note.optional() }),

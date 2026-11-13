@@ -8,6 +8,7 @@ import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, fi
   supportsFilingReceipts, type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
 import { prepareNewYorkEmploymentWorkpaper, reviewNewYorkEmployment, type NewYorkEmploymentEvidence } from "./new-york-employment-model";
+import { coloradoRenewalReportingPeriods, reviewColoradoCompanyRenewal, type ColoradoCompanyRenewalEvidence } from "./colorado-company-renewal-model";
 import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
@@ -33,6 +34,10 @@ export function initializeComplianceObligations(db: Store) {
     actor TEXT NOT NULL, at TEXT NOT NULL, correction TEXT,
     PRIMARY KEY(brokerageId,entityId,obligationId,period,originatorNmls,version));`);
   db.exec(`CREATE TABLE IF NOT EXISTS new_york_employment_versions (
+    brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL, version INTEGER NOT NULL,
+    evidence TEXT NOT NULL, finding TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, correction TEXT,
+    PRIMARY KEY(brokerageId,entityId,obligationId,period,version));`);
+  db.exec(`CREATE TABLE IF NOT EXISTS colorado_company_renewal_versions (
     brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL, version INTEGER NOT NULL,
     evidence TEXT NOT NULL, finding TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, correction TEXT,
     PRIMARY KEY(brokerageId,entityId,obligationId,period,version));`);
@@ -346,6 +351,58 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     db.prepare("INSERT INTO new_york_employment_versions VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(...target, version, JSON.stringify(evidence), JSON.stringify(finding), staff.email, now, data.correction ?? null);
     const result = { kind: "newYorkEmploymentSaved", version, finding, scopeChanged };
+    db.prepare("INSERT INTO compliance_obligation_events VALUES (?,?,?,?,?,?,?)")
+      .run(tenant, data.requestId, data.entityId, staff.email, now, request, JSON.stringify(result));
+    return result;
+  }
+  if (data.operation === "coloradoCompanyRenewalHistory" || data.operation === "saveColoradoCompanyRenewal") {
+    const target = [tenant, data.entityId, data.id, data.period] as const;
+    const occurrence = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...target);
+    const snapshot = occurrence ? JSON.parse(String(occurrence.snapshot)) as OccurrenceSnapshot : null;
+    const basis = snapshot?.stateBasis;
+    const nominalDueOn = snapshot?.reportingBasis?.nominalDueOn;
+    const year = Number(data.period.slice(0, 4));
+    if (!snapshot || basis?.sourceKey !== "REQ-CO-LICENSING-CO-RENEW" || !nominalDueOn || year < 2026 ||
+      snapshot.draft.applicability === "Not applicable") return unavailable;
+    const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Denver", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+    const scopeChanged = !basisIsCurrent(basis);
+    if (data.operation === "coloradoCompanyRenewalHistory") {
+      const before = data.before ?? null;
+      const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM colorado_company_renewal_versions
+        WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND (? IS NULL OR version<?) ORDER BY version DESC LIMIT 21`)
+        .all(...target, before, before);
+      const versions = rows.slice(0, 20).map(row => ({ ...row, evidence: JSON.parse(String(row.evidence)) as ColoradoCompanyRenewalEvidence,
+        finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewColoradoCompanyRenewal> }));
+      return { kind: "coloradoCompanyRenewalHistory", nominalDueOn, scopeChanged, versions,
+        currentFinding: before === null && versions[0] ? reviewColoradoCompanyRenewal(versions[0].evidence, year, asOf) : null,
+        next: rows.length > 20 ? rows[19].version : null };
+    }
+    const request = JSON.stringify(data);
+    const replay = db.prepare("SELECT actor,request,result FROM compliance_obligation_events WHERE brokerageId=? AND requestId=?").get(tenant, data.requestId);
+    if (replay) return replay.actor === staff.email && replay.request === request ? JSON.parse(String(replay.result)) : changed;
+    const current = db.prepare(`SELECT MAX(version) version FROM colorado_company_renewal_versions
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...target);
+    if (Number(current?.version ?? 0) !== data.expected) return changed;
+    if (data.expected && !data.correction) return { error: "Record a reason for updating the renewal evidence." };
+    const { evidence } = data;
+    const periods = coloradoRenewalReportingPeriods(year, evidence.classification);
+    for (const row of evidence.receipts) {
+      const period = periods.find(item => item.component === row.component && item.period === row.period);
+      if (!period) return { error: "Match the filing component and period to the selected reporting classification." };
+      const reportEnd = row.component === "Financial Condition" && evidence.classification === "Broker only" ? evidence.priorFiscalYearEnd : period.through;
+      if (row.disposition.status === "Filed" && ((reportEnd && row.disposition.receipt.on < reportEnd) || row.disposition.receipt.on > asOf))
+        return { error: "Record a filing receipt dated on or after period end and on or before today." };
+    }
+    const { renewalRequest, regulatorStatus } = evidence;
+    if ([renewalRequest?.on, regulatorStatus?.on].some(on => on && (on < snapshot.period.from || on > asOf)) ||
+      (renewalRequest && regulatorStatus?.status === "Renewed" && regulatorStatus.on < renewalRequest.on))
+      return { error: "Check the dates and order of the renewal request and regulator status." };
+    const version = data.expected + 1;
+    const finding = reviewColoradoCompanyRenewal(evidence, year, asOf);
+    db.prepare("INSERT INTO colorado_company_renewal_versions VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run(...target, version, JSON.stringify(evidence), JSON.stringify(finding), staff.email, now, data.correction ?? null);
+    const result = { kind: "coloradoCompanyRenewalSaved", version, finding, scopeChanged };
     db.prepare("INSERT INTO compliance_obligation_events VALUES (?,?,?,?,?,?,?)")
       .run(tenant, data.requestId, data.entityId, staff.email, now, request, JSON.stringify(result));
     return result;

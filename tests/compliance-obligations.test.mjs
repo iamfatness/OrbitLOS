@@ -798,3 +798,40 @@ test("New York employment reporting preserves separate prompt notices and quarte
   assert.ok(f.run({ ...target, operation: "newYorkEmploymentWorkpaper", version: 3 }, f.staff, []).error);
 
 });
+
+test("Colorado company renewal preserves receipt gaps and the regulator outcome separately", t => {
+ const f = fixture(t);
+ const jurisdiction = "CO";
+ const scope = complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction,
+   expectedRevision:0,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional Colorado registration",
+    officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
+   f.staff,f.staff.brokerage.id,[f.actor],"2026-11-11T12:00:00Z");
+ assert.equal(f.run(f.save({draft:{...f.draft,cadence:"Annual"},stateReference:{jurisdiction,revision:scope.revision,
+   sourceKey:"REQ-CO-LICENSING-CO-RENEW"}})).revision,1);
+ const target={entityId:f.entityId,id:f.id,period:"2026-01"};
+ assert.equal(f.run(f.generate({period:target.period})).kind,"obligationOccurrence");
+ const receipt={component:"Mortgage Call Report",period:"2025-10",disposition:{status:"Filed",
+   receipt:{on:"2026-02-15",reference:"Fictional late call report receipt"}}};
+ const evidence={classification:"Broker only",classificationReference:"Fictional brokerage review",
+   filingInventoryReference:"Fictional NMLS inventory",receipts:[receipt]};
+ const save={...target,operation:"saveColoradoCompanyRenewal",requestId:crypto.randomUUID(),expected:0,evidence};
+ assert.ok(f.run(save,f.staff,[]).error);
+ assert.ok(f.run({...save,evidence:{...evidence,receipts:[receipt,receipt]}}).error);
+ const first=f.run(save);
+ assert.equal(first.finding.rows.length,5);
+ assert.equal(first.finding.rows[0].timing,"Receipt after nominal date");
+ assert.equal(first.finding.rows.at(-1).timing,"Verify fiscal year and filing date");
+ assert.equal(first.finding.renewalStatus,"No regulator status recorded");
+ assert.deepEqual(f.run(save),first);
+ const changed={...save,expected:1,requestId:crypto.randomUUID(),correction:"Fictional corrected evidence",
+   evidence:{...evidence,priorFiscalYearEnd:"2025-12-31",renewalRequest:{on:"2026-11-09",reference:"Fictional NMLS request"},
+   regulatorStatus:{status:"Pending",on:"2026-11-10",reference:"Fictional regulator status"}}};
+ const second=f.run(changed);
+ assert.equal(second.finding.renewalStatus,"Pending");
+ assert.equal(second.finding.rows.at(-1).nominalDueOn,"2026-03-31");
+ assert.equal(second.finding.rows.at(-1).timing,"Nominal date passed without receipt");
+ const history=f.run({...target,operation:"coloradoCompanyRenewalHistory"});
+ assert.equal(history.versions.length,2);
+ assert.deepEqual(history.versions[1].finding,first.finding);
+ assert.ok(f.run({...target,entityId:crypto.randomUUID(),operation:"coloradoCompanyRenewalHistory"}).error);
+});
