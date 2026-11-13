@@ -28,12 +28,13 @@ export const obligationDraft = z.strictObject({
 });
 const scope = { entityId: z.uuid() };
 const change = { requestId: z.uuid() };
-const companyRenewals = [
+const licensingSources = [
   "REQ-MI-LICENSING-FIRST-RENEW", "REQ-MI-LICENSING-SECOND-RENEW",
   "REQ-TX-LICENSING-CO-RENEW", "REQ-TX-LICENSING-BANKER-RENEW",
+  "REQ-CA-LICENSING-CFL-ASSESS",
 ];
 export const isObligationStateSource = (key: string) =>
-  /^REQ-[A-Z]{2}-REPORTING-[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(key) || companyRenewals.includes(key);
+  /^REQ-[A-Z]{2}-REPORTING-[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(key) || licensingSources.includes(key);
 export const obligationStateReference = z.strictObject({
   jurisdiction: z.string().regex(/^[A-Z]{2}$/),
   revision: z.number().int().positive(),
@@ -154,6 +155,11 @@ const filings: Partial<Record<string, FilingRule>> = {
   "REQ-CA-REPORTING-CFLANNUAL": { route: "DFPI self-service portal", cadence: "Calendar annual",
     due: through => `${Number(through.slice(0, 4)) + 1}-03-15`,
     review: "Verify report-year business-day instructions and the no-business schedules with counsel." },
+  "REQ-CA-REPORTING-CFL-MCR": quarter("NMLS Residential Mortgage Loan Activity",
+    "Confirm covered residential activity under the CFL authority, the current NMLS calendar, no-activity treatment and any shared filing receipt. Review Financial Condition separately."),
+  "REQ-CA-LICENSING-CFL-ASSESS": { route: "DFPI annual assessment payment per invoice", cadence: "Calendar annual",
+    due: through => `${through.slice(0, 4)}-10-31`,
+    review: "Use the calendar year the assessment notice is issued. Reconcile licensed locations and the current DFPI invoice, payment instructions and receipt." },
   "REQ-CA-REPORTING-CRMLA-ANNUAL": { route: "DFPI self-service portal", cadence: "Calendar annual",
     due: through => `${Number(through.slice(0, 4)) + 1}-03-01`,
     review: "Confirm CRMLA authority, the current annual schedules, attestation and applicable no-activity instructions." },

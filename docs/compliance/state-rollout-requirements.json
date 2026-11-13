@@ -3665,6 +3665,36 @@
   {
     "jurisdiction": "CA",
     "area": "REPORTING",
+    "id": "CFL-MCR",
+    "title": "DFPI California Financing Law quarterly residential mortgage activity",
+    "authority": "Cal. Fin. Code §22159(c)–(d), 10 CCR §1430.5(b) and NMLS FV7 instructions",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-financing-law/requirements-after-a-finance-lenders-license-has-been-issued/",
+    "summary": "DFPI directs covered residential mortgage lenders and brokers under the California Financing Law to file the NMLS Mortgage Call Report. The NMLS FV7 loan activity component is due within 45 days after the calendar quarter.",
+    "evidence": "CFL authority, residential scope, reconciled quarterly activity or zero-activity basis, filing version and NMLS receipt.",
+    "counsel": "Confirm coverage for the license and activities, when a commercial-only entity may disregard a reminder, whether a receipt supports another California authority, and the separate Financial Condition component.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "NMLS FV7 submission dates and components",
+        "url": "https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/pubs/mcr/licensing/mcr/topics/mcrUserGuide_start-1.html"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "LICENSING",
+    "id": "CFL-ASSESS",
+    "title": "DFPI California Financing Law annual assessment",
+    "authority": "Cal. Fin. Code §22107 and DFPI licensee instructions",
+    "sourceUrl": "https://dfpi.ca.gov/regulated-industries/california-financing-law/requirements-after-a-finance-lenders-license-has-been-issued/",
+    "summary": "DFPI describes annual assessment notice by September 30 and payment by October 31. Review the actual assessment for each licensed location.",
+    "evidence": "Assessment notice and invoice year, license and licensed locations, amount due, payment and DFPI receipt or reconciliation.",
+    "counsel": "Confirm the assessed entity, payment deadline and handling of a missing or disputed notice, location changes or license status issues.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CA",
+    "area": "REPORTING",
     "id": "CRMLA-ANNUAL",
     "title": "DFPI residential mortgage lender or servicer annual report",
     "authority": "Cal. Fin. Code §50307 and DFPI CRMLA annual report instructions",

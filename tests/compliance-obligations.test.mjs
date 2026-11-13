@@ -141,8 +141,9 @@ test("California reporting links DRE, CFL and CRMLA obligations with distinct fi
   f.staff,f.staff.brokerage.id,[f.actor],now);
  assert.equal(scope.revision,1);
  const sources=f.run({operation:"stateSources",entityId:f.entityId}).items;
- const save=(suffix,draft,id=crypto.randomUUID())=>{
-  const sourceKey=`REQ-CA-REPORTING-${suffix}`;
+ const save=(suffix,draft,area="REPORTING")=>{
+  const id=crypto.randomUUID();
+  const sourceKey=`REQ-CA-${area}-${suffix}`;
   assert(sources.some(item=>item.sourceKey===sourceKey));
   const saved=f.run(f.save({id,stateReference:{jurisdiction,revision:1,sourceKey},draft:{...f.draft,...draft}}));
   assert.equal(saved.revision,1);
@@ -168,6 +169,20 @@ test("California reporting links DRE, CFL and CRMLA obligations with distinct fi
  assert.equal(cflPeriod.reportingBasis.route,"DFPI self-service portal");
  const mismatched=save("CFLANNUAL",{...annual,annualStartMonth:7});
  assert.equal(generate(mismatched,"2025-07").occurrence.status,"Applicability review gap");
+ const cflActivity=save("CFL-MCR",{...annual,cadence:"Quarterly"});
+ const cflActivityBasis=JSON.parse(generate(cflActivity,"2026-10").occurrence.snapshot).reportingBasis;
+ assert.equal(cflActivityBasis.route,"NMLS Residential Mortgage Loan Activity");
+ assert.equal(cflActivityBasis.nominalDueOn,"2027-02-14");
+ assert.match(cflActivityBasis.review,/Review Financial Condition separately/);
+ assert.equal(generate(save("CFL-MCR",annual),"2026-01").occurrence.status,"Applicability review gap");
+ const assessment=save("CFL-ASSESS",annual,"LICENSING");
+ const assessmentBasis=JSON.parse(generate(assessment,"2026-01").occurrence.snapshot).reportingBasis;
+ assert.equal(assessmentBasis.route,"DFPI annual assessment payment per invoice");
+ assert.equal(assessmentBasis.nominalDueOn,"2026-10-31");
+ assert.equal(generate(save("CFL-ASSESS",{...annual,annualStartMonth:7},"LICENSING"),"2026-07").occurrence.status,"Applicability review gap");
+ assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:assessment,period:"2026-01",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
+ assert.match(f.sql.prepare("SELECT instructions FROM compliance_program_items WHERE instructions LIKE '%CFL-ASSESS%'").get().instructions,
+  /DFPI annual assessment payment per invoice.*2026-10-31/);
  const crmla=save("CRMLA-ANNUAL",annual);
  assert.deepEqual(JSON.parse(generate(crmla,"2025-01").occurrence.snapshot).reportingBasis, {
   route:"DFPI self-service portal",nominalDueOn:"2026-03-01",
