@@ -83,6 +83,34 @@ test("a matching completion settles a lost commit response and allows the next s
   assert.equal(submitted, 1);
 });
 
+test("a corrected 1003 replaces only a scanned, uncommitted import", async (t) => {
+  const { db, api, writes } = setup(t);
+  const first = prepare();
+  await runUwmWorkflow(db, env, staff, first, api);
+  db.prepare("UPDATE applications SET revision=2").run();
+  const read = () => readUwmFile(db, env, staff, { loanId, view: "activity" });
+  assert.equal((await read()).imports[0].state, "Superseded");
+  const oldCommit = { ...base(), action: "commit-import", importId: first.id };
+  await assert.rejects(runUwmWorkflow(db, env, staff, oldCommit, api), /Review the current application/);
+  assert.equal(writes(), 3);
+  const create = api.createTransaction;
+  api.createTransaction = async () => ({ ...await create(), transactionId: "tx-replacement" });
+  const replacement = { ...prepare(), applicationRevision: 2 };
+  assert.equal((await runUwmWorkflow(db, env, staff, replacement, api)).result.transactionId, "tx-replacement");
+  const rows = (await read()).imports;
+  const prior = rows.find(row => row.id === first.id);
+  assert.deepEqual([prior.applicationRevision, prior.state, prior.transactionId, prior.committed], [1, "Superseded", "tx-fixture", 0]);
+  const commit = { ...base(), applicationRevision: 2, action: "commit-import", importId: replacement.id };
+  assert.equal((await runUwmWorkflow(db, env, staff, commit, api)).state, "Acknowledged");
+  db.prepare("UPDATE applications SET revision=3").run();
+  assert.equal((await read()).imports.find(row => row.id === replacement.id).state, "Acknowledged");
+  const blocked = await runUwmWorkflow(db, env, staff, { ...prepare(), applicationRevision: 3 }, api);
+  assert.match(blocked.error, /needs reconciliation/);
+  assert.equal(writes(), 7);
+  assert.equal(reconcileUwmImportReceipt(db, importReceipt(db)), "Needs review");
+  assert.equal(reconcileUwmImportReceipt(db, importReceipt(db, { transactionId: "tx-replacement" })), "Completed");
+});
+
 test("an import callback received during the HTTP call remains authoritative on return", async (t) => {
   for (const state of ["Completed", "NotCompleted"]) await t.test(state, async (subtest) => {
     const { db, api, writes } = setup(subtest);

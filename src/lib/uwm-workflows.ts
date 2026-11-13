@@ -204,6 +204,13 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
         if (!contacts.some(contact => String(contact.contactId) === input.scan.alternativeContactId)) throw new UwmError("Choose an alternative contact returned by this UWM branch.");
       }
       reviewed(db, input);
+      // A saved scan belongs to one reviewed revision. A prepared draft with
+      // no commit can be replaced, while sent or uncertain imports keep their
+      // existing reconciliation path and original transaction.
+      db.prepare(`UPDATE uwm_operations SET state='Superseded',updatedAt=?
+        WHERE loanId=? AND environment=? AND kind='import' AND state='Prepared' AND applicationRevision < ?
+        AND EXISTS (SELECT 1 FROM uwm_import_checks checks WHERE checks.operationId=uwm_operations.id AND checks.committed=0)`)
+        .run(now, input.loanId, environment, input.applicationRevision);
       prepareUwmOperation(db, staff, { id: input.id, loanId: input.loanId, applicationRevision: input.applicationRevision, environment, kind: "import", requestDigest: digest });
       beforeSend();
       const transaction = await api.createTransaction();
@@ -311,8 +318,11 @@ export async function readUwmFile(db: Store, env: UwmEnvironment, staff: Workspa
   recoverSavedImportReceipt(db, input.loanId, environment);
   if (input.view === "activity") return {
     uploads: { xml: Boolean(env.UWM_STORAGE_ORIGIN), documents: Boolean(env.UWM_DOCUMENT_STORAGE_ORIGIN) },
-    imports: db.prepare(`SELECT op.id,op.actor,op.applicationRevision,op.state,op.transactionId,op.lenderLoanNumber,checks.scan,checks.ready,checks.committed
+    imports: db.prepare(`SELECT op.id,op.actor,op.applicationRevision,
+      CASE WHEN op.state='Prepared' AND checks.committed=0 AND op.applicationRevision < app.revision THEN 'Superseded'
+        ELSE op.state END AS state,op.transactionId,op.lenderLoanNumber,checks.scan,checks.ready,checks.committed
       FROM uwm_operations op LEFT JOIN uwm_import_checks checks ON checks.operationId=op.id
+      LEFT JOIN applications app ON app.loanId=op.loanId
       WHERE op.loanId=? AND op.environment=? AND op.kind='import' ORDER BY op.startedAt DESC LIMIT 20`).all(input.loanId, environment),
     requests: db.prepare("SELECT id,action,state,createdAt,updatedAt FROM uwm_live_requests WHERE loanId=? AND environment=? ORDER BY createdAt DESC LIMIT 50").all(input.loanId, environment),
   };
