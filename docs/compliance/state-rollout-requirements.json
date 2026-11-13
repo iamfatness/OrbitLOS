@@ -342,6 +342,60 @@
     "checkedOn": "2026-11-12"
   },
   {
+    "jurisdiction": "IL",
+    "area": "REPORTING",
+    "id": "ANNUAL-AUDIT",
+    "title": "Illinois residential mortgage annual audit",
+    "authority": "205 ILCS 635/3-2(a), (d)",
+    "sourceUrl": "https://www.ilga.gov/ftp/ILCS/Ch%200205/Act%200635/020506350K3-2.html",
+    "summary": "The Act generally requires an independent annual audit and sets a 90-day fiscal-year deadline for filing with the regulator. It also addresses filing with NMLS when applicable and qualifying consolidated statements.",
+    "evidence": "License and activities, actual fiscal year end, certified audit and any supporting consolidating statements, applicable route and filing receipt.",
+    "counsel": "Confirm the IDFPR or NMLS route and calendar, any authorized extension, and the availability and evidence for consolidated statements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "REPORTING",
+    "id": "BROKER-COMP",
+    "title": "Illinois broker-only compilation financial statements",
+    "authority": "205 ILCS 635/3-2(g), (i)",
+    "sourceUrl": "https://www.ilga.gov/ftp/ILCS/Ch%200205/Act%200635/020506350K3-2.html",
+    "summary": "For a licensee that solely brokers residential mortgage loans, the regulator may accept compilation statements in place of the audit. The direct submission deadline is 90 days after fiscal year end.",
+    "evidence": "Sole brokering activity, acceptance and filing basis, actual fiscal year end, compilation statement and submission receipt.",
+    "counsel": "Confirm acceptance, the controlling route and date, and whether a separately obtained audit or review must be delivered at renewal.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "REPORTING",
+    "id": "ANNUAL-ACT",
+    "title": "Illinois annual activity report when separate filing applies",
+    "authority": "205 ILCS 635/4-8.3 and 38 Ill. Adm. Code §1050.610",
+    "sourceUrl": "https://www.ilga.gov/documents/legislation/ilcs/documents/020506350K4-8.3.htm",
+    "summary": "The Act and rule describe annual activity reporting, including a March 1 schedule and the use of NMLS reporting. IDFPR accepts timely, accurate NMLS MCRs in place of the listed activity reports.",
+    "evidence": "Applicable activity, annual reconciliation, explanation of why separate filing applies and the regulator's instructions and receipt.",
+    "counsel": "Confirm whether a separate report is required, whether IDFPR accepts a late or corrected MCR, and the exact deadline and submission route.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "IDFPR activity report substitution", "url": "https://idfpr.illinois.gov/banks/resfin/forms/rfformsb.html" }
+    ]
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "LOAN",
+    "id": "APLD-SUBMISSION",
+    "title": "Anti-Predatory Lending Database application and change submissions",
+    "authority": "765 ILCS 77/70(c), 72 and IDFPR APLD guidance",
+    "sourceUrl": "https://ilga.gov/documents/legislation/ilcs/documents/076500770K70.htm",
+    "summary": "For covered property and activity, the statute sets a 10-business-day submission period after the application and a five-business-day resubmission period after a change to loan terms or a new commitment.",
+    "evidence": "Property county, exemption or coverage basis, application and changed terms or commitment dates, filing receipts, counseling determination and certificate.",
+    "counsel": "Confirm the program area, loan and entity exemptions, responsible staff, business-day calendar, resubmission trigger and required evidence before closing.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "IDFPR APLD FAQ", "url": "https://idfpr.illinois.gov/content/dam/soi/en/web/idfpr/faq/bre/2025-idfpr-apld-faqs.pdf" }
+    ]
+  },
+  {
     "jurisdiction": "WI",
     "area": "REPORTING",
     "id": "FINSTAT",
@@ -3106,6 +3160,18 @@
     "summary": "Colorado provides for mortgage company registration through NMLS with separate individual originator licensing and specified exemptions.",
     "evidence": "Company registration, trade names, activity and individual authority, and any exemption evidence.",
     "counsel": "Confirm the company and individual authority, location and exemption rules for the proposed business.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CO",
+    "area": "LICENSING",
+    "id": "CO-RENEW",
+    "title": "Colorado mortgage company registration renewal",
+    "authority": "C.R.S. §12-10-705 and 4 CCR 725-3 rules 4.5 and 8.4",
+    "sourceUrl": "https://dre.colorado.gov/sites/dre/files/documents/2025%20Colorado%20Real%20Estate%20Manual-Chapter%2009.pdf",
+    "summary": "Colorado mortgage companies renew through NMLS by December 31. The board rules tie registration renewal to compliance, including timely MCR filing.",
+    "evidence": "Company registration, state business authority, timely MCR receipts, NMLS renewal submission and resulting registration status.",
+    "counsel": "Confirm renewal eligibility, any pending or late renewal restrictions, and requirements for reinstatement.",
     "checkedOn": "2026-11-12"
   },
   {

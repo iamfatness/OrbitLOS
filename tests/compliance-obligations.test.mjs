@@ -261,8 +261,13 @@ test("priority state reporting uses distinct periods and leaves unverified dates
  assert.ok(f.run(f.save({draft:{...f.draft,cadence:"Fiscal quarterly"}})).error);
  check("CO","MCR","Quarterly","2026-04","NMLS Mortgage Call Report","2026-08-14");
  check("CO","STD-FC","Annual","2025-07","NMLS Financial Condition",null,7);
+ check("CO","CO-RENEW","Annual","2026-01","NMLS company registration renewal","2026-12-31",1,"LICENSING");
  check("IL","ACTIVITY","Quarterly","2026-01","NMLS Mortgage Call Report","2026-05-15");
  check("IL","ACTIVITY","Annual","2025-01","NMLS Mortgage Call Report",null);
+ check("IL","ANNUAL-AUDIT","Annual","2025-07","Illinois IDFPR or applicable NMLS filing","2026-09-28",7);
+ check("IL","BROKER-COMP","Annual","2025-01","Illinois IDFPR or applicable NMLS filing","2026-03-31",1);
+ check("IL","BROKER-COMP","Annual","2025-01","Illinois IDFPR or applicable NMLS filing",null);
+ check("IL","ANNUAL-ACT","Annual","2025-01","Illinois IDFPR annual activity report",null);
  check("MI","FC","Annual","2025-01","NMLS Financial Condition","2026-03-31");
  check("MI","FC","Quarterly","2026-04","NMLS Financial Condition","2026-08-14");
  check("MI","FC","Annual","2025-07","NMLS Financial Condition",null,7);

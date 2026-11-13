@@ -31,6 +31,7 @@ const change = { requestId: z.uuid() };
 const companyRenewals = [
   "REQ-MI-LICENSING-FIRST-RENEW", "REQ-MI-LICENSING-SECOND-RENEW",
   "REQ-TX-LICENSING-CO-RENEW", "REQ-TX-LICENSING-BANKER-RENEW",
+  "REQ-CO-LICENSING-CO-RENEW",
 ];
 export const isObligationStateSource = (key: string) =>
   /^REQ-[A-Z]{2}-REPORTING-[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(key) || companyRenewals.includes(key);
@@ -195,10 +196,18 @@ const filings: Partial<Record<string, FilingRule>> = {
   "REQ-NY-REPORTING-QRES": { route: "Mail to New York DFS Mortgage Banking", cadence: "Quarterly", due: after(30), from: "2025-07-01",
     review: "Confirm reportable hires, separations, Temporary Authority, notarization and no-change instructions with counsel." },
   "REQ-CO-REPORTING-MCR": quarter("NMLS Mortgage Call Report", "Confirm registration, current FV7 components and applicable periods."),
+  "REQ-CO-LICENSING-CO-RENEW": { route: "NMLS company registration renewal", cadence: "Calendar annual", due: through => through,
+    review: "Confirm company registration, timely MCR filings, the current renewal instructions and renewed status." },
   "REQ-CO-REPORTING-STD-FC": { route: "NMLS Financial Condition", cadence: "Fiscal annual", due: () => null,
     review: "Reconcile Colorado's standard-section fiscal-year rule with current FV7 and confirm the filing basis with counsel." },
   "REQ-IL-REPORTING-ACTIVITY": quarter("NMLS Mortgage Call Report",
     "Verify timely, accurate MCR evidence before relying on the Illinois substitution for listed annual activity reports."),
+  "REQ-IL-REPORTING-ANNUAL-AUDIT": { route: "Illinois IDFPR or applicable NMLS filing", cadence: "Fiscal annual", due: after(90),
+    review: "The date reflects the IDFPR fiscal-year schedule. Confirm the applicable channel, NMLS instructions and any approved extension." },
+  "REQ-IL-REPORTING-BROKER-COMP": { route: "Illinois IDFPR or applicable NMLS filing", cadence: "Fiscal annual", due: after(90),
+    review: "Confirm that IDFPR accepts a compilation for this broker-only entity and verify the filing channel and applicable calendar." },
+  "REQ-IL-REPORTING-ANNUAL-ACT": { route: "Illinois IDFPR annual activity report", cadence: "Calendar annual", due: () => null,
+    review: "Confirm a separate return is required and verify the March 1 or applicable regulator-selected date." },
 };
 
 export function obligationReportingBasis(sourceKey: string | undefined, cadence: ObligationDraft["cadence"],
