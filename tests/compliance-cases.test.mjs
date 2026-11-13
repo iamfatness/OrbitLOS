@@ -242,6 +242,41 @@ test("state refinance benefit review preserves different state evidence and clos
   assert.ok(read(ne, "NE", officer).error);
 });
 
+test("California DRE statement checks both cutoffs and the fully executed copy for each borrower", t => {
+  const { work, addLoan, officer, processor, unrelated } = fixture(t);
+  const loanId = addLoan({ state: "ca " });
+  const record = (input, actor = officer) => work({ type: "californiaMlds", input }, actor);
+  const read = { operation: "read", state: "CA", loanId };
+  const event = (on, time) => ({ on, time, reference: "Fictional supporting evidence" });
+  const scope = { state: "CA", scope: "DRE broker negotiation", scopeReference: "Fictional scope decision",
+    application: event("2026-10-26", "09:00"), thirdBusinessDay: { on: "2026-10-29", reference: "Fictional calendar" },
+    noteStatus: "Obligated", noteObligation: event("2026-10-28", "12:00"), borrowerScope: "Two borrowers",
+    translationReviewReference: "Fictional language review", retainedFileReference: "Fictional disclosure archive" };
+  const facts = { ...scope, route: { kind: "DRE statement", form: "RE 883", formVersion: "Fictional exact form",
+    productAndFormReference: "Fictional product review", contentReviewReference: "Fictional content review",
+    brokerSignature: event("2026-10-28", "09:00") },
+    borrowers: [{ borrower: "Primary borrower", delivery: event("2026-10-28", "10:00"), signed: event("2026-10-28", "10:00"),
+      executedCopy: event("2026-10-28", "10:00") }, { borrower: "Additional borrower", delivery: event("2026-10-28", "12:05"),
+      signed: event("2026-10-28", "12:05"), executedCopy: event("2026-10-28", "12:05") }] };
+  const save = { operation: "save", loanId, requestId: crypto.randomUUID(), expectedRevision: 0, facts };
+  assert.equal(record(read, processor).revision, 0);
+  assert.ok(record(read, unrelated).error);
+  assert.ok(record({ ...read, loanId: addLoan({ state: "TX" }) }).error);
+  assert.ok(record(save, processor).error);
+  assert.ok(record({ ...save, facts: { ...facts, thirdBusinessDay: { on: "2026-10-28", reference: "Too early" } } }).error);
+  const saved = record(save);
+  assert.equal(saved.revision, 1);
+  assert.deepEqual(saved.review.findings, []);
+  assert.match(saved.review.borrowers[0].findings[0], /all required signatures/);
+  assert.match(saved.review.borrowers[1].findings[0], /after the borrower became obligated/);
+  assert.equal(record(save).revision, 1);
+  const revised = { ...save, requestId: crypto.randomUUID(), expectedRevision: 1, correction: "Fictional original log found",
+    facts: { ...facts, borrowers: facts.borrowers.map(item => ({ ...item, delivery: event("2026-10-30", "09:00") })) } };
+  const second = record(revised);
+  assert.match(second.review.borrowers[0].findings[0], /after the documented third business day/);
+  assert.equal(record(read, processor).history[1].facts.borrowers[0].delivery.on, "2026-10-28");
+});
+
 test("broker agreement evidence keeps state triggers and corrections with the accessible pilot loan", (t) => {
   const { db, work, addLoan, admin, officer, processor, unrelated } = fixture(t);
   const indiana = addLoan({ state: "in " });

@@ -4017,14 +4017,22 @@
     "title": "DRE Mortgage Loan Disclosure Statement and delivery timing",
     "authority": "Cal. Bus. & Prof. Code §§10236.4, 10240–10241",
     "sourceUrl": "https://www.dre.ca.gov/files/pdf/relaw/relaw.pdf",
-    "summary": "The DRE broker statute ties delivery to the earlier of three business days after a completed written application or the borrower becoming obligated on the note. It prescribes content and recognizes a conditional alternative.",
-    "evidence": "DRE authority, loan type and principal amount, completed written application and note obligation times, signed disclosure and delivery.",
-    "counsel": "Confirm covered products and thresholds, approved form or alternative, translated materials and overlap with TRID.",
+    "summary": "The DRE broker statute requires delivery within three business days of receiving a completed written application and before the borrower becomes obligated on the note. The DRE statement requires signatures and delivery of an exact copy at execution. The federal substitute has separate scope, contents and acknowledgment requirements.",
+    "evidence": "DRE scope, completed application and note obligation, calendar reference, each borrower's delivery and signature evidence, executed copy or acknowledged federal package, language review and archive reference.",
+    "counsel": "Confirm the business-day calendar, covered products and substitute eligibility at the exact lien thresholds, approved forms, negotiated-language duties and federal overlap.",
     "checkedOn": "2026-11-12",
     "relatedSources": [
       {
         "label": "DRE mortgage broker compliance manual",
         "url": "https://www.dre.ca.gov/files/pdf/re7.pdf"
+      },
+      {
+        "label": "DRE regulations on forms and written application",
+        "url": "https://www.dre.ca.gov/files/pdf/relaw/2026/regs.pdf"
+      },
+      {
+        "label": "DRE mortgage lending broker forms",
+        "url": "https://www.dre.ca.gov/forms/MLB.html"
       }
     ]
   },

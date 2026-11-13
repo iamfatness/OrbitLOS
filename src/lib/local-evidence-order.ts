@@ -4,7 +4,7 @@ function clockChange({ on, time }: Evidence) {
   if (!time || new Date(on).getUTCDay() !== 0) return;
   const month = on.slice(5, 7);
   const day = Number(on.slice(8));
-  // The Central, Mountain and Indiana Eastern zones used by these pilots observe these local changes.
+  // The US time zones used by these evidence reviews observe these local clock changes.
   if (month === "03" && day >= 8 && day <= 14 && time.startsWith("02:")) return "Skipped";
   if (month === "11" && day <= 7 && time.startsWith("01:")) return "Repeated";
 }
