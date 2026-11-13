@@ -99,7 +99,7 @@ export const obligationRequest = z.discriminatedUnion("operation", [
     version: z.int().positive(), location: filingReceiptLocation }),
   z.strictObject({ operation: z.literal("michiganFilingHistory"), ...occurrence, before: z.int().positive().optional() }),
   z.strictObject({ operation: z.literal("saveMichiganFiling"), ...occurrence, ...change, expected: z.int().nonnegative(),
-    evidence: michiganFilingEvidence, correction: note.optional() }),
+    evidence: michiganFilingEvidence, correction: note.optional(), reviewedScopeRevision: z.int().positive().optional() }),
   z.strictObject({ operation: z.literal("newYorkVoorHistory"), ...occurrence, before: z.int().positive().optional() }),
   z.strictObject({ operation: z.literal("saveNewYorkVoor"), ...occurrence, ...change, expected: z.int().nonnegative(),
     evidence: newYorkVoorEvidence, correction: note.optional() }),

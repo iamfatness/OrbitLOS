@@ -8,11 +8,12 @@ import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./mic
 import { nmlsFilingComponent, reviewNmlsFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
 import type { ObligationDraft } from "./compliance-obligations-model";
 
-export type FilingProgress = { revision: string | null; summary: string; gaps: string[] };
+export type FilingProgress = { revision: string | null; summary: string; gaps: string[]; reviewedScopeRevision?: number; reviewedDueOn?: string };
 type FilingTarget = {
   brokerageId: string; entityId: string; obligationId: string; period: string; sourceKey: string;
   bounds: { from: string; through: string }; nominalDueOn: string | null;
   basisChanged?: boolean;
+  reviewedScopeIsCurrent: (basis: ObligationStateSource & { snapshot?: string }) => boolean;
   draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">;
 };
 
@@ -30,7 +31,7 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   const timeZone = table === "colorado_company_renewal_versions" ? "America/Denver" :
     table === "illinois_audit_evidence_versions" ? "America/Chicago" : "America/New_York";
   const asOf = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
-  const row = db.prepare(`SELECT version,evidence FROM ${table}
+  const row = db.prepare(`SELECT version,evidence${nmlsComponent ? ",finding" : ""} FROM ${table}
     WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? ORDER BY version DESC LIMIT 1`)
     .get(target.brokerageId, target.entityId, target.obligationId, target.period);
   if (!row) return {
@@ -41,8 +42,13 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   const revision = String(row.version);
   const evidence: unknown = JSON.parse(String(row.evidence));
   if (table === "michigan_filing_versions") {
-    const finding = reviewNmlsFiling(evidence as MichiganFilingEvidence, nominalDueOn, asOf, nmlsComponent, bounds.through, target.basisChanged);
-    return { revision, summary: finding.summary, gaps: finding.gaps };
+    const review = evidence as MichiganFilingEvidence;
+    const { reviewedScope } = JSON.parse(String(row.finding)) as { reviewedScope?: ObligationStateSource & { snapshot?: string } };
+    const rechecked = reviewedScope && review.deadline && target.reviewedScopeIsCurrent(reviewedScope);
+    const finding = reviewNmlsFiling(review, nominalDueOn, asOf, nmlsComponent, bounds.through, target.basisChanged && !rechecked);
+    return { revision, summary: finding.summary, gaps: finding.gaps, ...(rechecked && {
+      reviewedScopeRevision: reviewedScope.revision, reviewedDueOn: review.deadline?.on,
+    }) };
   }
   if (table === "new_york_voor_versions") {
     const finding = reviewNewYorkVoor(evidence as NewYorkVoorEvidence, nominalDueOn, asOf);

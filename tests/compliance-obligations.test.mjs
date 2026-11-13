@@ -132,6 +132,23 @@ test("priority-state FV7 filing evidence respects the source, period, cadence an
  const occurrence=f.run({operation:"occurrences",entityId:f.entityId,id:texas.obligation.obligationId}).items[0];
  assert.equal(occurrence.priorFilingBasis,true);
  assert.equal(occurrence.reportingBasis.nominalDueOn,"2026-08-14");
+ const target = {entityId:f.entityId,id:texas.obligation.obligationId,period:"2026-04"};
+ const updated = {...target,operation:"saveMichiganFiling",expected:1,requestId:crypto.randomUUID(),
+   reviewedScopeRevision:2,correction:"Fictional checked instructions",evidence:{...prior.versions[0].evidence,
+     deadline:{on:"2026-11-10",reference:"Fictional updated deadline reference"}}};
+ assert.equal(prior.reviewableScopeRevision,2);
+ assert.ok(f.run({...updated,reviewedScopeRevision:1}).error);
+ assert.ok(f.run({...updated,correction:undefined}).error);
+ assert.equal(f.run(updated).version,2);
+ assert.equal(history(target).scopeChanged,false);
+ assert.deepEqual(history(target).versions[1],prior.versions[0]);
+ const current = () => f.program({operation:"month",entityId:f.entityId,month:"2026-06"}).items.find(item=>item.id===texas.id).filingProgress;
+ assert.equal(current().reviewedDueOn,"2026-11-10");
+ assert.deepEqual(current().gaps,[]);
+ assert.equal(f.run({...updated,expected:2,requestId:crypto.randomUUID(),reviewedScopeRevision:undefined,
+   evidence:{...updated.evidence,deadline:{...updated.evidence.deadline,on:"2026-11-11"}}}).version,3);
+ assert.equal(current().summary,"Filing timing needs review");
+
 
 });
 

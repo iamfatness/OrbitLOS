@@ -164,10 +164,13 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
     </section>}
     {screen === "item" && selected?.obligation && current && <div className="record-form">
       {reporting && <section className="record-form" aria-label="Filing plan">
-        <p><strong>Review before filing</strong> · {reporting.review}</p>
+        <p><strong>Review before filing</strong> · {selected?.filingProgress?.reviewedScopeRevision ? `Deadline checked against state scope version ${selected.filingProgress.reviewedScopeRevision}.` : reporting.review}</p>
         <dl className="form-grid state-scope-facts">
           <div><dt>Internal target</dt><dd>{dateLabel(selected.internalTarget)}</dd></div>
-          <div><dt>Nominal filing date</dt><dd>{reporting.nominalDueOn ? dateLabel(reporting.nominalDueOn) : "Needs confirmation"}</dd></div>
+          <div><dt>{selected?.filingProgress?.reviewedDueOn ? "Reviewed filing date" : "Nominal filing date"}</dt><dd>
+            {selected?.filingProgress?.reviewedDueOn ? dateLabel(selected.filingProgress.reviewedDueOn) :
+              reporting.nominalDueOn ? dateLabel(reporting.nominalDueOn) : "Needs confirmation"}
+          </dd></div>
           <div><dt>Filing route</dt><dd>{reporting.route}</dd></div>
           <div><dt>Scope review</dt><dd>{selected.obligation.status === "Applicability review gap" ? "Confirm whether this applies" : selected.obligation.status}</dd></div>
         </dl>

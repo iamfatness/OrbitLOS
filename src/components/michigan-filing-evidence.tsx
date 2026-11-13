@@ -7,10 +7,12 @@ import type { ObligationRequest } from "@/lib/compliance-obligations-model";
 import { michiganFilingAmendments, michiganFilingEvidence } from "@/lib/michigan-filing-evidence-model";
 import { Button } from "./ui/button";
 
-const finding = z.object({ asOf: z.iso.date(), dueOn: z.iso.date().nullable(), summary: z.string(), gaps: z.array(z.string()) });
+const finding = z.object({ asOf: z.iso.date(), dueOn: z.iso.date().nullable(), summary: z.string(), gaps: z.array(z.string()),
+  reviewedScope: z.object({ revision: z.number() }).optional() });
 const version = z.object({ version: z.number(), evidence: michiganFilingEvidence, finding, actor: z.string(), correction: z.string().nullable() });
 const history = z.object({ kind: z.literal("michiganFilingHistory"), component: z.string(), sourceTitle: z.string(), bounds: z.object({ from: z.iso.date(), through: z.iso.date() }), scopeChanged: z.boolean(),
-  nominalDueOn: z.iso.date().nullable(), versions: z.array(version), currentFinding: finding.nullable(), next: z.number().nullable() });
+  nominalDueOn: z.iso.date().nullable(), versions: z.array(version), currentFinding: finding.nullable(), next: z.number().nullable(),
+  reviewableScopeRevision: z.number().optional() });
 const saved = z.object({ kind: z.literal("michiganFilingSaved"), version: z.number() });
 type History = z.infer<typeof history>;
 type Version = z.infer<typeof version>;
@@ -46,8 +48,9 @@ function EvidenceGroup({ name, label, recorded, children }: {
     <fieldset className={enabled ? "form-grid min-w-0" : "hidden"} disabled={!enabled}>{children}</fieldset>
   </div>;
 }
-function FilingForm({ latest, component, nominal, busy, conflict, submit, cancel }: {
+function FilingForm({ latest, component, nominal, reviewableScopeRevision, busy, conflict, submit, cancel }: {
   latest?: Version; component: string; nominal: string | null; busy: boolean; conflict: boolean;
+  reviewableScopeRevision?: number;
   submit: (form: FormData) => void; cancel: () => void;
 }) {
   const facts = latest?.evidence;
@@ -93,7 +96,10 @@ function FilingForm({ latest, component, nominal, busy, conflict, submit, cancel
         setAmendmentKeys(keys => [...keys, key]);
         requestAnimationFrame(() => document.getElementById("mi-filing-amendment-" + key + "-on")?.focus());
       }}>Add amendment</Button></div>}
-      {latest && <Field name="correction" label="Reason for update" />}
+      {reviewableScopeRevision && <label className="flex min-h-11 items-center gap-2">
+        <input name="recheckScope" type="checkbox" />I checked the filing deadline against state scope version {reviewableScopeRevision}.
+      </label>}
+      {(latest || reviewableScopeRevision) && <Field name="correction" label="Reason for update" />}
       <div className="flex flex-wrap gap-2">
         <Button className="min-h-11" type="submit" disabled={conflict}>{busy ? "Saving…" : "Save filing evidence"}</Button>
         <Button className="min-h-11" variant="outline" type="button" onClick={cancel}>Cancel</Button>
@@ -113,6 +119,7 @@ function FilingSummary({ entry, review = entry.finding }: { entry: Version; revi
     ["Reconciliation evidence", evidence.reconciliation?.reference],
     ["Original submission", evidence.submission?.on, evidence.submission?.reference],
     ["Recorded by", entry.actor],
+    ["Scope reviewed", entry.finding.reviewedScope?.revision ? "Version " + entry.finding.reviewedScope.revision : undefined],
     ["Reason for update", entry.correction],
   ];
   return <div className="record-form min-w-0 [overflow-wrap:anywhere]">
@@ -195,7 +202,8 @@ export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period
     const correction = get("correction");
     if (latest && correction.length < 5) { setFeedback({ text: "Enter at least five characters for the reason for update.", error: true }); return; }
     const input = { operation: "saveMichiganFiling" as const, entityId, id: obligationId, period, expected: latest?.version ?? 0,
-      evidence: evidence.data, correction: correction || undefined };
+      evidence: evidence.data, correction: correction || undefined,
+      reviewedScopeRevision: form.has("recheckScope") ? data?.reviewableScopeRevision : undefined };
     const signature = JSON.stringify(input);
     if (retry.current?.signature !== signature) retry.current = { signature, requestId: crypto.randomUUID() };
     setBusy(true);
@@ -211,7 +219,7 @@ export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period
         setConflict(true);
         setFeedback({ text: detail, error: true });
       } else {
-        setFeedback({ text: /^(Check the deadline|Record the activity determination|Record each amendment receipt)/.test(detail)
+        setFeedback({ text: /^(Check the deadline|Record the activity determination|Record each amendment receipt|Record a reviewed deadline)/.test(detail)
           ? detail : "Could not confirm the save. Retry with the same evidence.", error: true });
       }
     } finally { setBusy(false); }
@@ -227,7 +235,8 @@ export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period
     {!data ? (feedback?.error ? <div><Button className="min-h-11" variant="outline" onClick={reload}>Reload filing evidence</Button></div> :
       <p role="status">Loading filing evidence…</p>) : edit ? <>
       <h3 ref={editHeading} tabIndex={-1}>{latest ? "Update filing evidence" : "Record filing evidence"}</h3>
-      <FilingForm latest={latest} component={data.component} nominal={data.nominalDueOn} busy={busy} conflict={conflict} submit={form => void submit(form)}
+      <FilingForm latest={latest} component={data.component} nominal={data.nominalDueOn} reviewableScopeRevision={data.reviewableScopeRevision}
+        busy={busy} conflict={conflict} submit={form => void submit(form)}
         cancel={() => { setFeedback(undefined); setEdit(false); requestAnimationFrame(() => editButton.current?.focus()); }} />
       {conflict && <div><Button className="min-h-11" variant="outline" onClick={reload}>Reload evidence and discard draft</Button></div>}
     </> : <>

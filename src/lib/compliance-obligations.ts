@@ -251,8 +251,13 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const component = nmlsFilingComponent(basis.sourceKey, snapshot.draft, snapshot.period.from);
     if (!component) return unavailable;
     const scopeMatches = financialConditionScopeMatches(db, tenant, data.entityId, basis, snapshot.draft.cadence);
-    const scopeChanged = !scopeMatches || !currentStateBasis(basis);
-    const nominalDueOn = scopeChanged ? null : snapshot.reportingBasis?.nominalDueOn ?? null;
+    const originalScopeChanged = !scopeMatches || !currentStateBasis(basis);
+    const candidate = originalScopeChanged ? (currentSources ??= stateSources()).find(source =>
+      source.sourceKey === basis.sourceKey && source.jurisdiction === basis.jurisdiction) : undefined;
+    const reviewable = candidate && financialConditionScopeMatches(db, tenant, data.entityId, candidate, snapshot.draft.cadence) ? candidate : undefined;
+    const reviewedScopeIsCurrent = (reviewed?: StateBasis) => Boolean(reviewed && reviewable &&
+      reviewed.sourceKey === reviewable.sourceKey && reviewed.jurisdiction === reviewable.jurisdiction && currentStateBasis(reviewed));
+    const nominalDueOn = originalScopeChanged ? null : snapshot.reportingBasis?.nominalDueOn ?? null;
     const asOf = nmlsFilingDate(now);
     if (data.operation === "michiganFilingHistory") {
       const before = data.before ?? null;
@@ -260,20 +265,31 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
         WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND (? IS NULL OR version<?) ORDER BY version DESC LIMIT 21`)
         .all(...target, before, before);
       const versions = rows.slice(0, 20).map(row => ({ ...row, evidence: JSON.parse(String(row.evidence)) as MichiganFilingEvidence,
-        finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewNmlsFiling> }));
+        finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewNmlsFiling> & { reviewedScope?: StateBasis } }));
+      const latest = before === null ? versions[0] : undefined;
+      const scopeChanged = originalScopeChanged && !(latest?.evidence.deadline && reviewedScopeIsCurrent(latest.finding.reviewedScope));
       return { kind: "michiganFilingHistory", component, sourceTitle: basis.title, nominalDueOn, scopeChanged, bounds: snapshot.period, versions,
+        reviewableScopeRevision: scopeChanged ? reviewable?.revision : undefined,
         currentFinding: before === null && versions[0] ? reviewNmlsFiling(versions[0].evidence, nominalDueOn, asOf, component, snapshot.period.through, scopeChanged) : null,
         next: rows.length > 20 ? rows[19].version : null };
     }
     const request = JSON.stringify(data);
     const replay = db.prepare("SELECT actor,request,result FROM compliance_obligation_events WHERE brokerageId=? AND requestId=?").get(tenant, data.requestId);
     if (replay) return replay.actor === staff.email && replay.request === request ? JSON.parse(String(replay.result)) : changed;
-    const current = db.prepare(`SELECT MAX(version) version FROM michigan_filing_versions
-      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...target);
+    const current = db.prepare(`SELECT version,evidence,finding FROM michigan_filing_versions
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? ORDER BY version DESC LIMIT 1`).get(...target);
     if (Number(current?.version ?? 0) !== data.expected) return changed;
     if (data.expected && !data.correction) return { error: "Record a reason for updating the filing evidence." };
     const { evidence } = data;
     const { deadline, reconciliation, submission } = evidence;
+    if (data.reviewedScopeRevision !== undefined && data.reviewedScopeRevision !== reviewable?.revision) return changed;
+    if (data.reviewedScopeRevision !== undefined && (!deadline || !data.correction))
+      return { error: "Record a reviewed deadline and reason for the scope review." };
+    const priorDeadline = current ? (JSON.parse(String(current.evidence)) as MichiganFilingEvidence).deadline : undefined;
+    const previousScope = current && deadline && priorDeadline?.on === deadline.on && priorDeadline.reference === deadline.reference
+      ? (JSON.parse(String(current.finding)) as { reviewedScope?: StateBasis }).reviewedScope : undefined;
+    const reviewedScope = data.reviewedScopeRevision !== undefined ? reviewable : previousScope;
+    const scopeChanged = originalScopeChanged && !reviewedScopeIsCurrent(reviewedScope);
     const amendments = michiganFilingAmendments(evidence);
     if (reconciliation?.activity && component !== "Residential Mortgage Loan Activity")
       return { error: "Record the activity determination on the Residential Mortgage Loan Activity period." };
@@ -284,7 +300,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     if (new Set(amendments.map(item => JSON.stringify([item.on, item.reference.toLowerCase()]))).size !== amendments.length)
       return { error: "Record each amendment receipt once." };
     const version = data.expected + 1;
-    const finding = reviewNmlsFiling(evidence, nominalDueOn, asOf, component, snapshot.period.through, scopeChanged);
+    const finding = { ...reviewNmlsFiling(evidence, nominalDueOn, asOf, component, snapshot.period.through, scopeChanged),
+      ...(reviewedScope && { reviewedScope }) };
     db.prepare("INSERT INTO michigan_filing_versions VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(...target, version, JSON.stringify(evidence), JSON.stringify(finding), staff.email, now, data.correction ?? null);
     const result = { kind: "michiganFilingSaved", version, finding, scopeChanged };
