@@ -1,6 +1,7 @@
 import { easternDate, easternDayStart } from "./client-retention";
 import { approvedSecondReview } from "./application-review-checkpoint";
 import { appointmentTarget } from "./appointment-model";
+import { incomeEvidenceMatchesSql } from "./income-review-freshness";
 import type { BrokerageRole } from "./brokerage-model";
 import { carriedCallbackSource, openCarriedCallback } from "./carried-campaign-callback";
 import { coverageKinds, type CoverageItem, type CoverageWindow } from "./coverage-model";
@@ -58,7 +59,7 @@ export function readOfficerQueue(db: Store, input: unknown, staff: WorkspaceStaf
   const parsed = officerQueueQuery.safeParse(input);
   if (!parsed.success) return { error: "Choose a valid date window and work queue page." };
   const page = readDeadlines(db, { email: staff.email, role: staff.brokerage.role }, now,
-    shiftReportDate(easternDate(now), parsed.data.horizon - 1), parsed.data.after, { localName, limit });
+    shiftReportDate(easternDate(now), parsed.data.horizon - 1), parsed.data.after, { localName, limit, incomeReviews: staff.brokerage.pilot });
   const items = page.items.map((row) => {
     const item: OfficerQueueItem & { owner?: string } = { ...row };
     delete item.owner;
@@ -153,7 +154,8 @@ export function readCoverageDeadlines(db: Store, window: CoverageWindow, now: Da
 }
 
 function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole }, now: Date, through: string, after: CalendarQuery["after"],
-  { localName, calendar, coverage, tasks, limit = pageSize }: { localName?: string; calendar?: CalendarQuery; coverage?: { target?: Pick<CoverageItem, "kind" | "id"> };
+  { localName, calendar, coverage, tasks, limit = pageSize, incomeReviews }: { localName?: string; calendar?: CalendarQuery; coverage?: { target?: Pick<CoverageItem, "kind" | "id"> };
+    incomeReviews?: boolean;
     tasks?: WorkspaceTaskList; limit?: number }): CalendarPage {
   const scanLimit = Math.max(scanSize, limit);
   const checkedAt = now.toISOString();
@@ -294,6 +296,17 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       WHERE alert.reviewedAt IS NOT NULL`, "alert.id", "alert.reviewedAt", "loan.officerEmail", "loan.officer"),
   ] : [];
   const candidates = (completed ? completedWork : [
+    ...(incomeReviews ? select("income-review", `loan.id, loan.id AS recordId, contact.name, income.updatedAt AS dueAt,
+      'Review sample income' AS title
+      FROM loans loan JOIN contacts contact ON contact.id = loan.contactId
+      JOIN applications app ON app.loanId = loan.id
+      JOIN loan_income_worksheets income ON income.loanId = loan.id AND income.revision = (
+        SELECT max(latest.revision) FROM loan_income_worksheets latest WHERE latest.loanId = loan.id)
+      WHERE ${dueForLoan} AND income.stage = 'Ready for review' AND app.revision = income.applicationRevision
+        AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL AND coalesce(app.correctionNote, '') = ''
+        AND json_extract(app.draft, '$.confirmedDemo') = 1
+        AND ${incomeEvidenceMatchesSql("income.loanId", "income.evidence", "income.applicationRevision")}`,
+    "loan.id", "income.updatedAt", "loan.officerEmail", "loan.officer") : []),
     ...(showSequences ? select("sequence", `${currentSequenceId} AS id, lead.id AS recordId, lead.id AS leadId, lead.name, run.dueAt,
       lead.email, lead.phone, lead.importedContactId AS contactId, member.campaignId, 'Prospecting' AS purpose,
       template.kind || ' · ' || json_extract(${currentSequenceStep}, '$.title') AS title, ${currentSequenceStep} AS sequenceStep,
@@ -500,6 +513,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     } : undefined;
     const target = kind === "handoff" || kind === "playbook-handoff" ? "processing-handoff" : kind === "review" ? reviewTarget(id) :
       kind === "application-review" ? "loan-application" :
+      kind === "income-review" ? "income-worksheet" :
       kind === "appointment" ? appointmentTarget(id) : kind === "service-order" ? serviceOrderTarget(id) : kind === "document" || kind === "document-review" ? `document-${id}` :
       kind === "loan" || kind === "funding" ? loanTaskTarget(id, processor || completed) : kind === "loan-hold" ? "loan-workflow" :
       kind === "checklist" && (calendar || tasks) ? closingChecklistTarget(id) :
@@ -509,7 +523,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     items.push({ kind, id, recordId, name, title, dueAt, owner: owner || "Unassigned", ...(campaignId ? { campaignId } : {}), ...(target ? { target } : {}),
       ...(handoffDueAt ? { handoffDueAt } : {}), ...(reason ? { reason } : {}), ...(sequence ? { sequence } : {}),
       ...(completed ? { completedAt: dueAt, blocked } : {}),
-      overdue: !completed && !["appointment", "document-review", "lead-document-review", "uwm-alert"].includes(kind) && (kind !== "handoff" || !!handoffDueAt) &&
+      overdue: !completed && !["appointment", "document-review", "lead-document-review", "uwm-alert", "income-review"].includes(kind) && (kind !== "handoff" || !!handoffDueAt) &&
         (dateOnly ? dueAt < today : Date.parse(handoffDueAt ?? dueAt) < now.getTime()) });
     if (items.length === limit) break;
   }

@@ -100,7 +100,7 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
           <div className="loan-task-copy"><strong>{item.title}</strong><span>{item.name}</span>
             {step && <span>Step {step.position + 1} · {step.channel}</span>}
             {step?.waitUntil ? <span>Outside preferred hours · Available {dateTime(step.waitUntil)} ET</span> :
-              <span>{item.overdue ? "Overdue" : "Due"} · {deadline.length === 10 ? dateLabel(deadline) : `${dateTime(deadline)} ET`}</span>}</div>
+              <span>{item.kind === "income-review" ? "Sent for review" : item.overdue ? "Overdue" : "Due"} · {deadline.length === 10 ? dateLabel(deadline) : `${dateTime(deadline)} ET`}</span>}</div>
           {step && step.channel !== "Call" ? <details className="document-form">
             <summary>Preview mock {step.channel.toLowerCase()}</summary>
             {step.recipient ? <><p className="muted">To {step.recipient}</p><p className="relationship-note">{step.body}</p></> :

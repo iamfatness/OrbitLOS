@@ -1177,7 +1177,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   }
 
   function openTodayWork(item: OfficerQueueItem) {
-    todayWorkTrigger.current = item.kind === "loan" && disclosureTask(item.id) ? `${item.kind}:${item.id}` : null;
+    todayWorkTrigger.current = item.kind === "income-review" || item.kind === "loan" && disclosureTask(item.id) ? `${item.kind}:${item.id}` : null;
     if (item.kind === "lead" || item.kind === "campaign" || item.kind === "sequence") {
       return void openScopedLead({ leadId: item.recordId, task: { kind: item.kind, id: item.id } });
     }

@@ -12,6 +12,7 @@ const { executeCommand } = await import("../src/lib/commands.ts");
 const { incomeWorksheetWork } = await import("../src/lib/income-review.ts");
 const { incomeSourceMonthly, monthlyWorksheetTotal } = await import("../src/lib/income-review-model.ts");
 const { easternDate } = await import("../src/lib/client-retention.ts");
+const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
 
 test("sample income arithmetic reconciles wages, documented month totals and adjustments", () => {
   const wage = { included: true, method: "Amount per pay period", amount: 325000, periods: 24, adjustment: 0 };
@@ -156,9 +157,23 @@ test("income verification approval pins the borrower and return through an older
   assert.match(work(mutate("save", 0, { sources: [{ ...source, evidence: [{ id, revision: orderRevision, returnReference: "wrong-return" }] }] }), processor).error, /evidence changed/);
   assert.match(work(mutate("save", 0, { sources: [{ ...source, evidence: [{ id, revision: orderRevision }] }] }), processor).error, /evidence changed/);
   assert.equal(work(mutate("save", 0, { sources: [source] }), processor).page.record.amount, 625000);
+  const incomeWork = (actor) => readOfficerQueue(db, { horizon: 1 }, actor, tenant, now).items.filter(({ kind }) => kind === "income-review");
+  assert.deepEqual(incomeWork(officer), []);
   assert.equal(work(mutate("submit", 1), processor).page.record.stage, "Ready for review");
+  assert.deepEqual(incomeWork(officer).map(({ recordId, target, overdue }) => ({ recordId, target, overdue })),
+    [{ recordId: loanId, target: "income-worksheet", overdue: false }]);
+  assert.deepEqual(incomeWork({ ...officer, email: outsider.email }), []);
+  assert.deepEqual(incomeWork({ ...officer, brokerage: { ...officer.brokerage, pilot: false } }), []);
+  db.prepare("UPDATE loans SET officerEmail = ? WHERE id = ?").run(outsider.email, loanId);
+  assert.deepEqual(incomeWork(officer), []);
+  assert.equal(incomeWork({ ...officer, email: outsider.email }).length, 1);
+  db.prepare("UPDATE loans SET officerEmail = ? WHERE id = ?").run(officer.email, loanId);
+  db.prepare("UPDATE applications SET reviewedAt = NULL WHERE loanId = ?").run(loanId);
+  assert.deepEqual(incomeWork(officer), []);
+  db.prepare("UPDATE applications SET reviewedAt = ? WHERE loanId = ?").run(at, loanId);
   assert.match(work(mutate("approve", 2, { note: "Verified sample return" }), processor).error, /loan officer/);
   const approved = work(mutate("approve", 2, { note: "Verified sample return" })).page.record;
+  assert.deepEqual(incomeWork(officer), []);
   assert.deepEqual(approved.evidence, [eligible]);
   const price = { type: "runPricing", applicationRevision: revision, incomeReviewRevision: approved.revision, scenario: {
     purpose: "Purchase", loanAmount: 350000, propertyValue: 450000, purchasePrice: null, zip: "48304",
