@@ -26,7 +26,7 @@ function WorkRow({ title, children, action, onOpen, id }: {
 export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, returningTo, onSetup, openLicense, openReview, openFinding, openArea, openFilingArchive, openPolicyFollowUp, openRecurringWork,
   stateOffset, onStatePage, openState }: {
   brokerageId: string; paused: boolean; branchId: string; onBranch: (id: string) => void; returningTo?: string;
-  onSetup: (step: ComplianceSetupAction, createCompany?: boolean) => void; openLicense: (target: LicenseRenewalTarget) => void;
+  onSetup: (step: ComplianceSetupAction, createCompany: boolean, stateSetup?: Home["stateSetup"]) => void; openLicense: (target: LicenseRenewalTarget) => void;
   openReview: (target: ProgramReviewTarget) => void; openFinding: (loanId: string, caseId: string) => void; openArea: (area: WorkArea) => void; openFilingArchive?: () => void; openPolicyFollowUp?: () => void;
   openRecurringWork: () => void;
   stateOffset: number; onStatePage: (offset: number) => void; openState: (target: StateScopeTarget, origin: string) => void;
@@ -99,14 +99,14 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
   const setup = home && <div className="compliance-home-setup">
     {showSetupFirst && <h2>Set up Compliance</h2>}
     {showSetupFirst && next && <div className="compliance-home-next">
-      <p>{next.status}</p><Button id={`compliance-setup-${next.id}`} size="sm" onClick={() => onSetup(next.id, !home.entityCount)}>{next.action}</Button>
+      <p>{next.status}</p><Button id={`compliance-setup-${next.id}`} size="sm" onClick={() => onSetup(next.id, !home.entityCount, home.stateSetup)}>{next.action}</Button>
     </div>}
     <details className="compliance-home-disclosure">
       <summary>{showSetupFirst ? "All setup steps" : "Compliance setup"}{next && !showSetupFirst ? ` · Next step is ${next.name.toLowerCase()}` : ""}</summary>
       <ul className="compliance-home-list">
         {steps.filter(step => !showSetupFirst || step.id !== next?.id).map(step => <li className="compliance-home-row" key={step.id}>
           <div><strong>{step.name}</strong><p className="muted">{step.enabled ? step.status : "Add a company profile first."}</p></div>
-          {step.enabled && <Button id={`compliance-setup-${step.id}`} size="sm" variant="outline" onClick={() => onSetup(step.id, !home.entityCount)}>{step.action}</Button>}
+          {step.enabled && <Button id={`compliance-setup-${step.id}`} size="sm" variant="outline" onClick={() => onSetup(step.id, !home.entityCount, home.stateSetup)}>{step.action}</Button>}
         </li>)}
       </ul>
       <p className="muted">These steps record your brokerage details. Ask your compliance reviewer to confirm which licenses and obligations apply.</p>

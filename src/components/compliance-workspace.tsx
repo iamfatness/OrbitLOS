@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { LicenseRenewalTarget, ProgramReviewTarget, StateScopeTarget } from "@/lib/compliance-program-model";
+import type { ComplianceOwnerHomeData, LicenseRenewalTarget, ProgramReviewTarget, StateScopeTarget } from "@/lib/compliance-program-model";
 import type { ObligationReviewBasis } from "@/lib/compliance-obligations-model";
 import type { ReportingPeriod } from "@/lib/call-report-readiness-model";
 import type { MigrationDestination } from "@/lib/migration-record-model";
@@ -43,6 +43,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
   const [obligationVisit, setObligationVisit] = useState<{ itemId: string; returning: boolean }>();
   const [scopeVisit, setScopeVisit] = useState<string>();
   const [stateTarget, setStateTarget] = useState<StateScopeTarget>();
+  const [stateSetup, setStateSetup] = useState<ComplianceOwnerHomeData["stateSetup"]>();
   const [stateOffset, setStateOffset] = useState(0);
   const [report, setReport] = useState<{ basis: ObligationReviewBasis; entity: string; period: ReportingPeriod }>();
   const reportOpen = !!report;
@@ -74,6 +75,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
       setObligationVisit(undefined);
       setScopeVisit(undefined);
       setStateTarget(undefined);
+      setStateSetup(undefined);
     }
     focusPanel.current = next !== "Home" || !returningTo;
     if (next !== "Home") setReturningTo(origin);
@@ -87,12 +89,13 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
     show(next, origin);
   }
 
-  function openSetup(step: ComplianceSetupAction, createCompany = false) {
+  function openSetup(step: ComplianceSetupAction, createCompany: boolean, stateSetup?: ComplianceOwnerHomeData["stateSetup"]) {
     if (step === "branches") {
       openBranches();
       return;
     }
     setSetup(step === "company" && !createCompany ? undefined : step);
+    setStateSetup(step === "states" ? stateSetup : undefined);
     setLocalLicense(undefined);
     setReview(undefined);
     show(step === "states" ? "Research & gaps" : "Licensing", `compliance-setup-${step}`);
@@ -150,7 +153,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
       {view === "Training & policies" && <ComplianceLearning key={brokerageId} brokerageId={brokerageId} paused={paused} admin />}
       {(view === "Research & gaps" || scopeVisit) && <div hidden={view !== "Research & gaps"}>
         <ComplianceResearch key={brokerageId} brokerageId={brokerageId} paused={paused} startWithState={setup === "states" || !!stateTarget}
-          stateTarget={stateTarget}
+          stateTarget={stateTarget} stateSetup={stateSetup}
           active={view === "Research & gaps"} openReview={(target, origin) => {
             setScopeVisit(origin);
             setReview(target);

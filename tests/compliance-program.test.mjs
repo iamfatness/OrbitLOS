@@ -475,6 +475,18 @@ test("assignment license check includes the intake branch and current officer me
 });
 
 
+test("Compliance setup carries recorded states only for an unambiguous company", t => {
+  const f = fixture(t);
+  const home = () => f.run({ operation: "ownerHome" });
+  const [company] = f.create({ scopeNote: "Mortgage brokerage\nStates in scope · Michigan, Ohio, District of Columbia\nFictional scope." }).entities;
+  assert.deepEqual(home().stateSetup, { entityId: company.id, jurisdictions: ["MI", "OH"] });
+  f.create({ name: "Fictional second company", scopeNote: "Mortgage brokerage\nStates in scope · California" });
+  assert.equal(home().stateSetup, undefined);
+  const foreign = f.staff(f.owner, crypto.randomUUID());
+  assert.equal(complianceCaseWork(f.db, { type: "program", input: { operation: "ownerHome" } },
+    foreign, foreign.brokerage.id, f.roster, now).stateSetup, undefined);
+});
+
 test("Compliance home keeps branch renewals, company review work, and tenant access distinct", t => {
   const f = fixture(t);
   const home = (branchId, actor = f.owner, roster = f.roster) => f.run({ operation: "ownerHome", branchId }, actor, roster);

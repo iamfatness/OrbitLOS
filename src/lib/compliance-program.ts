@@ -1,5 +1,7 @@
 import { supportsFilingReceipts, type ObligationDraft, type ObligationReviewBasis } from "./compliance-obligations-model";
 import { createHash } from "node:crypto";
+import { propertyStateName } from "./property-state";
+import { researchSources } from "./compliance-research-model";
 import { readBranches } from "./branches";
 import { branchStaffCurrent } from "./branch-model";
 import { storedQuoteRouting } from "./quote-intake-model";
@@ -220,11 +222,17 @@ function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<s
       };
     });
   const entityCount = Number(db.prepare("SELECT count(*) AS total FROM compliance_program_entities WHERE brokerageId=?").get(tenant)?.total);
+  const soleEntity = entityCount === 1 ? db.prepare("SELECT id,scopeNote FROM compliance_program_entities WHERE brokerageId=?").get(tenant) : undefined;
+  // Licensing writes this exact second line. Leave free-form and older profiles for manual selection.
+  const recordedStates = String(soleEntity?.scopeNote ?? "").split("\n")[1]?.match(/^States in scope · (.+)$/)?.[1].split(", ") ?? [];
+  const jurisdictions = researchSources.flatMap(({ jurisdiction }) =>
+    jurisdiction !== "US" && recordedStates.includes(propertyStateName(jurisdiction)) ? [jurisdiction] : []);
   const savedStateCount = Number(db.prepare(`SELECT count(DISTINCT jurisdiction) AS total
     FROM compliance_state_scope_versions WHERE brokerageId=?`).get(tenant)?.total);
   return {
     kind: "ownerHome", branchId, asOf: today, through: renewalThrough, branches,
     entityCount, companyLicenseCount: licenseCounts.get("Company:") ?? 0, savedStateCount,
+    stateSetup: soleEntity && jurisdictions.length ? { entityId: String(soleEntity.id), jurisdictions } : undefined,
     stateScopes: ownerStateScopes(db, tenant, now, owners, licenseHolderChoices(branchRecords, roster), stateOffset),
     renewals: { total: renewals.total, items: renewals.items },
     reviews: { total: Number(db.prepare(`SELECT count(*) AS total ${reviewFilter}`).get(tenant, renewalThrough)?.total), items },
