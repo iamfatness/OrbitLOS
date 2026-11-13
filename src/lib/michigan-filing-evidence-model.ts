@@ -33,8 +33,15 @@ export function nmlsFilingComponent(source: string, draft: Pick<ObligationDraft,
   return null;
 }
 
-export function nmlsFilingDate(now: string) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+export function nmlsFilingDate(now: string, timeZone = "America/New_York") {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+}
+
+export function californiaAnnualFilingComponent(source: string, draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">, periodStart: string) {
+  if (draft.cadence !== "Annual" || (draft.annualStartMonth ?? 1) !== 1 || periodStart < "2025-01-01") return null;
+  if (source === "REQ-CA-REPORTING-CFLANNUAL") return "California Financing Law annual report";
+  if (source === "REQ-CA-REPORTING-CRMLA-ANNUAL") return "California CRMLA annual report";
+  return null;
 }
 
 export function filingEvidenceComponent(source: string, draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">, periodStart: string) {
@@ -42,7 +49,7 @@ export function filingEvidenceComponent(source: string, draft: Pick<ObligationDr
     return "HMDA annual filing";
   if (source === "FED-HMDA-QUARTERLY" && draft.cadence === "Quarterly" && /-(01|04|07)-01$/.test(periodStart))
     return "HMDA quarterly filing";
-  return nmlsFilingComponent(source, draft, periodStart);
+  return californiaAnnualFilingComponent(source, draft, periodStart) ?? nmlsFilingComponent(source, draft, periodStart);
 }
 
 export const michiganStatementFormats = [
@@ -65,6 +72,7 @@ export const michiganFilingAmendments = (evidence: MichiganFilingEvidence) =>
 export function reviewNmlsFiling(evidence: MichiganFilingEvidence, nominalDueOn: string | null, asOf: string,
   component: ReturnType<typeof filingEvidenceComponent>, periodEnd: string, basisChanged = false) {
   const hmda = component === "HMDA annual filing" || component === "HMDA quarterly filing";
+  const stateFiling = component === "California Financing Law annual report" || component === "California CRMLA annual report";
   const dueOn = basisChanged ? null : evidence.deadline?.on ?? nominalDueOn;
   const gaps: string[] = [];
   if (component === "Fiscal-year financial statement" && !evidence.michiganStatement)
@@ -73,10 +81,11 @@ export function reviewNmlsFiling(evidence: MichiganFilingEvidence, nominalDueOn:
   if (!evidence.reconciliation) gaps.push("Record the reconciliation to the filed report or financial statement.");
   if (component === "Residential Mortgage Loan Activity" && !evidence.reconciliation?.activity)
     gaps.push("Record the period activity or documented no-activity determination.");
-  if (!evidence.submission) gaps.push(hmda ? "Record the original HMDA submission confirmation." : "Record the original NMLS submission receipt.");
+  if (!evidence.submission) gaps.push(stateFiling ? "Record the original state filing confirmation." :
+    hmda ? "Record the original HMDA submission confirmation." : "Record the original NMLS submission receipt.");
   if (evidence.submission && dueOn && evidence.submission.on > dueOn) gaps.push("Review the late submission.");
   const amendments = michiganFilingAmendments(evidence);
-  if (component && !hmda && component !== "Fiscal-year financial statement") {
+  if (component && !stateFiling && !hmda && component !== "Fiscal-year financial statement") {
     const cutoff = String(Number(periodEnd.slice(0, 4)) + 2) + periodEnd.slice(4);
     if (amendments.some(item => item.on > cutoff))
       gaps.push("Verify amendment evidence after the published two-year NMLS filing window.");

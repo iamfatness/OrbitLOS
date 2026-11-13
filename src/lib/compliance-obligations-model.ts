@@ -159,6 +159,7 @@ export function obligationPeriod(period: string, cadence: ObligationDraft["caden
 }
 
 export type ObligationReviewBasis = {
+  statePortalFiling?: boolean;
   hmdaFiling?: boolean;
   applicabilityReview?: { revision: number; decision: ObligationDraft["applicability"]; reason: string; evidence: string; reviewer: string; reviewedAt: string };
   nmlsFiling?: boolean;

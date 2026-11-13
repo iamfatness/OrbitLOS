@@ -23,7 +23,7 @@ const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.
 const plannedReview = z.object({ entityId: z.uuid(), month: z.string(), itemId: z.uuid() });
 const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
   reportingBasis: reportingDateBasis.optional(), period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(), ownerEmail: z.string(), from: z.string(), through: z.string(),
-  coloradoCompanyRenewal: z.boolean().optional(), newYorkEmployment: z.boolean().optional(), newYorkVoor: z.boolean().optional(), illinoisAudit: z.boolean().optional(), michiganMloRenewal: z.boolean().optional(), nmlsFiling: z.boolean().optional(), hmdaFiling: z.boolean().optional(), priorFilingBasis: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
+  coloradoCompanyRenewal: z.boolean().optional(), newYorkEmployment: z.boolean().optional(), newYorkVoor: z.boolean().optional(), illinoisAudit: z.boolean().optional(), michiganMloRenewal: z.boolean().optional(), nmlsFiling: z.boolean().optional(), hmdaFiling: z.boolean().optional(), statePortalFiling: z.boolean().optional(), priorFilingBasis: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
 })) });
 type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
@@ -53,7 +53,7 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
  const [selected,setSelected]=useState<Row|null>(),[history,setHistory]=useState<z.infer<typeof periods>>();
  const [planned,setPlanned]=useState<ProgramReviewTarget>();
  const [historyOffset,setHistoryOffset]=useState(0);
- const [evidence,setEvidence]=useState<{ type: "illinoisAudit" | "michiganMloRenewal" | "nmlsFiling" | "hmdaFiling" | "newYorkEmployment" | "newYorkVoor" | "coloradoCompanyRenewal"; period: string }>();
+ const [evidence,setEvidence]=useState<{ type: "illinoisAudit" | "michiganMloRenewal" | "nmlsFiling" | "hmdaFiling" | "statePortalFiling" | "newYorkEmployment" | "newYorkVoor" | "coloradoCompanyRenewal"; period: string }>();
  const evidenceReturn=useRef<HTMLButtonElement>(null);
  const [floridaAmendments,setFloridaAmendments]=useState(false);
  const floridaReturn=useRef<HTMLButtonElement>(null);
@@ -213,7 +213,7 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
  {selected && evidence?.type === "newYorkVoor" && <NewYorkVoorEvidence brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
- {selected && (evidence?.type === "nmlsFiling" || evidence?.type === "hmdaFiling") && <NmlsFilingEvidence hmda={evidence.type === "hmdaFiling"} brokerageId={brokerageId} entityId={entityId}
+ {selected && (evidence?.type === "nmlsFiling" || evidence?.type === "hmdaFiling" || evidence?.type === "statePortalFiling") && <NmlsFilingEvidence statePortal={evidence.type === "statePortalFiling"} hmda={evidence.type === "hmdaFiling"} brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
  {selected && evidence?.type === "coloradoCompanyRenewal" && <ColoradoCompanyRenewal brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
@@ -346,9 +346,9 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
              {period.michiganMloRenewal && <Button className="min-h-11" variant="outline" disabled={busy}
                onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: "michiganMloRenewal", period: period.period }); }}>
                Review Michigan renewal evidence</Button>}
-             {(period.nmlsFiling || period.hmdaFiling) && <Button className="min-h-11" variant="outline" disabled={busy}
-               onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: period.hmdaFiling ? "hmdaFiling" : "nmlsFiling", period: period.period }); }}>
-               {period.hmdaFiling ? "Review HMDA filing evidence" : "Review NMLS filing evidence"}</Button>}
+             {(period.nmlsFiling || period.hmdaFiling || period.statePortalFiling) && <Button className="min-h-11" variant="outline" disabled={busy}
+               onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: period.statePortalFiling ? "statePortalFiling" : period.hmdaFiling ? "hmdaFiling" : "nmlsFiling", period: period.period }); }}>
+               {period.statePortalFiling ? "Review state filing evidence" : period.hmdaFiling ? "Review HMDA filing evidence" : "Review NMLS filing evidence"}</Button>}
          </li>)}</ul>
          {!history.items.length && <p>No periods recorded.</p>}
          {(historyOffset > 0 || history.more) && <div className="loan-application-actions">

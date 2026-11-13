@@ -48,8 +48,8 @@ function EvidenceGroup({ name, label, recorded, children }: {
     <fieldset className={enabled ? "form-grid min-w-0" : "hidden"} disabled={!enabled}>{children}</fieldset>
   </div>;
 }
-function FilingForm({ latest, component, nominal, reviewableScopeRevision, busy, conflict, submit, cancel }: {
-  latest?: Version; component: string; nominal: string | null; busy: boolean; conflict: boolean;
+function FilingForm({ latest, component, nominal, statePortal, reviewableScopeRevision, busy, conflict, submit, cancel }: {
+  latest?: Version; component: string; nominal: string | null; statePortal?: boolean; busy: boolean; conflict: boolean;
   reviewableScopeRevision?: number;
   submit: (form: FormData) => void; cancel: () => void;
 }) {
@@ -76,7 +76,7 @@ function FilingForm({ latest, component, nominal, reviewableScopeRevision, busy,
       </EvidenceGroup>
       <EvidenceGroup name="submission" label="Record original submission" recorded={Boolean(facts?.submission)}>
         <Field name="submissionOn" label="Original submission date" type="date" value={facts?.submission?.on} />
-        <Field name="submissionReference" label={component.startsWith("HMDA") ? "Original HMDA confirmation reference" : "Original NMLS receipt reference"} value={facts?.submission?.reference} />
+        <Field name="submissionReference" label={statePortal ? "Original state filing confirmation reference" : component.startsWith("HMDA") ? "Original HMDA confirmation reference" : "Original NMLS receipt reference"} value={facts?.submission?.reference} />
       </EvidenceGroup>
       {amendmentKeys.map((key, index) => {
         const prefix = "mi-filing-amendment-" + key;
@@ -141,9 +141,9 @@ function FilingSummary({ entry, review = entry.finding }: { entry: Version; revi
   </div>;
 }
 
-export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period, hmda, onBack, backLabel = "Back to obligation" }:
-  Target & { onBack: () => void; backLabel?: string; hmda?: boolean }) {
-  const heading = hmda ? "HMDA filing evidence" : "NMLS filing evidence";
+export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period, hmda, statePortal, onBack, backLabel = "Back to obligation" }:
+  Target & { onBack: () => void; backLabel?: string; hmda?: boolean; statePortal?: boolean }) {
+  const heading = statePortal ? "State filing evidence" : hmda ? "HMDA filing evidence" : "NMLS filing evidence";
   const [data, setData] = useState<History>();
   const [load, setLoad] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -242,7 +242,7 @@ export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period
     {!data ? (feedback?.error ? <div><Button className="min-h-11" variant="outline" onClick={reload}>Reload filing evidence</Button></div> :
       <p role="status">Loading filing evidence…</p>) : edit ? <>
       <h3 ref={editHeading} tabIndex={-1}>{latest ? "Update filing evidence" : "Record filing evidence"}</h3>
-      <FilingForm latest={latest} component={data.component} nominal={data.nominalDueOn} reviewableScopeRevision={data.reviewableScopeRevision}
+      <FilingForm latest={latest} component={data.component} nominal={data.nominalDueOn} statePortal={statePortal} reviewableScopeRevision={data.reviewableScopeRevision}
         busy={busy} conflict={conflict} submit={form => void submit(form)}
         cancel={() => { setFeedback(undefined); setEdit(false); requestAnimationFrame(() => editButton.current?.focus()); }} />
       {conflict && <div><Button className="min-h-11" variant="outline" onClick={reload}>Reload evidence and discard draft</Button></div>}

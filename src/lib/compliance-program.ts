@@ -12,7 +12,7 @@ import { financialConditionCadenceReview, financialConditionScopeMatches, savedF
 import { stateScopePageSize, type StateScopeSummary } from "./compliance-program-model";
 import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth, type ComplianceOwnerHomeData } from "./compliance-program-model";
 import { currentFilingProgress } from "./compliance-filing-progress";
-import { filingEvidenceComponent, nmlsFilingComponent } from "./michigan-filing-evidence-model";
+import { californiaAnnualFilingComponent, filingEvidenceComponent, nmlsFilingComponent } from "./michigan-filing-evidence-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -239,6 +239,8 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
     : undefined;
   const decision = applicabilityReview?.decision ??
     (report && basisChanged && draft.applicability === "Not applicable" ? "Needs review" : draft.applicability);
+  const statePortalFiling = decision !== "Not applicable" &&
+    Boolean(bounds && californiaAnnualFilingComponent(stateBasis?.sourceKey ?? "", draft, bounds.from));
   const basisReview = "Verify the filing evidence against the current scope and source.";
   const reportingBasis = (cadenceConflict || basisChanged) && recordedReportingBasis
     ? { ...recordedReportingBasis, nominalDueOn: null, review: cadenceConflict ? financialConditionCadenceReview : basisReview }
@@ -253,6 +255,9 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
           financialConditionScopeMatches(db, tenant, entityId, reviewed, draft.cadence)) }, now)
     : undefined;
   const hasTrackedProgress = Boolean(progress);
+  if (statePortalFiling && progress?.revision === null && String(row.evidence ?? "").trim()) {
+    progress.summary = "Earlier filing reference recorded";
+  }
   if (!progress && report && decision !== "Not applicable") {
     const dueOn = reportingBasis?.nominalDueOn;
     const hasReference = Boolean(String(row.evidence ?? "").trim());
@@ -262,7 +267,7 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
     if (!hasReference) gaps.push("Record the filing evidence reference or document the applicable filing treatment.");
     progress = { revision: null, summary: hasReference ? "Filing reference recorded" : "Filing evidence needed", gaps };
   }
-  if (report && decision === "Needs review" && progress && (hmdaFiling || !hasTrackedProgress || draft.applicability !== "Needs review" || applicabilityReview)) {
+  if (report && decision === "Needs review" && progress && (hmdaFiling || statePortalFiling || !hasTrackedProgress || draft.applicability !== "Needs review" || applicabilityReview)) {
     progress.gaps.unshift("Confirm whether this report applies to the brokerage.");
   }
   const filingProgress = applicabilityReview?.decision === "Not applicable"
@@ -270,7 +275,7 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
     : (cadenceConflict || basisChanged) && !progress?.reviewedScopeRevision
     ? { revision: progress?.revision ?? null, summary: basisChanged ? "Filing timing needs review" : "Filing date needs review",
       gaps: [cadenceConflict ? financialConditionCadenceReview : basisReview, ...(progress?.gaps ?? [])] } : progress;
-  return { draft, stateBasis, cadenceConflict, basisChanged, reportingBasis, filingProgress, nmlsFiling, hmdaFiling, bounds, applicabilityReview };
+  return { draft, stateBasis, cadenceConflict, basisChanged, reportingBasis, filingProgress, nmlsFiling, hmdaFiling, statePortalFiling, bounds, applicabilityReview };
 }
 
 function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, roster: readonly VersionedBrokerageMember[],
@@ -378,7 +383,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   for (const row of bases) {
     const item = byItem.get(String(row.workId));
     if (!item) continue;
-    const { draft, stateBasis, reportingBasis, cadenceConflict, basisChanged, filingProgress, nmlsFiling, hmdaFiling, bounds, applicabilityReview } = recordedFilingBasis(db,
+    const { draft, stateBasis, reportingBasis, cadenceConflict, basisChanged, filingProgress, nmlsFiling, hmdaFiling, statePortalFiling, bounds, applicabilityReview } = recordedFilingBasis(db,
       staff.brokerage.id, entity.id, { obligationId: row.obligationId, period: row.period, snapshot: row.snapshot, evidence: item.evidence, internalTarget: item.internalTarget }, now, holders, ownerChoices);
     if (filingProgress) item.filingProgress = filingProgress;
     const [year, month] = String(row.period).split("-");
@@ -388,7 +393,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
       status: (cadenceConflict || basisChanged) && !filingProgress?.reviewedScopeRevision ? "Applicability review gap" : String(row.status),
       sourceUrl: draft.sourceUrl, authority: draft.authority, reportingBasis, applicabilityReview,
       filingReceipts: supportsFilingReceipts({ draft, stateBasis, reportingBasis }),
-      nmlsFiling, hmdaFiling,
+      nmlsFiling, hmdaFiling, statePortalFiling,
       stateBasis: stateBasis && { jurisdiction: stateBasis.jurisdiction, revision: stateBasis.revision, sourceKey: stateBasis.sourceKey,
         title: stateBasis.title, authority: stateBasis.authority, sourceUrl: stateBasis.sourceUrl },
       report: draft.preparation === "Mortgage Call Report" ? { year, quarter: Math.ceil(Number(month) / 3) } : undefined,
