@@ -1172,3 +1172,61 @@ test("Texas borrower-file review retains lender retrieval, an unclosed file and 
  assert.deepEqual(manifest.texasRecordkeeping[2].finding.findings,initial.currentFinding.findings);
  assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
 });
+
+test("New York application log preserves referrals, fees and denial evidence across entity-scoped revisions", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {strFromU8,unzipSync}=await import("fflate");
+ const {db,staff,capture}=ownerFixture(t);
+ initializeStore(db,false);
+ const tenant=staff.brokerage.id, entityId=crypto.randomUUID(), otherId=crypto.randomUUID(), now="2026-11-12T03:00:00Z";
+ const addEntity=db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'000123','Fictional New York scope',?)");
+ addEntity.run(tenant,entityId,"Fictional New York broker",now);
+ addEntity.run(tenant,otherId,"Fictional separate broker",now);
+ const before=capture();
+ const request=(input,entity=entityId,actor=staff)=>loanRetentionWork(db,{type:"newYorkApplicationLog",entityId:entity,input},actor,tenant,now);
+ const party={name:"Fictional Referral",address:"1 Fictional Street",description:"Real estate broker"};
+ const facts={office:"Fictional branch",fileNumber:"000042",applicationOn:"2026-11-10",
+  applicants:[{name:"=1+1 Fictional Applicant",address:"2 Fictional Street"}],propertyAddress:"3 Fictional Street",
+  source:{status:"Referral",referrer:party},disposition:{status:"Pending"},placement:{status:"Unreviewed"},
+  preclosingFees:{status:"Recorded",items:[{amountCents:1050,paidOn:"2026-11-10",purpose:"Credit report",direction:"Collected",counterparty:party}]},
+  brokerageFees:{status:"Unreviewed"}};
+ const make=(facts,options={})=>({operation:"save",entryId:crypto.randomUUID(),requestId:crypto.randomUUID(),expected:0,facts,...options});
+ const initial=make(facts);
+ assert.equal(request(initial).versions[0].review.firstLoggedOn,"2026-11-11");
+ assert.equal(request(initial).versions[0].review.loggedAfterReceipt,true);
+ assert.equal(request(initial).versions.length,1);
+ assert.match(request(initial,otherId).error,/changed/);
+ assert.match(request(initial,entityId,{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
+ assert.match(request(make({...facts,fileNumber:" 000042 "})).error,/already uses/);
+ assert.match(request(make({...facts,applicationOn:"2026-11-12"})).error,/already occurred/);
+ assert.match(request(make({...facts,earlierLog:{on:"2026-11-12",reference:"Future log date"}})).error,/cannot follow/);
+ const corrected=make({...facts,earlierLog:{on:"2026-11-10",reference:"Fictional branch log"},
+  disposition:{status:"Final",outcome:"Denied",on:"2026-11-11",reference:"Fictional denied file"},
+  placement:{status:"Not placed",reference:"Fictional placement review"},
+  brokerageFees:{status:"Accounting record",reference:"Fictional ledger 42"}},
+  {entryId:initial.entryId,expected:1,correction:"Fictional disposition and branch evidence"});
+ const history=request(corrected);
+ assert.deepEqual(history.versions.map(item=>item.review.loggedAfterReceipt),[false,true]);
+ assert.deepEqual(history.versions[0].review.gaps,[]);
+ assert.match(request({...corrected,requestId:crypto.randomUUID()}).error,/changed/);
+ const listing={operation:"list",from:"2026-11-10",through:"2026-11-11",search:"000042",offset:0};
+ assert.equal(request(listing).items.length,1);
+ assert.equal(request(listing,otherId).items.length,0);
+ const result=request({operation:"export",from:listing.from,through:listing.through});
+ assert.equal(result.entries,1);
+ assert.equal(result.gaps,0);
+ const book=unzipSync(Buffer.from(result.xlsx,"base64"));
+ const sheet=number=>strFromU8(book[`xl/worksheets/sheet${number}.xml`]);
+ assert.match(sheet(1),/t="inlineStr"[^>]*><is><t xml:space="preserve">=1\+1 Fictional Applicant/);
+ assert.match(sheet(1),/Fictional Referral/);
+ assert.match(sheet(2),/<v>10.5<\/v>/);
+ assert.match(sheet(4),/Fictional denied file/);
+ assert.match(sheet(5),/Fictional ledger 42/);
+ assert.match(sheet(5),/Fictional disposition and branch evidence/);
+ assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
+ const voided=request({operation:"void",entryId:initial.entryId,expected:2,requestId:crypto.randomUUID(),correction:"Fictional duplicate"});
+ assert.equal(voided.versions[0].voided,true);
+ assert.equal(request({operation:"export",from:listing.from,through:listing.through}).entries,0);
+});
