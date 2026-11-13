@@ -107,6 +107,7 @@ import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote
 import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { staffQuestionTarget } from "@/lib/borrower-question-model";
 import { staleProcessingHandoff } from "@/lib/processing-model";
+import { staleVerificationOrder } from "@/lib/service-order-model";
 import { supportReportUrl, type SupportWorkGroup } from "@/lib/pilot-support-model";
 
 const RecordDialog = lazy(async () => ({ default: (await import("./record-dialog")).RecordDialog }));
@@ -453,7 +454,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
       } else result = await mutate(input, staff?.brokerage.id ?? demoBrokerageId, scope);
       if ("error" in result) {
         setError(result.error);
-        if ((result.error === reopenedMockClosingMessage || result.error === staleProcessingHandoff) &&
+        if ((result.error === reopenedMockClosingMessage || result.error === staleProcessingHandoff || result.error === staleVerificationOrder) &&
           modal?.kind === "details" && writeVersion === loanReadVersion.current) {
           const currentLoan = await readLoanForWork(modal.loanId, staff?.brokerage.id ?? demoBrokerageId).catch(() => null);
           if (currentLoan && !("error" in currentLoan) && writeVersion === loanReadVersion.current) {

@@ -3396,8 +3396,10 @@ try {
   await stage("Borrower-specific mock verification returns reach the assigned processor", async () => {
     const { loanId, primaryToken, coToken } = jointFile;
     await team(owner, { type: "assignProcessor", email: processor.email, loanId, revision: 0 });
+    const application = (await file(processor, loanId)).applications[0];
     const primary = { type: "createServiceOrder", loanId, orderId: randomUUID(), kind: "Employment verification",
-      recipient: "Primary borrower", dueOn: today, note: "" };
+      recipient: "Primary borrower", dueOn: today, note: "",
+      applicationRevision: application.submittedAt && !application.correctionNote ? application.revision : null };
     const co = { ...primary, orderId: randomUUID(), recipient: "Co-borrower" };
     assert.ok((await action(competingOfficer, "mutate", co)).error);
     await write(processor, primary);
@@ -3572,7 +3574,8 @@ try {
     const query = { type: "read", loanId };
     assert.equal((await postResponse(path, query, competingOfficer)).status, 409);
     const orderId = randomUUID();
-    await loanAction(processor, loanId, "createServiceOrder", { orderId, kind: "Income verification", recipient: "Primary borrower", dueOn: today, note: "" });
+    await loanAction(processor, loanId, "createServiceOrder", { orderId, kind: "Income verification", recipient: "Primary borrower",
+      dueOn: today, note: "", applicationRevision: sent.revision });
     const serviceReturn = { orderId, revision: 0, action: "Simulate return", note: "" };
     await loanAction(processor, loanId, "updateServiceOrder", serviceReturn);
     assert.ok(!(await post(path, query, processor)).page.eligible.some(({ id }) => id === orderId));

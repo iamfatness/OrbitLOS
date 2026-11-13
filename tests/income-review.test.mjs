@@ -122,7 +122,7 @@ test("income verification approval pins the borrower and return through an older
   const mutate = (type, version, fields = {}) => ({ type, revision: version, applicationRevision: revision, requestId: randomUUID(), ...fields });
   const orderId = randomUUID(), assetId = randomUUID();
   const prior = { type: "createServiceOrder", orderId: randomUUID(), kind: "Employment verification", dueOn: easternDate(now),
-    recipient: "Co-borrower", note: "" };
+    recipient: "Co-borrower", note: "", applicationRevision: null };
   db.prepare("UPDATE applications SET submittedAt = NULL WHERE loanId = ?").run(loanId);
   assert.ok((await send(prior, processor)).message);
   db.prepare("UPDATE applications SET submittedAt = ? WHERE loanId = ?").run(at, loanId);
@@ -133,7 +133,8 @@ test("income verification approval pins the borrower and return through an older
   assert.equal(db.prepare("SELECT applicationRevision FROM service_orders WHERE id = ?").get(prior.orderId).applicationRevision, null);
   assert.deepEqual(work({ type: "read" }).page.eligible, []);
   for (const [id, kind] of [[orderId, "Income verification"], [assetId, "Asset verification"]]) {
-    const created = await send({ type: "createServiceOrder", orderId: id, kind, dueOn: easternDate(now), recipient: "Co-borrower", note: "" }, processor);
+    const created = await send({ type: "createServiceOrder", orderId: id, kind, dueOn: easternDate(now), recipient: "Co-borrower",
+      note: "", applicationRevision: revision }, processor);
     assert.ok(created.message, created.error);
     const received = await send({ type: "updateServiceOrder", orderId: id, revision: 0, action: "Simulate return", note: "" }, processor);
     assert.ok(received.message, received.error);
@@ -187,7 +188,7 @@ test("income verification approval pins the borrower and return through an older
   assert.deepEqual(corrected.requested, approved);
   assert.deepEqual(corrected.eligible, []);
   assert.match(work(mutate("save", updated.revision, { sources: [source] }), processor).error, /evidence changed/);
-  const newOrder = { ...prior, orderId: randomUUID(), kind: "Income verification" };
+  const newOrder = { ...prior, orderId: randomUUID(), kind: "Income verification", applicationRevision: revision };
   assert.ok((await send(newOrder, processor)).message);
   assert.ok((await send({ ...delayedReturn, orderId: newOrder.orderId }, processor)).message);
   assert.ok((await send({ ...delayedReturn, orderId: newOrder.orderId, revision: 1, action: "Accept" }, processor)).message);

@@ -2,7 +2,7 @@ import { addApplicationActivity } from "./applications";
 import { documentRecipientAvailable } from "./borrower-documents";
 import { easternDate } from "./client-retention";
 import { shiftReportDate } from "./report-date-range";
-import { serviceOrderLimit, serviceOrdersUnavailable, serviceOrderSlug, serviceReturnLimit, type ServiceOrder,
+import { serviceOrderLimit, serviceOrdersUnavailable, serviceOrderSlug, serviceReturnLimit, staleVerificationOrder, type ServiceOrder,
   type ServiceOrderCommand, type ServiceOrderQueuePage, type ServiceOrderQueueQuery } from "./service-order-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
@@ -74,11 +74,18 @@ export function changeServiceOrder(db: Store, data: ServiceOrderCommand, staff: 
   }
   if (data.type === "createServiceOrder") {
     const recipient = data.recipient ?? null;
-    if (current) return current.kind === data.kind && current.originalDueOn === data.dueOn && current.note === data.note && current.recipient === recipient
+    if (current) return current.kind === data.kind && current.originalDueOn === data.dueOn && current.note === data.note && current.recipient === recipient &&
+      (data.applicationRevision === undefined || current.applicationRevision === data.applicationRevision)
       ? { message: "Mock service order already recorded." } : { error: "This service order identifier has already been used." };
     if (recipient && !documentRecipientAvailable(db, loanId, recipient)) {
       return { error: "Add a co-borrower to this loan before recording their verification." };
     }
+    if (recipient && data.applicationRevision === undefined) {
+      return { error: "Reload the workspace to record a verification order with its 1003 revision." };
+    }
+    const applicationRevision = recipient ? db.prepare(`SELECT revision FROM applications
+      WHERE loanId = ? AND submittedAt IS NOT NULL AND coalesce(correctionNote, '') = ''`).get(loanId)?.revision ?? null : null;
+    if (recipient && data.applicationRevision !== applicationRevision) return { error: staleVerificationOrder };
     if (db.prepare(`SELECT 1 FROM service_orders service WHERE service.loanId = ? AND service.kind = ?
       AND coalesce(service.recipient, '') = ? AND ${openServiceOrderSql}`).get(loanId, data.kind, recipient ?? "")) {
       return { error: `An open mock ${data.kind.toLowerCase()} order already exists ${recipient ? `for the ${recipient.toLowerCase()}` : "on this loan"}.` };
@@ -86,8 +93,6 @@ export function changeServiceOrder(db: Store, data: ServiceOrderCommand, staff: 
     if (Number(db.prepare("SELECT count(*) AS total FROM service_orders WHERE loanId = ?").get(loanId)?.total) >= serviceOrderLimit) {
       return { error: `This sample loan already has ${serviceOrderLimit} service orders.` };
     }
-    const applicationRevision = recipient ? db.prepare(`SELECT revision FROM applications
-      WHERE loanId = ? AND submittedAt IS NOT NULL AND coalesce(correctionNote, '') = ''`).get(loanId)?.revision ?? null : null;
     db.prepare(`INSERT INTO service_orders (id, loanId, kind, dueOn, originalDueOn, createdAt, createdBy, note, recipient, applicationRevision)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(orderId, loanId, data.kind, data.dueOn, data.dueOn, at, actor, data.note, recipient, applicationRevision);
     addApplicationActivity(db, loanId, `Recorded mock ${data.kind.toLowerCase()} order${recipient ? ` · ${recipient}` : ""} · Due ${data.dueOn} · ${actor}`, at);
