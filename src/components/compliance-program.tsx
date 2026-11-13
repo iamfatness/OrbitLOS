@@ -118,6 +118,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   </>;
   const entityOptions = current && !entities.some(entity => entity.id === current.entity.id) ? [current.entity, ...entities] : entities;
   const hasFilingProgress = current?.items.some(item => item.filingProgress);
+  const filingGapCount = current?.items.filter(item => item.filingProgress?.gaps.length).length ?? 0;
   const visibleItems = current?.items.filter(item => (!status || item.status === status) &&
     (!hasFilingProgress || !evidenceGapsOnly || Boolean(item.filingProgress?.gaps.length))) ?? [];
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -203,8 +204,9 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         <p>{current.counts.open} open · {current.counts.overdue} past internal target · {current.counts.unavailableOwners} needing an owner</p>
         <label className="field">Work status<select value={status} onChange={e => setStatus(e.target.value)}><option value="">All statuses</option>{programStatuses.map(s => <option key={s}>{s}</option>)}</select></label>
         {hasFilingProgress && <label className="flex min-h-11 items-center gap-2">
-          <input type="checkbox" checked={evidenceGapsOnly} onChange={event => setEvidenceGapsOnly(event.target.checked)} />
-          Filing evidence gaps only
+          <input type="checkbox" aria-describedby="monthly-filing-gap-count" checked={evidenceGapsOnly} onChange={event => setEvidenceGapsOnly(event.target.checked)} />
+          <span>Filing evidence gaps only <span aria-hidden="true" className="muted">({filingGapCount})</span></span>
+          <span id="monthly-filing-gap-count" hidden>{filingGapCount} filing items need review.</span>
         </label>}
         <ul className="document-list" aria-label="Monthly work">
           {visibleItems.map(item => <li className="document-item" key={item.id}>

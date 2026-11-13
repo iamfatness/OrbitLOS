@@ -66,6 +66,37 @@ test("period history preserves original versions and remains entity scoped",t=>{
  assert.ok(f.run(query,f.staff,[]).error);
 });
 
+test("monthly filing gaps include state reports with manual evidence", t => {
+ const f = fixture(t);
+ const jurisdiction = "CA";
+ const scope = complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,
+  jurisdiction,expectedRevision:0,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",
+   companyEvidence:"Fictional CFL authority",officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",
+   reportingBasis:"",counselPacketReference:""}}},f.staff,f.staff.brokerage.id,[f.actor],"2026-11-11T12:00:00Z");
+ assert.equal(scope.revision,1);
+ const draft = {...f.draft,cadence:"Annual",applicability:"Required",reviewerEvidence:"Fictional applicability review"};
+ const stateReference = {jurisdiction,sourceKey:"REQ-CA-REPORTING-CFLANNUAL",revision:1};
+ assert.equal(f.run(f.save({draft,stateReference})).revision,1);
+ const target = {entityId:f.entityId,id:f.id,period:"2025-01"};
+ assert.equal(f.run(f.generate({period:target.period})).kind,"obligationOccurrence");
+ const planned = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
+ const month = {entityId:f.entityId,month:planned.month};
+ const before = f.program({operation:"month",...month});
+ assert.match(before.items[0].filingProgress.gaps.join(" "),/Record the filing evidence reference/);
+ const reviewed = f.program({operation:"reviewMonth",...month,requestId:crypto.randomUUID(),fingerprint:before.fingerprint,note:"Fictional missing filing evidence"});
+ const after = f.program({operation:"update",...month,id:planned.workId,requestId:crypto.randomUUID(),
+  expectedRevision:1,status:"Awaiting review",ownerEmail:f.actor.email,internalTarget:"2026-03-20",
+  evidence:"Fictional DFPI receipt reference",note:"Fictional submission received"});
+ assert.equal(after.items[0].filingProgress.summary,"Filing reference recorded");
+ assert.deepEqual(after.items[0].filingProgress.gaps,["The internal target falls after the nominal filing date."]);
+ assert.equal(after.reviews[0].current,false);
+ assert.equal(after.reviews[0].snapshot,reviewed.reviews[0].snapshot);
+ const resolved = f.program({operation:"update",...month,id:planned.workId,requestId:crypto.randomUUID(),
+  expectedRevision:2,status:"Completed",ownerEmail:f.actor.email,internalTarget:"2026-03-15",
+  evidence:"Fictional DFPI receipt reference",note:"Fictional evidence reviewed"});
+ assert.deepEqual(resolved.items[0].filingProgress.gaps,[]);
+});
+
 test("priority-state FV7 filing evidence respects the source, period, cadence and review status", t => {
  const f = fixture(t);
  const saveScope = (jurisdiction, activity, expectedRevision = 0) => complianceCaseWork(f.db, {type:"stateScope",input:{
