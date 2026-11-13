@@ -7,14 +7,25 @@ import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-mo
 import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
   supportsFilingReceipts, type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
+import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
 type StateBasis = ObligationStateSource & { snapshot: string };
 type StoredDraft = ObligationDraft & { stateBasis?: StateBasis };
 const obligationSources = stateRequirementSources.filter(item => isObligationStateSource(item.source.key));
 const describeStateBasis = ({ jurisdiction, revision, sourceKey, title, authority, sourceUrl }: StateBasis): ObligationStateSource =>
   ({ jurisdiction, revision, sourceKey, title, authority, sourceUrl });
+type OccurrenceSnapshot = {
+  draft: ObligationDraft;
+  period: NonNullable<ReturnType<typeof obligationPeriod>>;
+  stateBasis?: StateBasis;
+  reportingBasis?: ReturnType<typeof obligationReportingBasis>;
+};
 
 export function initializeComplianceObligations(db: Store) {
+  db.exec(`CREATE TABLE IF NOT EXISTS illinois_audit_evidence_versions (
+    brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL, version INTEGER NOT NULL,
+    evidence TEXT NOT NULL, finding TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, correction TEXT,
+    PRIMARY KEY(brokerageId,entityId,obligationId,period,version));`);
   db.exec(`CREATE TABLE IF NOT EXISTS compliance_obligation_versions (
     brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, id TEXT NOT NULL, revision INTEGER NOT NULL,
     draft TEXT NOT NULL, ownerRevision INTEGER NOT NULL, reviewer TEXT NOT NULL, reviewedAt TEXT NOT NULL,
@@ -180,6 +191,47 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     return { kind: "obligationStateSources", items: stateSources().map(describeStateBasis) };
   const matchesStateBasis = (current: StateBasis, saved: StateBasis) => current.sourceKey === saved.sourceKey &&
     current.revision === saved.revision && current.jurisdiction === saved.jurisdiction && current.snapshot === saved.snapshot;
+  if (data.operation === "illinoisAuditHistory" || data.operation === "saveIllinoisAudit") {
+    const target = [tenant, data.entityId, data.id, data.period] as const;
+    const occurrence = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...target);
+    const snapshot = occurrence ? JSON.parse(String(occurrence.snapshot)) as OccurrenceSnapshot : null;
+    if (snapshot?.stateBasis?.sourceKey !== "REQ-IL-REPORTING-ANNUAL-AUDIT" ||
+      !snapshot.reportingBasis?.nominalDueOn || snapshot.draft.applicability === "Not applicable") return unavailable;
+    const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+    if (data.operation === "illinoisAuditHistory") {
+      const before = data.before ?? null;
+      const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM illinois_audit_evidence_versions
+        WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND (? IS NULL OR version<?) ORDER BY version DESC LIMIT 21`)
+        .all(...target, before, before);
+      const versions = rows.slice(0, 20).map(row => ({ ...row, evidence: JSON.parse(String(row.evidence)) as IllinoisAuditEvidence,
+        finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewIllinoisAuditEvidence> }));
+      return { kind: "illinoisAuditHistory", nominalDueOn: snapshot.reportingBasis.nominalDueOn, versions,
+        currentFinding: before === null && versions[0] ? reviewIllinoisAuditEvidence(versions[0].evidence, asOf) : null,
+        next: rows.length > 20 ? rows[19].version : null };
+    }
+    const request = JSON.stringify(data);
+    const replay = db.prepare("SELECT actor,request,result FROM compliance_obligation_events WHERE brokerageId=? AND requestId=?")
+      .get(tenant, data.requestId);
+    if (replay) return replay.actor === staff.email && replay.request === request ? JSON.parse(String(replay.result)) : changed;
+    const current = db.prepare(`SELECT MAX(version) version FROM illinois_audit_evidence_versions
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...target);
+    if (Number(current?.version ?? 0) !== data.expected) return changed;
+    if (data.expected && !data.correction) return { error: "Record a reason for updating the audit evidence." };
+    const { evidence } = data;
+    const events = [evidence.extension?.request.on, evidence.extension?.decision?.on, evidence.filing?.on];
+    if (events.some(on => on && on > asOf)) return { error: "Record audit events that have already occurred." };
+    if (evidence.originalDeadline.on < snapshot.period.through || (evidence.filing && evidence.filing.on < snapshot.period.through))
+      return { error: "The audit deadline and filing must fall on or after the fiscal year end." };
+    const version = data.expected + 1;
+    const finding = reviewIllinoisAuditEvidence(evidence, asOf);
+    db.prepare("INSERT INTO illinois_audit_evidence_versions VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run(...target, version, JSON.stringify(evidence), JSON.stringify(finding), staff.email, now, data.correction ?? null);
+    const result = { kind: "illinoisAuditSaved", version, finding };
+    db.prepare("INSERT INTO compliance_obligation_events VALUES (?,?,?,?,?,?,?)")
+      .run(tenant, data.requestId, data.entityId, staff.email, now, request, JSON.stringify(result));
+    return result;
+  }
   if (data.operation === "occurrences") {
     const rows = db.prepare(`SELECT o.obligationId,o.period,o.version,o.status,o.internalTarget,o.snapshot,o.createdBy,o.createdAt,w.workId,w.month,
       (SELECT json_extract(r.evidence,'$.status') FROM compliance_filing_receipts r

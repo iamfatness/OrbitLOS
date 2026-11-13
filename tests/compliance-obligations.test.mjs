@@ -53,6 +53,48 @@ test("period history preserves original versions and remains entity scoped",t=>{
  assert.ok(f.run(query,f.staff,[]).error);
 });
 
+test("Illinois audit evidence preserves the original deadline and regulator decision history",t=>{
+ const f=fixture(t);
+ const scope=complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction:"IL",expectedRevision:0,
+   requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional Illinois license",
+     officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
+   f.staff,f.staff.brokerage.id,[f.actor],"2026-11-11T12:00:00Z");
+ assert.equal(scope.revision,1);
+ const sourceKey="REQ-IL-REPORTING-ANNUAL-AUDIT";
+ const draft={...f.draft,cadence:"Annual",annualStartMonth:1,applicability:"Required",reviewerEvidence:"Fictional audit review"};
+ assert.equal(f.run(f.save({draft,stateReference:{jurisdiction:"IL",revision:1,sourceKey}})).revision,1);
+ const period="2025-01";
+ const original=f.run(f.generate({period})).occurrence;
+ const target={entityId:f.entityId,id:f.id,period};
+ const history={operation:"illinoisAuditHistory",...target};
+ const save=(evidence,expected=0,changes={})=>({operation:"saveIllinoisAudit",...target,requestId:crypto.randomUUID(),expected,evidence,...changes});
+ assert.equal(f.run(history).nominalDueOn,"2026-03-31");
+ const evidence={originalDeadline:{on:"2026-03-31",reference:"Reviewed fiscal deadline"},
+   extension:{request:{on:"2026-03-16",reference:"Dated written request receipt"},grounds:"Fictional circumstances beyond control"}};
+ const initial=save(evidence);
+ const first=f.run(initial);
+ assert.deepEqual(first.finding,{asOf:"2026-11-11",requestDueOn:"2026-03-16",dueOn:"2026-03-31",requestStatus:"On time",
+   filingStatus:"Past due",extensionStatus:"Pending decision"});
+ assert.deepEqual(f.run(initial),first);
+ assert.ok(f.run({...history,entityId:crypto.randomUUID()}).error);
+ assert.ok(f.run(history,f.staff,[]).error);
+ const filing={on:"2026-04-30",reference:"IDFPR filing receipt"};
+ const denial={...evidence,filing,extension:{...evidence.extension,decision:{result:"Denied",on:"2026-03-25",reference:"Written denial"}}};
+ assert.match(f.run(save(denial,1)).error,/reason/);
+ assert.equal(f.run(save(denial,1,{correction:"Record regulator denial"})).finding.filingStatus,"Filed late");
+ const grant={...denial,extension:{...evidence.extension,request:{...evidence.extension.request,on:"2026-03-17"},
+   decision:{result:"Granted",on:"2026-03-25",dueOn:"2026-04-30",reference:"Corrected written regulator decision"}}};
+ const corrected=save(grant,2,{correction:"Correct request date and regulator decision"});
+ assert.equal(f.run(corrected).finding.filingStatus,"Filed on time");
+ assert.match(f.run(save(grant,2,{correction:"Conflicting correction"})).error,/changed/);
+ const versions=f.run(history).versions;
+ assert.deepEqual(versions.map(item=>item.finding.extensionStatus),["Granted","Denied","Pending decision"]);
+ assert.equal(versions[0].finding.requestStatus,"Late");
+ assert.equal(versions[0].finding.dueOn,"2026-04-30");
+ assert.deepEqual(f.run({...history,before:3}).versions.map(item=>item.version),[2,1]);
+ assert.equal(f.run(f.generate({period})).occurrence.snapshot,original.snapshot);
+});
+
 test("linked reporting work retains the saved Michigan scope and flags a later version",t=>{
   const f=fixture(t);
   const now="2026-11-12T12:00:00Z", jurisdiction="MI";

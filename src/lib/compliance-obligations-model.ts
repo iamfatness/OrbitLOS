@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { shiftReportDate } from "./report-date-range";
+import { illinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
 export const obligationPlanningNotice = "Internal planning only; statutory applicability and lawyer approval remain unverified.";
 const note = z.string().trim().min(5).max(1500);
@@ -28,6 +29,7 @@ export const obligationDraft = z.strictObject({
 });
 const scope = { entityId: z.uuid() };
 const change = { requestId: z.uuid() };
+const occurrence = { ...scope, id: z.uuid(), period: z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/) };
 const licensingSources = [
   "REQ-MI-LICENSING-FIRST-RENEW", "REQ-MI-LICENSING-SECOND-RENEW",
   "REQ-TX-LICENSING-CO-RENEW", "REQ-TX-LICENSING-BANKER-RENEW",
@@ -87,6 +89,9 @@ export const obligationRequest = z.discriminatedUnion("operation", [
     expectedVersion: z.int().nonnegative(), ...filingReceiptFields.shape }),
   z.strictObject({ operation: z.literal("addFilingReceiptReference"), ...filingScope, ...change,
     version: z.int().positive(), location: filingReceiptLocation }),
+  z.strictObject({ operation: z.literal("illinoisAuditHistory"), ...occurrence, before: z.int().positive().optional() }),
+  z.strictObject({ operation: z.literal("saveIllinoisAudit"), ...occurrence, ...change, expected: z.int().nonnegative(),
+    evidence: illinoisAuditEvidence, correction: note.optional() }),
   z.strictObject({ operation: z.literal("planWork"), ...scope, ...change, id: z.uuid(), period: z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/) }),
   z.strictObject({ operation: z.literal("occurrences"), ...scope, id: z.uuid(), offset: z.number().int().min(0).max(10000).default(0) }),
   z.strictObject({ operation: z.literal("list"), ...scope, offset: z.number().int().min(0).max(10000).default(0) }),
