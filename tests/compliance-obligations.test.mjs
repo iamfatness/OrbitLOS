@@ -1000,6 +1000,15 @@ test("New York annual VOOR tracks deadlines and versioned filing evidence", t =>
  const monthlyReview = f.program({operation:"reviewMonth",entityId:f.entityId,month:work.month,
    fingerprint:prior.fingerprint,requestId:crypto.randomUUID(),note:"Fictional initial filing review"});
  assert.equal(monthlyReview.reviews[0].current,true);
+ const savedSnapshot = monthlyReview.reviews[0].snapshot;
+ const recordedItem = JSON.parse(savedSnapshot).items[0];
+ assert.equal(recordedItem.obligation.obligationId,f.id);
+ assert.equal(recordedItem.obligation.version,1);
+ assert.deepEqual(recordedItem.obligation.periodBounds,{from:"2025-01-01",through:"2025-12-31"});
+ assert.equal(recordedItem.obligation.stateBasis.sourceKey,"REQ-NY-REPORTING-VOOR");
+ assert.equal(recordedItem.obligation.stateBasis.revision,1);
+ assert.equal(recordedItem.obligation.reportingBasis.nominalDueOn,"2026-06-22");
+
  const save = (evidence, expected = 0) => ({operation:"saveNewYorkVoor",...target,requestId:crypto.randomUUID(),
    expected,evidence,...(expected ? {correction:"Fictional record updated"} : {})});
  assert.equal(f.run(history).reportYear, 2025);
@@ -1018,6 +1027,7 @@ test("New York annual VOOR tracks deadlines and versioned filing evidence", t =>
  const firstRequest = save(evidence);
  const first = f.run(firstRequest);
  assert.equal(month().reviews[0].current,false);
+ assert.equal(month().reviews[0].snapshot,savedSnapshot);
  assert.equal(JSON.parse(month().reviews[0].snapshot).items[0].filingProgress.summary,"Filing evidence needed");
  assert.match(month().items[0].filingProgress.gaps[0],/Application Owner/);
  assert.equal(first.finding.initialTiming,"On or before recorded deadline");

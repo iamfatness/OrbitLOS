@@ -145,6 +145,7 @@ export function obligationPeriod(period: string, cadence: ObligationDraft["caden
 
 export type ObligationReviewBasis = {
   nmlsFiling?: boolean;
+  periodBounds?: { from: string; through: string };
   obligationId: string; period: string; version: number; status: string; sourceUrl: string; authority: string;
   report?: { year: string; quarter: number }; stateBasis?: ObligationStateSource;
   reportingBasis?: z.infer<typeof reportingDateBasis>;

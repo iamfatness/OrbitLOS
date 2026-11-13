@@ -8,6 +8,7 @@ import { dateLabel } from "@/lib/client-retention";
 import { ComplianceFilingReceipts } from "./compliance-filing-receipts";
 import { NmlsFilingEvidence } from "./michigan-filing-evidence";
 import { Button } from "./ui/button";
+import { downloadSampleFile } from "./sample-download";
 
 const value = (form: FormData, name: string) => String(form.get(name) ?? "");
 export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
@@ -213,7 +214,19 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         </ul>
         {!visibleItems.length && <p>No work matches this month and filter.</p>}
         <Button variant="outline" disabled={!current.items.length} onClick={() => navigate("review")}>Record monthly review</Button>
-        <details><summary>Monthly review history</summary>{!current.reviews.length && <p>No monthly reviews recorded.</p>}{current.reviews.map(r => <article className="document-item" key={r.id}><strong>{r.at.slice(0, 10)} · {r.actor}</strong><p>{r.note}</p><p>{r.current ? "Matches current review basis" : "Historical snapshot — review basis has changed"}</p></article>)}</details>
+        <details>
+          <summary>Monthly review history</summary>
+          {!current.reviews.length && <p>No monthly reviews recorded.</p>}
+          {current.reviews.map(({ id, actor, at, note, snapshot, current: matches }) => <article className="document-item" key={id}>
+            <strong>{at.slice(0, 10)} · {actor}</strong>
+            <p>{note}</p>
+            <p>{matches ? "Matches current review basis" : "Historical snapshot · Review basis has changed"}</p>
+            <Button type="button" variant="outline" className="min-h-11" onClick={() => {
+              downloadSampleFile(JSON.stringify({ reviewId: id, reviewedBy: actor, reviewedAt: at, note,
+                snapshot: JSON.parse(snapshot) }, null, 2), `orbit-monthly-review-${current.month}-${id}.json`, "application/json");
+            }}>Download snapshot</Button>
+          </article>)}
+        </details>
         <details><summary>Work history</summary>{current.history.map((h, index) => <article key={`${h.id}:${index}`}><p>{h.action} · {h.actor} · {h.at}</p><p>{h.note}</p></article>)}{current.moreHistory && <p>Showing the latest 50 events. Earlier events remain retained.</p>}</details>
       </>}
     </> : <form key={`${screen}:${selected?.id ?? ""}:${selected?.revision ?? ""}`} className="record-form" onSubmit={submit}>

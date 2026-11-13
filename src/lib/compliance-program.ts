@@ -221,7 +221,7 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
   if (nmlsFiling && filingProgress && stateBasis && !savedFilingScopeMatches(db, tenant, entityId, stateBasis)) {
     filingProgress = { ...filingProgress, gaps: ["Verify the filing evidence against the current scope and source.", ...filingProgress.gaps] };
   }
-  return { draft, stateBasis, cadenceConflict, reportingBasis, filingProgress, nmlsFiling };
+  return { draft, stateBasis, cadenceConflict, reportingBasis, filingProgress, nmlsFiling, bounds };
 }
 
 function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, roster: readonly VersionedBrokerageMember[],
@@ -313,12 +313,13 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   for (const row of bases) {
     const item = byItem.get(String(row.workId));
     if (!item) continue;
-    const { draft, stateBasis, reportingBasis, cadenceConflict, filingProgress, nmlsFiling } = recordedFilingBasis(db,
+    const { draft, stateBasis, reportingBasis, cadenceConflict, filingProgress, nmlsFiling, bounds } = recordedFilingBasis(db,
       staff.brokerage.id, entity.id, { obligationId: row.obligationId, period: row.period, snapshot: row.snapshot }, now);
     if (filingProgress) item.filingProgress = filingProgress;
     const [year, month] = String(row.period).split("-");
     item.obligation = {
       obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version),
+      periodBounds: bounds && { from: bounds.from, through: bounds.through },
       status: cadenceConflict ? "Applicability review gap" : String(row.status),
       sourceUrl: draft.sourceUrl, authority: draft.authority, reportingBasis,
       filingReceipts: supportsFilingReceipts({ draft, stateBasis, reportingBasis }),
