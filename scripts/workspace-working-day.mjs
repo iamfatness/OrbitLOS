@@ -2096,10 +2096,10 @@ try {
     assert.equal(plannedMonth.items.filter(i=>i.id===planned.workId).length,1);
     assert.match(plannedMonth.items.find(i=>i.id===planned.workId).instructions,/Applicability review gap/);
 
-    const recordPeriod = async (jurisdiction, sourceKey, cadence, period, revision) => {
+    const recordPeriod = async (jurisdiction, sourceKey, cadence, period, revision, draftOverrides = {}) => {
       const id = randomUUID();
       const saved = await suite(owner, "obligations", { ...obligation, id, requestId: randomUUID(),
-        stateReference: { jurisdiction, sourceKey, revision }, draft: { ...obligation.draft, cadence } });
+        stateReference: { jurisdiction, sourceKey, revision }, draft: { ...obligation.draft, cadence, ...draftOverrides } });
       assert.equal(saved.kind, "obligationSaved", saved.error);
       const target = { entityId: entity.id, id, period };
       const recorded = await suite(owner, "obligations", { ...target, operation: "generate", expectedRevision: 1, requestId: randomUUID() });
@@ -2147,6 +2147,53 @@ try {
     assert.equal(corrected.history[0].targetCorrection.previousTarget, "2026-05-15");
     assert.equal(corrected.history[0].targetCorrection.correctedTarget, "2026-05-14");
     assert.equal(activityWork(JSON.parse(corrected.reviews[0].snapshot)).internalTarget, "2026-05-15");
+
+    const californiaScope = await scope(owner, { ...firstScope, jurisdiction: "CA", requestId: randomUUID() });
+    assert.equal(californiaScope.revision, 1);
+    const reviewedScope = { effectiveFrom: "2025-01-01", applicability: "Required",
+      reviewerEvidence: "Fictional CRMLA applicability review" };
+    const annualReport = await recordPeriod("CA", "REQ-CA-REPORTING-CRMLA-ANNUAL", "Annual", "2025-01", 1, reviewedScope);
+    const audit = await recordPeriod("CA", "REQ-CA-REPORTING-CRMLA-AUDIT", "Annual", "2025-07", 1,
+      { ...reviewedScope, annualStartMonth: 7 });
+    const filingHistory = (staff, target) => suite(staff, "obligations", { ...target, operation: "michiganFilingHistory" });
+    const annualHistory = await filingHistory(owner, annualReport);
+    const auditHistory = await filingHistory(owner, audit);
+    assert.equal(annualHistory.bounds.through, "2025-12-31");
+    assert.equal(auditHistory.bounds.through, "2026-06-30");
+    const recordReceipt = (target, history, reference) => ({ ...target, operation: "saveMichiganFiling", expected: 0,
+      requestId: randomUUID(), evidence: {
+        deadline: { on: history.nominalDueOn, reference: "Fictional reviewed filing calendar" },
+        reconciliation: { reference: "Fictional reconciliation" },
+        submission: { on: history.nominalDueOn, reference },
+      } });
+    const reportReceipt = recordReceipt(annualReport, annualHistory, "Sample annual report confirmation");
+    const auditReceipt = recordReceipt(audit, auditHistory, "Sample fiscal-year audit upload confirmation");
+    assert.equal((await suite(owner, "obligations", reportReceipt)).version, 1);
+    const auditPlan = await suite(owner, "obligations", { ...audit, operation: "planWork", requestId: randomUUID() });
+    assert.equal(auditPlan.kind, "obligationWorkPlanned", auditPlan.error);
+    const auditWork = async () => (await program(owner, { operation: "month", entityId: entity.id, month: auditPlan.month }))
+      .items.find(item => item.id === auditPlan.workId);
+    assert.equal((await suite(owner, "obligations", auditReceipt)).version, 1);
+    assert.ok((await auditWork()).filingProgress.gaps.includes("Record the certified financial statements and CRMLA audit supplements."));
+    const crmlaAudit = {
+      statementsReference: "Sample certified statements", internalControlReference: "Sample internal control report",
+      origination: { type: "Origination trust reconciliation", reference: "Sample origination reconciliation" },
+      servicing: { type: "Subservicer USAP report", reference: "Sample subservicer report" },
+    };
+    const addAuditEvidence = receipt => ({ ...receipt, expected: 1, requestId: randomUUID(),
+      correction: "Record the reviewed audit package", evidence: { ...receipt.evidence, crmlaAudit } });
+    assert.ok((await suite(owner, "obligations", addAuditEvidence(reportReceipt))).error);
+    const auditUpdate = addAuditEvidence(auditReceipt);
+    assert.ok((await suite(processor, "obligations", auditUpdate)).error);
+    assert.equal((await suite(owner, "obligations", auditUpdate)).version, 2);
+    assert.deepEqual((await auditWork()).filingProgress.gaps, []);
+    const [auditCurrent, auditOriginal] = (await filingHistory(owner, audit)).versions;
+    assert.deepEqual(auditCurrent.evidence.crmlaAudit, crmlaAudit);
+    assert.equal(auditOriginal.evidence.crmlaAudit, undefined);
+    assert.deepEqual(auditOriginal.evidence.submission, auditReceipt.evidence.submission);
+    const annualVersions = (await filingHistory(owner, annualReport)).versions;
+    assert.equal(annualVersions.length, 1);
+    assert.deepEqual(annualVersions[0].evidence.submission, reportReceipt.evidence.submission);
 
     const bankruptcy = { operation: "save", noticeId: randomUUID(), requestId: randomUUID(), expected: 0, facts: {
       authority: "Mortgage broker", licenseReference: "Sample Florida authority", zone: "America/New_York",
