@@ -4,7 +4,7 @@ import { complianceProgramWork } from "./compliance-program";
 import { financialConditionCadenceReview, financialConditionScopeMatches, sameStateScopeFacts, stateScopeLicenseSnapshot, usesFinancialConditionScope } from "./compliance-state-basis";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
-import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
+import { federalObligationSources, isObligationStateSource, obligationReportingBasis, filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
   supportsFilingReceipts, type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
 import { prepareNewYorkEmploymentWorkpaper, reviewNewYorkEmployment, type NewYorkEmploymentEvidence } from "./new-york-employment-model";
@@ -13,7 +13,7 @@ import { coloradoRenewalReportingPeriods, reviewColoradoCompanyRenewal, type Col
 import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
-import { michiganFilingAmendments, nmlsFilingComponent, nmlsFilingDate, reviewNmlsFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
+import { filingEvidenceComponent, michiganFilingAmendments, nmlsFilingComponent, nmlsFilingDate, reviewNmlsFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
 
 type StateBasis = ObligationStateSource & { snapshot: string };
 type StoredDraft = ObligationDraft & { stateBasis?: StateBasis };
@@ -197,17 +197,18 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     return read();
   }
   const stateSources = () => {
+    const federal = federalObligationSources(entity);
     const versions = db.prepare(`SELECT s.jurisdiction,s.revision,s.entitySnapshot,s.sourceSnapshots,s.licenseSnapshots FROM compliance_state_scope_versions s
       WHERE s.brokerageId=? AND s.entityId=? AND s.revision=(
         SELECT max(n.revision) FROM compliance_state_scope_versions n
         WHERE n.brokerageId=s.brokerageId AND n.entityId=s.entityId AND n.jurisdiction=s.jurisdiction)
       ORDER BY s.jurisdiction`).all(tenant, data.entityId);
-    if (!versions.length) return [];
+    if (!versions.length) return federal;
     const register = complianceProgramWork(db, { operation: "licenses", entityId: data.entityId }, staff, roster, now);
-    if ("error" in register || register.kind !== "programLicenses") return [];
+    if ("error" in register || register.kind !== "programLicenses") return federal;
     const entitySnapshot = JSON.stringify(entity);
     const licensesByState = Map.groupBy(register.licenses, license => license.jurisdiction);
-    return versions.flatMap(version => {
+    const state = versions.flatMap(version => {
       if (version.entitySnapshot !== entitySnapshot ||
         version.licenseSnapshots !== stateScopeLicenseSnapshot(licensesByState.get(String(version.jurisdiction)) ?? [])) return [];
       const savedSources = new Set(JSON.parse(String(version.sourceSnapshots)) as string[]);
@@ -219,6 +220,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
           title: source.title, authority: source.relatedSources?.[0]?.label ?? source.title, sourceUrl: source.sourceUrl, snapshot }];
       });
     });
+    return [...federal, ...state];
   };
   if (data.operation === "stateSources")
     return { kind: "obligationStateSources", items: stateSources().map(describeStateBasis) };
@@ -248,7 +250,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const snapshot = occurrence ? JSON.parse(String(occurrence.snapshot)) as OccurrenceSnapshot : null;
     const basis = snapshot?.stateBasis;
     if (!snapshot || !basis || snapshot.draft.applicability === "Not applicable") return unavailable;
-    const component = nmlsFilingComponent(basis.sourceKey, snapshot.draft, snapshot.period.from);
+    const component = filingEvidenceComponent(basis.sourceKey, snapshot.draft, snapshot.period.from);
     if (!component) return unavailable;
     const scopeMatches = financialConditionScopeMatches(db, tenant, data.entityId, basis, snapshot.draft.cadence);
     const originalScopeChanged = !scopeMatches || !currentStateBasis(basis);
@@ -602,11 +604,13 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const cadenceConflict = reportingBasis && stateBasis && draft.applicability !== "Not applicable" &&
         !financialConditionScopeMatches(db, tenant, data.entityId, stateBasis, draft.cadence);
       const nmlsFiling = draft.applicability !== "Not applicable" && Boolean(nmlsFilingComponent(stateBasis?.sourceKey ?? "", draft, period.from));
-      const priorFilingBasis = Boolean(nmlsFiling && stateBasis && !currentStateBasis(stateBasis));
+      const hmdaFiling = stateBasis?.jurisdiction === "US" && draft.applicability !== "Not applicable" &&
+        Boolean(filingEvidenceComponent(stateBasis.sourceKey, draft, period.from));
+      const priorFilingBasis = Boolean((nmlsFiling || hmdaFiling) && stateBasis && !currentStateBasis(stateBasis));
       return { ...row, ...((cadenceConflict || priorFilingBasis) && { status: "Applicability review gap" }), priorFilingBasis,
         reportingBasis: cadenceConflict ? { ...reportingBasis, nominalDueOn: null, review: financialConditionCadenceReview } : reportingBasis,
         illinoisAudit, newYorkVoor: hasNewYorkVoorEvidence({ draft, stateBasis }),
-        nmlsFiling,
+        nmlsFiling, hmdaFiling,
         coloradoCompanyRenewal: stateBasis?.sourceKey === "REQ-CO-LICENSING-CO-RENEW" &&
           Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable",
         newYorkEmployment: stateBasis?.sourceKey === "REQ-NY-REPORTING-QRES" &&
@@ -704,6 +708,9 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   if (!owner || (owner.accessRevision ?? 0) !== latest.ownerRevision) return { error: "Review the unavailable owner and save a new version before generation." };
   const period = obligationPeriod(data.period, draft.cadence, draft.internalTargetDay, draft.annualStartMonth);
   if (!period) return { error: "Choose the first month of the internal cadence period." };
+  if (stateBasis?.jurisdiction === "US" && !filingEvidenceComponent(stateBasis.sourceKey, draft, period.from))
+    return { error: stateBasis.sourceKey === "FED-HMDA-ANNUAL" ? "Use an annual period starting in January for the HMDA annual filing." :
+      "Choose a quarterly period starting in January, April or July. Include fourth-quarter data in the annual filing." };
   if (period.through < draft.effectiveFrom || (draft.effectiveThrough && period.from > draft.effectiveThrough))
     return { error: "This internal period falls outside the version's effective dates." };
   const existing = db.prepare("SELECT * FROM compliance_obligation_occurrences WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?")

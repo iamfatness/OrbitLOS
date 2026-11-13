@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ProgramLicense } from "./compliance-program-model";
-import type { ObligationDraft, ObligationStateSource } from "./compliance-obligations-model";
+import { federalObligationSources, type ObligationDraft, type ObligationStateSource } from "./compliance-obligations-model";
 import { stateRequirementSources, stateRolloutSources, sourceSnapshot } from "./compliance-research-model";
 import type { Store } from "./store";
 
@@ -60,6 +60,10 @@ export function financialConditionScopeMatches(db: Store, brokerageId: string, e
 export function savedFilingScopeMatches(db: Store, brokerageId: string, entityId: string, basis: ObligationStateSource & { snapshot?: string }, currentBasis: () => { entitySnapshot: string; licenseSnapshots: string }) {
   const snapshot = basis.snapshot;
   if (!snapshot) return true;
+  if (basis.jurisdiction === "US") {
+    const entity = db.prepare("SELECT id,name,nmls,scopeNote FROM compliance_program_entities WHERE brokerageId=? AND id=?").get(brokerageId, entityId);
+    return Boolean(entity && federalObligationSources(entity).some(source => source.snapshot === snapshot));
+  }
   const rows = db.prepare(`SELECT revision, facts, entitySnapshot, licenseSnapshots, sourceSnapshots FROM compliance_state_scope_versions
     WHERE brokerageId=? AND entityId=? AND jurisdiction=? AND revision>=? ORDER BY revision`)
     .all(brokerageId, entityId, basis.jurisdiction, basis.revision);

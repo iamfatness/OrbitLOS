@@ -113,7 +113,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   const obligationSource = obligation && <>
     <p><strong>Recorded period {obligation.period} · Obligation version {obligation.version}</strong></p>
     {!reporting && <p>{obligation.status}</p>}
-    {obligation.stateBasis && <p>{obligation.stateBasis.jurisdiction} · State scope version {obligation.stateBasis.revision}</p>}
+    {obligation.stateBasis && <p>{obligation.stateBasis.jurisdiction === "US" ? "Federal source version" : obligation.stateBasis.jurisdiction + " · State scope version"} {obligation.stateBasis.revision}</p>}
     <a className="name-link break-words" href={obligation.sourceUrl} target="_blank" rel="noreferrer">{obligation.authority}</a>
   </>;
   const entityOptions = current && !entities.some(entity => entity.id === current.entity.id) ? [current.entity, ...entities] : entities;
@@ -133,7 +133,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   const formTitle = screen === "entity" ? "Add entity profile" : screen === "schedule" ? "Schedule review work" : screen === "review" ? "Record monthly review" :
     selected?.stateReview ? "State review question" : selected?.title ?? "Monthly review";
   if (paused) return <p>Program work is unavailable while the workspace is paused.</p>;
-  if (filingOpen && current && selected?.obligation?.nmlsFiling) return <NmlsFilingEvidence
+  if (filingOpen && current && (selected?.obligation?.nmlsFiling || selected?.obligation?.hmdaFiling)) return <NmlsFilingEvidence hmda={selected.obligation.hmdaFiling}
     brokerageId={brokerageId} entityId={current.entity.id} obligationId={selected.obligation.obligationId}
     period={selected.obligation.period} backLabel="Back to review work"
     onBack={() => { returnToFilingButton.current = true; setFilingOpen(false); reload(); }} />;
@@ -259,8 +259,8 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
             {selected?.filingProgress && <div className="record-form"><h3>Filing evidence</h3><p>{selected.filingProgress.summary}</p>
               {selected.filingProgress.gaps.length > 0 && <ul className="list-disc pl-5">
                 {selected.filingProgress.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul>}
-              {selected.obligation?.nmlsFiling && <div><Button ref={filingButton} type="button" size="sm" variant="outline"
-                className="min-h-11" onClick={() => setFilingOpen(true)}>Review NMLS filing evidence</Button></div>}</div>}
+              {(selected.obligation?.nmlsFiling || selected.obligation?.hmdaFiling) && <div><Button ref={filingButton} type="button" size="sm" variant="outline"
+                className="min-h-11" onClick={() => setFilingOpen(true)}>{selected.obligation?.hmdaFiling ? "Review HMDA filing evidence" : "Review NMLS filing evidence"}</Button></div>}</div>}
             <label className="field">Work status<select name="status" defaultValue={selected?.status} aria-describedby="compliance-review-status-help">
               {programStatuses.map(s => <option key={s} disabled={s === "Completed" && !readyToComplete && selected?.status !== s}>{s}</option>)}
             </select></label>

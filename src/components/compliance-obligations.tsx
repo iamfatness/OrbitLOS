@@ -23,20 +23,22 @@ const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.
 const plannedReview = z.object({ entityId: z.uuid(), month: z.string(), itemId: z.uuid() });
 const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
   reportingBasis: reportingDateBasis.optional(), period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(), ownerEmail: z.string(), from: z.string(), through: z.string(),
-  coloradoCompanyRenewal: z.boolean().optional(), newYorkEmployment: z.boolean().optional(), newYorkVoor: z.boolean().optional(), illinoisAudit: z.boolean().optional(), michiganMloRenewal: z.boolean().optional(), nmlsFiling: z.boolean().optional(), priorFilingBasis: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
+  coloradoCompanyRenewal: z.boolean().optional(), newYorkEmployment: z.boolean().optional(), newYorkVoor: z.boolean().optional(), illinoisAudit: z.boolean().optional(), michiganMloRenewal: z.boolean().optional(), nmlsFiling: z.boolean().optional(), hmdaFiling: z.boolean().optional(), priorFilingBasis: z.boolean().optional(), audit: z.object({ dueOn: z.iso.date(), extensionStatus: z.string(), filingStatus: z.string() }).optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
 })) });
 type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
 const months = Array.from({length:12}, (_, index) => new Intl.DateTimeFormat("en-US",{month:"long",timeZone:"UTC"})
   .format(new Date(Date.UTC(2026,index,1))));
-function periodInstructions(draft: ObligationDraft) {
+function periodInstructions(draft: ObligationDraft, sourceKey?: string) {
   const start = (draft.annualStartMonth ?? 1) - 1;
   if (draft.cadence === "Annual") return `Choose ${months[start]} as the first month.`;
   if (draft.cadence === "Fiscal quarterly") {
     const starts = [0, 3, 6, 9].map(offset => months[(start + offset) % 12]);
     return `Choose ${starts.slice(0, 3).join(", ")} or ${starts[3]} as the first month.`;
   }
-  if (draft.cadence === "Quarterly") return "Choose January, April, July or October as the first month.";
+  if (draft.cadence === "Quarterly") return sourceKey === "FED-HMDA-QUARTERLY"
+    ? "Choose January, April or July. Include fourth-quarter data in the annual filing."
+    : "Choose January, April, July or October as the first month.";
   return "Choose the month to review.";
 }
 
@@ -51,7 +53,7 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
  const [selected,setSelected]=useState<Row|null>(),[history,setHistory]=useState<z.infer<typeof periods>>();
  const [planned,setPlanned]=useState<ProgramReviewTarget>();
  const [historyOffset,setHistoryOffset]=useState(0);
- const [evidence,setEvidence]=useState<{ type: "illinoisAudit" | "michiganMloRenewal" | "nmlsFiling" | "newYorkEmployment" | "newYorkVoor" | "coloradoCompanyRenewal"; period: string }>();
+ const [evidence,setEvidence]=useState<{ type: "illinoisAudit" | "michiganMloRenewal" | "nmlsFiling" | "hmdaFiling" | "newYorkEmployment" | "newYorkVoor" | "coloradoCompanyRenewal"; period: string }>();
  const evidenceReturn=useRef<HTMLButtonElement>(null);
  const [floridaAmendments,setFloridaAmendments]=useState(false);
  const floridaReturn=useRef<HTMLButtonElement>(null);
@@ -211,7 +213,7 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
  {selected && evidence?.type === "newYorkVoor" && <NewYorkVoorEvidence brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
- {selected && evidence?.type === "nmlsFiling" && <NmlsFilingEvidence brokerageId={brokerageId} entityId={entityId}
+ {selected && (evidence?.type === "nmlsFiling" || evidence?.type === "hmdaFiling") && <NmlsFilingEvidence hmda={evidence.type === "hmdaFiling"} brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
  {selected && evidence?.type === "coloradoCompanyRenewal" && <ColoradoCompanyRenewal brokerageId={brokerageId} entityId={entityId}
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
@@ -238,7 +240,7 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
        <Button variant="outline" onClick={()=>{setLoading(Boolean(entityId));setError("");setNotice("");refresh(v=>v+1);}}>Refresh</Button></div>
      {!entityId&&<p>Add a legal entity in Compliance → Licensing to start planning obligations.</p>}
      {loading||loadingEntities?<p role="status">Loading obligations…</p>:entityId&&!error&&<>
-       <ul className="document-list">{items.filter(i=>!filter||i.draft.applicability===filter).map(i=><li className="document-item" key={i.id}><div><strong>{i.draft.title}</strong><p>{i.draft.applicability} · {i.draft.cadence} · Version {i.revision}</p><p>{i.ownerAvailable?i.draft.ownerEmail:"Owner unavailable — reassignment needed"}</p>{i.stateBasisChanged&&<p>State obligation source needs review</p>}</div><Button variant="outline" onClick={()=>edit(i)}>Review obligation</Button></li>)}</ul>
+       <ul className="document-list">{items.filter(i=>!filter||i.draft.applicability===filter).map(i=><li className="document-item" key={i.id}><div><strong>{i.draft.title}</strong><p>{i.draft.applicability} · {i.draft.cadence} · Version {i.revision}</p><p>{i.ownerAvailable?i.draft.ownerEmail:"Owner unavailable — reassignment needed"}</p>{i.stateBasisChanged&&<p>Obligation source needs review</p>}</div><Button variant="outline" onClick={()=>edit(i)}>Review obligation</Button></li>)}</ul>
        {!items.some(i=>!filter||i.draft.applicability===filter)&&<p>No obligations match this page and filter.</p>}
        <div className="loan-application-actions"><Button variant="outline" disabled={!offset} onClick={()=>{setOffset(Math.max(0,offset-50));setLoading(true);}}>Previous page</Button><Button variant="outline" disabled={!more} onClick={()=>{setOffset(offset+50);setLoading(true);}}>Next page</Button></div>
      </>}
@@ -249,16 +251,16 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
      <details className="document-form" open={selected === null}><summary>{selected ? "Edit obligation version" : "Obligation details"}</summary>
      <form className="record-form" onSubmit={save}><fieldset className="record-form" disabled={busy}>
        <label className="field">Title<input name="title" required minLength={3} maxLength={160} defaultValue={draft.title}/></label>
-       <label className="field">State obligation source
+       <label className="field">Obligation source
          <select ref={sourceSelect} value={sourceKey} disabled={!sources?.length || staleSource}
            onChange={e=>chooseSource(e.target.value)}>
            <option value="">{sourceRecoveryPending ? "Choose a current source" :
              selected?.stateBasis ? "Keep saved source" : "Enter source manually"}</option>
-           {sources?.map(source=><option key={source.sourceKey} value={source.sourceKey}>{source.jurisdiction} · {source.title}</option>)}
+           {sources?.map(source=><option key={source.sourceKey} value={source.sourceKey}>{source.jurisdiction === "US" ? "Federal" : source.jurisdiction} · {source.title}</option>)}
          </select>
        </label>
        {sourceError ? <p role="status">{sourceError}</p> :
-         !sources ? <p role="status">Loading state reporting sources…</p> :
+         !sources ? <p role="status">Loading obligation sources…</p> :
          !sources.length && !selected?.stateBasisChanged && <p className="muted">
            No current state reporting sources. Review the entity’s scope in State rollout or enter the authority manually.
          </p>}
@@ -271,7 +273,7 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
          <div><Button ref={sourceReload} type="button" variant="outline" aria-disabled={!sources&&!sourceError}
            onClick={()=>{if(sources||sourceError)reloadStateSources();}}>Reload sources</Button></div>
        </div>}
-       {linkedSource&&<p className="muted">{linkedSource.jurisdiction} · {linkedSource.title} · {sourceRecoveryPending ? "Earlier scope version" : "Scope version"} {linkedSource.revision}</p>}
+       {linkedSource&&<p className="muted">{linkedSource.jurisdiction === "US" ? "Federal" : linkedSource.jurisdiction} · {linkedSource.title} · {sourceRecoveryPending ? "Earlier " : ""}{linkedSource.jurisdiction === "US" ? "source version" : "scope version"} {linkedSource.revision}</p>}
        {selected?.stateBasisChanged && !chosenSource && sources && <p role="status">The saved reporting basis needs review.{" "}
          {sources.length ? "Select a current source." : "Review the entity’s scope under Research & gaps → State rollout."}
        </p>}
@@ -313,7 +315,7 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
            <div><strong>{period.period} · Version {period.version}</strong><p>{period.status}</p>
              <p>{dateLabel(period.from)} through {dateLabel(period.through)}</p>
              <p>Internal target {dateLabel(period.internalTarget)} · {period.ownerEmail}</p>
-             {period.stateBasis && <p>Scope version {period.stateBasis.revision} · {period.stateBasis.jurisdiction} ·{" "}
+             {period.stateBasis && <p>{period.stateBasis.jurisdiction === "US" ? "Federal source" : "State scope"} version {period.stateBasis.revision} ·{" "}
                <a className="underline" href={period.stateBasis.sourceUrl} target="_blank" rel="noreferrer">{period.stateBasis.title}</a>
              </p>}
              {period.illinoisAudit && <p>{period.audit ? <>
@@ -344,9 +346,9 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
              {period.michiganMloRenewal && <Button className="min-h-11" variant="outline" disabled={busy}
                onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: "michiganMloRenewal", period: period.period }); }}>
                Review Michigan renewal evidence</Button>}
-             {period.nmlsFiling && <Button className="min-h-11" variant="outline" disabled={busy}
-               onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: "nmlsFiling", period: period.period }); }}>
-               Review NMLS filing evidence</Button>}
+             {(period.nmlsFiling || period.hmdaFiling) && <Button className="min-h-11" variant="outline" disabled={busy}
+               onClick={event => { evidenceReturn.current = event.currentTarget; setEvidence({ type: period.hmdaFiling ? "hmdaFiling" : "nmlsFiling", period: period.period }); }}>
+               {period.hmdaFiling ? "Review HMDA filing evidence" : "Review NMLS filing evidence"}</Button>}
          </li>)}</ul>
          {!history.items.length && <p>No periods recorded.</p>}
          {(historyOffset > 0 || history.more) && <div className="loan-application-actions">
@@ -355,7 +357,7 @@ export function ComplianceObligations({brokerageId,pilot,paused,openReview,retur
          </div>}
        </>}
        <details className="document-form"><summary>Add a reporting period</summary>
-         <form className="record-form" onSubmit={e=>{e.preventDefault();void mutate({operation:"generate",entityId,id:selected.id,expectedRevision:selected.revision,period:text(new FormData(e.currentTarget),"period")},false);}}><p>Uses saved version {selected.revision}. {periodInstructions(selected.draft)}</p><label className="field">Period first month<input type="month" name="period" required min="2000-01" max="2099-12"/></label><div><Button type="submit" disabled={busy}>Record period</Button></div></form>
+         <form className="record-form" onSubmit={e=>{e.preventDefault();void mutate({operation:"generate",entityId,id:selected.id,expectedRevision:selected.revision,period:text(new FormData(e.currentTarget),"period")},false);}}><p>Uses saved version {selected.revision}. {periodInstructions(selected.draft, selected.stateBasis?.sourceKey)}</p><label className="field">Period first month<input type="month" name="period" required min="2000-01" max="2099-12"/></label><div><Button type="submit" disabled={busy}>Record period</Button></div></form>
        </details>
      </>}
    </>}

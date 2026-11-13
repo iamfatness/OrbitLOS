@@ -72,7 +72,7 @@ function FilingForm({ latest, component, nominal, reviewableScopeRevision, busy,
       </EvidenceGroup>
       <EvidenceGroup name="submission" label="Record original submission" recorded={Boolean(facts?.submission)}>
         <Field name="submissionOn" label="Original submission date" type="date" value={facts?.submission?.on} />
-        <Field name="submissionReference" label="Original NMLS receipt reference" value={facts?.submission?.reference} />
+        <Field name="submissionReference" label={component.startsWith("HMDA") ? "Original HMDA confirmation reference" : "Original NMLS receipt reference"} value={facts?.submission?.reference} />
       </EvidenceGroup>
       {amendmentKeys.map((key, index) => {
         const prefix = "mi-filing-amendment-" + key;
@@ -136,8 +136,9 @@ function FilingSummary({ entry, review = entry.finding }: { entry: Version; revi
   </div>;
 }
 
-export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period, onBack, backLabel = "Back to obligation" }:
-  Target & { onBack: () => void; backLabel?: string }) {
+export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period, hmda, onBack, backLabel = "Back to obligation" }:
+  Target & { onBack: () => void; backLabel?: string; hmda?: boolean }) {
+  const heading = hmda ? "HMDA filing evidence" : "NMLS filing evidence";
   const [data, setData] = useState<History>();
   const [load, setLoad] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -225,11 +226,11 @@ export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period
     } finally { setBusy(false); }
   }
 
-  return <section className="record-form compliance-pilot-form" aria-label="NMLS filing evidence">
-    <div className="section-heading"><h2 className="text-lg font-semibold" ref={title} tabIndex={-1}>NMLS filing evidence</h2>
+  return <section className="record-form compliance-pilot-form" aria-label={heading}>
+    <div className="section-heading"><h2 className="text-lg font-semibold" ref={title} tabIndex={-1}>{heading}</h2>
       <Button className="min-h-11" variant="outline" disabled={busy} onClick={onBack}>{backLabel}</Button></div>
     <p>{data ? <>{data.component} · {data.bounds.from} through {data.bounds.through}</> : period}</p>
-    {data && <p>{data.sourceTitle}</p>}
+    {data && data.sourceTitle !== data.component && <p>{data.sourceTitle}</p>}
     {data?.scopeChanged && <p role="status">The linked brokerage scope or source has changed. Review the current scope before relying on this record.</p>}
     {feedback && <p ref={message} tabIndex={-1} role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
     {!data ? (feedback?.error ? <div><Button className="min-h-11" variant="outline" onClick={reload}>Reload filing evidence</Button></div> :

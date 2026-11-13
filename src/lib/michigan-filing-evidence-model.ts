@@ -37,6 +37,14 @@ export function nmlsFilingDate(now: string) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
 }
 
+export function filingEvidenceComponent(source: string, draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">, periodStart: string) {
+  if (source === "FED-HMDA-ANNUAL" && draft.cadence === "Annual" && (draft.annualStartMonth ?? 1) === 1)
+    return "HMDA annual filing";
+  if (source === "FED-HMDA-QUARTERLY" && draft.cadence === "Quarterly" && /-(01|04|07)-01$/.test(periodStart))
+    return "HMDA quarterly filing";
+  return nmlsFilingComponent(source, draft, periodStart);
+}
+
 export const michiganFilingEvidence = z.strictObject({
   deadline: receipt.optional(),
   reconciliation: z.strictObject({ reference, activity: z.enum(["Activity recorded", "No reportable activity"]).optional() }).optional(),
@@ -50,17 +58,18 @@ export const michiganFilingAmendments = (evidence: MichiganFilingEvidence) =>
   evidence.amendments ?? (evidence.amendment ? [evidence.amendment] : []);
 
 export function reviewNmlsFiling(evidence: MichiganFilingEvidence, nominalDueOn: string | null, asOf: string,
-  component: ReturnType<typeof nmlsFilingComponent>, periodEnd: string, basisChanged = false) {
+  component: ReturnType<typeof filingEvidenceComponent>, periodEnd: string, basisChanged = false) {
+  const hmda = component === "HMDA annual filing" || component === "HMDA quarterly filing";
   const dueOn = basisChanged ? null : evidence.deadline?.on ?? nominalDueOn;
   const gaps: string[] = [];
   if (!evidence.deadline || basisChanged) gaps.push("Verify the component and deadline against the current filing instructions.");
   if (!evidence.reconciliation) gaps.push("Record the reconciliation to the filed report or financial statement.");
   if (component === "Residential Mortgage Loan Activity" && !evidence.reconciliation?.activity)
     gaps.push("Record the period activity or documented no-activity determination.");
-  if (!evidence.submission) gaps.push("Record the original NMLS submission receipt.");
+  if (!evidence.submission) gaps.push(hmda ? "Record the original HMDA submission confirmation." : "Record the original NMLS submission receipt.");
   if (evidence.submission && dueOn && evidence.submission.on > dueOn) gaps.push("Review the late submission.");
   const amendments = michiganFilingAmendments(evidence);
-  if (component && component !== "Fiscal-year financial statement") {
+  if (component && !hmda && component !== "Fiscal-year financial statement") {
     const cutoff = String(Number(periodEnd.slice(0, 4)) + 2) + periodEnd.slice(4);
     if (amendments.some(item => item.on > cutoff))
       gaps.push("Verify amendment evidence after the published two-year NMLS filing window.");

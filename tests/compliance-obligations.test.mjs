@@ -66,6 +66,40 @@ test("period history preserves original versions and remains entity scoped",t=>{
  assert.ok(f.run(query,f.staff,[]).error);
 });
 
+test("HMDA annual and quarterly evidence stays with the reporting entity and exact period", t => {
+ const f = fixture(t);
+ const sources = f.run({operation:"stateSources",entityId:f.entityId}).items;
+ assert.deepEqual(sources.map(item=>item.sourceKey),["FED-HMDA-ANNUAL","FED-HMDA-QUARTERLY"]);
+ for (const [cadence, key, dueOn] of [["Annual","ANNUAL","2026-03-02"],["Quarterly","QUARTERLY","2025-05-30"]]) {
+  const id = crypto.randomUUID(), period = "2025-01";
+  const draft = {...f.draft,cadence,applicability:"Required",reviewerEvidence:"Fictional internal HMDA review"};
+  const stateReference = {jurisdiction:"US",revision:1,sourceKey:"FED-HMDA-"+key};
+  assert.equal(f.run(f.save({id,draft,stateReference})).revision,1);
+  if (cadence === "Quarterly") assert.match(f.run(f.generate({id,period:"2025-10"})).error,/fourth-quarter/);
+  const occurrence = f.run(f.generate({id,period})).occurrence;
+  assert.equal(JSON.parse(occurrence.snapshot).reportingBasis.nominalDueOn,dueOn);
+  const target = {entityId:f.entityId,id,period};
+  const planned = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
+  const monthly = () => f.program({operation:"month",entityId:f.entityId,month:planned.month}).items.find(item=>item.id===planned.workId);
+  assert.equal(monthly().obligation.hmdaFiling,true);
+  assert.equal(monthly().filingProgress.summary,"Filing evidence needed");
+  const history = {operation:"michiganFilingHistory",...target};
+  assert.equal(f.run(history).nominalDueOn,dueOn);
+  const evidence = {deadline:{on:dueOn,reference:"Fictional filing instructions"},reconciliation:{reference:"Fictional LAR reconciliation"},
+   submission:{on:dueOn,reference:"Fictional original confirmation"}};
+  const save = {operation:"saveMichiganFiling",...target,requestId:crypto.randomUUID(),expected:0,evidence};
+  assert.equal(f.run(save).version,1);
+  assert.equal(f.run(save).version,1);
+  assert.deepEqual(monthly().filingProgress.gaps,[]);
+  const amendments = [{on:"2026-06-01",reference:"Fictional amended confirmation",reason:"Fictional corrected record"}];
+  assert.equal(f.run({...save,expected:1,requestId:crypto.randomUUID(),correction:"Fictional amended record",evidence:{...evidence,amendments}}).version,2);
+  assert.equal(f.run(history).versions[1].evidence.submission.reference,evidence.submission.reference);
+  assert.ok(f.run({...history,entityId:crypto.randomUUID()}).error);
+ }
+ f.sql.prepare("UPDATE compliance_program_entities SET name=? WHERE id=?").run("Fictional changed reporting institution",f.entityId);
+ assert.ok(f.run({operation:"list",entityId:f.entityId}).items.every(item=>item.stateBasisChanged));
+});
+
 test("monthly filing gaps include state reports with manual evidence", t => {
  const f = fixture(t);
  const jurisdiction = "CA";
@@ -289,7 +323,7 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   const f=fixture(t);
   const now="2026-11-12T12:00:00Z", jurisdiction="MI";
   const stateSources={operation:"stateSources",entityId:f.entityId};
-  assert.deepEqual(f.run(stateSources).items,[]);
+  assert.deepEqual(f.run(stateSources).items.filter(item => item.jurisdiction !== "US"),[]);
   const saveScope=expectedRevision=>complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction,
     expectedRevision,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional license",
       officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
@@ -303,7 +337,7 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   const sources=f.run(stateSources).items;
   const source=sources.find(item=>item.sourceKey==="REQ-MI-REPORTING-RMLA");
   const reference={jurisdiction,revision:1,sourceKey:source.sourceKey};
-  assert.ok(sources.every(item=>item.jurisdiction===jurisdiction));
+  assert.ok(sources.every(item=>item.jurisdiction===jurisdiction || item.jurisdiction==="US"));
   assert.ok(f.run(f.save({stateReference:{...reference,jurisdiction:"OH"}})).error);
   assert.ok(f.run(f.save({stateReference:{...reference,sourceKey:"REQ-MI-LICENSING-FIRST"}})).error);
   const save=f.save({stateReference:reference,draft:{...f.draft,cadence:"Quarterly",applicability:"Required",reviewerEvidence:"Fictional internal review"}});
@@ -321,7 +355,7 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   assert.equal(snapshot.reportingBasis.nominalDueOn,"2024-05-15");
   assert.equal(JSON.parse(snapshot.stateBasis.snapshot).key,source.sourceKey);
   assert.equal(saveLicense({ ...license, revision: 1, requestId: crypto.randomUUID(), status: "Expired" }).kind, "programLicenses");
-  assert.deepEqual(f.run(stateSources).items, []);
+  assert.deepEqual(f.run(stateSources).items.filter(item => item.jurisdiction !== "US"), []);
   assert.equal(f.run(list).items[0].stateBasisChanged, true);
   const licenseGap = f.run(f.generate({ period: "2024-04" })).occurrence;
   assert.equal(licenseGap.status, "Applicability review gap");

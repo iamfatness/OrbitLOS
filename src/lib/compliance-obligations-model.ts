@@ -45,12 +45,27 @@ const licensingSources = [
 ];
 export const isObligationStateSource = (key: string) =>
   /^REQ-[A-Z]{2}-REPORTING-[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(key) || licensingSources.includes(key);
-export const obligationStateReference = z.strictObject({
+const hmdaSources = [
+  { sourceKey: "FED-HMDA-ANNUAL", title: "HMDA annual filing", authority: "12 CFR §1003.5(a)(1)(i), (iii)" },
+  { sourceKey: "FED-HMDA-QUARTERLY", title: "HMDA quarterly filing (Q1–Q3)", authority: "12 CFR §1003.5(a)(1)(ii), (iii)" },
+] as const;
+
+export function federalObligationSources(entity: unknown) {
+  return hmdaSources.map(source => {
+    const reference = { ...source, jurisdiction: "US", revision: 1, sourceUrl: "https://www.consumerfinance.gov/rules-policy/regulations/1003/5/" };
+    return { ...reference, snapshot: JSON.stringify({ ...reference, entity }) };
+  });
+}
+
+const obligationSourceFields = z.strictObject({
   jurisdiction: z.string().regex(/^[A-Z]{2}$/),
   revision: z.number().int().positive(),
-  sourceKey: z.string().max(30).refine(isObligationStateSource),
+  sourceKey: z.string().max(30),
 });
-export const obligationStateSource = obligationStateReference.extend({
+export const obligationStateReference = obligationSourceFields.refine(reference => reference.jurisdiction === "US"
+  ? hmdaSources.some(source => source.sourceKey === reference.sourceKey)
+  : isObligationStateSource(reference.sourceKey));
+export const obligationStateSource = obligationSourceFields.extend({
   title: z.string(), authority: z.string(), sourceUrl: z.url(),
 });
 export type ObligationStateSource = z.infer<typeof obligationStateSource>;
@@ -144,6 +159,7 @@ export function obligationPeriod(period: string, cadence: ObligationDraft["caden
 }
 
 export type ObligationReviewBasis = {
+  hmdaFiling?: boolean;
   applicabilityReview?: { revision: number; decision: ObligationDraft["applicability"]; reason: string; evidence: string; reviewer: string; reviewedAt: string };
   nmlsFiling?: boolean;
   periodBounds?: { from: string; through: string };
@@ -309,6 +325,17 @@ const filings: Partial<Record<string, FilingRule>> = {
 
 export function obligationReportingBasis(sourceKey: string | undefined, cadence: ObligationDraft["cadence"],
   annualStartMonth: number | undefined, period: { from: string; through: string }): z.infer<typeof reportingDateBasis> | undefined {
+  if (hmdaSources.some(source => source.sourceKey === sourceKey)) {
+    const annual = sourceKey === "FED-HMDA-ANNUAL";
+    const due = annual
+      ? cadence === "Annual" && (annualStartMonth ?? 1) === 1 ? `${Number(period.through.slice(0, 4)) + 1}-03-01` : null
+      : cadence === "Quarterly" && /-(01|04|07)-01$/.test(period.from) ? shiftReportDate(period.through, 60) : null;
+    const weekday = due ? new Date(`${due}T00:00:00Z`).getUTCDay() : null;
+    return { route: "FFIEC HMDA Platform",
+      nominalDueOn: due && (weekday === 0 ? shiftReportDate(due, 1) : weekday === 6 ? shiftReportDate(due, 2) : due),
+      review: annual ? "Confirm Regulation C coverage, the reporting institution and current filing instructions."
+        : "Confirm quarterly reporting applies and check the current filing instructions." };
+  }
   const rule = sourceKey && filings[sourceKey];
   if (!rule) return undefined;
   const quarterly = cadence === "Quarterly";
