@@ -11,6 +11,7 @@ import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-mo
 import { stateScopeBasisChanges, stateScopeLicenseSnapshot, stateScopeSourceBasis } from "./compliance-state-basis";
 import { stateScopePageSize, type StateScopeSummary } from "./compliance-program-model";
 import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth, type ComplianceOwnerHomeData } from "./compliance-program-model";
+import { currentFilingProgress } from "./compliance-filing-progress";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -252,7 +253,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   const bases = db.prepare(`SELECT w.workId,o.obligationId,o.period,o.version,o.status,o.snapshot
     FROM compliance_obligation_work w JOIN compliance_obligation_occurrences o
       ON o.brokerageId=w.brokerageId AND o.entityId=w.entityId AND o.obligationId=w.obligationId AND o.period=w.period
-    WHERE w.brokerageId=? AND w.entityId=? AND w.month=?`).all(staff.brokerage.id, entity.id, period);
+    WHERE w.brokerageId=? AND w.entityId=? AND w.month=? ORDER BY w.workId`).all(staff.brokerage.id, entity.id, period);
   const byItem = new Map(items.map(item => [item.id, item]));
   const stateReviews = db.prepare(`SELECT r.workId,r.jurisdiction,r.scopeRevision,r.source,s.facts,s.entitySnapshot,
     (SELECT e.note FROM compliance_program_events e WHERE e.brokerageId=i.brokerageId AND e.entityId=i.entityId
@@ -275,9 +276,15 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   for (const row of bases) {
     const item = byItem.get(String(row.workId));
     if (!item) continue;
-    const { draft, stateBasis, reportingBasis } = JSON.parse(String(row.snapshot)) as {
+    const { draft, stateBasis, reportingBasis, period: bounds } = JSON.parse(String(row.snapshot)) as {
       draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"]; reportingBasis?: ObligationReviewBasis["reportingBasis"];
+      period?: { from: string; through: string };
     };
+    if (stateBasis && bounds && draft.applicability !== "Not applicable") {
+      item.filingProgress = currentFilingProgress(db, { brokerageId: staff.brokerage.id, entityId: entity.id,
+        obligationId: String(row.obligationId), period: String(row.period), sourceKey: stateBasis.sourceKey,
+        bounds, nominalDueOn: reportingBasis?.nominalDueOn ?? null }, now);
+    }
     const [year, month] = String(row.period).split("-");
     item.obligation = {
       obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version), status: String(row.status),
@@ -290,9 +297,10 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   }
   const counts = { total: items.length, open: items.filter(i => i.status !== "Completed").length,
     overdue: items.filter(i => i.overdue).length, unavailableOwners: items.filter(i => !i.ownerAvailable).length };
+  const filingProgress = items.flatMap(item => item.filingProgress ? [[item.id, item.filingProgress]] : []);
   const basisVersions = items.flatMap(item => item.stateReview ? [[item.id, item.stateReview.revision]] : []);
   const fingerprint = hash([entity, period, rows, owners.map(m => [m.email, m.accessRevision ?? 0]).sort(), now.slice(0, 10),
-    ...(basisVersions.length ? [basisVersions] : [])]);
+    ...(basisVersions.length ? [basisVersions] : []), ...(filingProgress.length ? [filingProgress] : [])]);
   const reviews = db.prepare("SELECT id,actor,at,note,snapshot,fingerprint FROM compliance_program_reviews WHERE brokerageId=? AND entityId=? AND month=? ORDER BY at DESC,rowid DESC LIMIT 20")
     .all(staff.brokerage.id, entity.id, period).map(row => ({ id: String(row.id), actor: String(row.actor), at: String(row.at), note: String(row.note),
       snapshot: String(row.snapshot), current: row.fingerprint === fingerprint }));

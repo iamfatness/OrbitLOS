@@ -27,7 +27,9 @@ function fixture(t) {
   const save=(changes={})=>({operation:"save",entityId,id,expectedRevision:0,requestId:crypto.randomUUID(),draft,...changes});
   const generate=(changes={})=>({operation:"generate",entityId,id,expectedRevision:1,requestId:crypto.randomUUID(),period:"2024-02",...changes});
   const run=(request,s=staff,roster=[actor])=>db.transaction(()=>complianceObligationsWork(db,request,s,roster,"2026-11-11T12:00:00Z"));
-  return {sql,db,run,save,generate,draft,entityId,id,staff,actor};
+ const program = input => complianceCaseWork(db,{type:"program",input},staff,tenant,[actor],"2026-11-11T12:00:00Z");
+ const progress = month => program({operation:"month",entityId,month}).items[0].filingProgress;
+ return {sql,db,run,save,generate,draft,entityId,id,staff,actor,program,progress};
 }
 test("UTC final-month targets clamp leap years and enforce cadence anchors",()=>{
   assert.equal(obligationPeriod("2024-02","Monthly",31).internalTarget,"2024-02-29");
@@ -87,6 +89,9 @@ test("Illinois audit evidence preserves the original deadline and regulator deci
    extension:{request:{on:"2026-03-16",reference:"Dated written request receipt"},grounds:"Fictional circumstances beyond control"}};
  const initial=save(evidence);
  const first=f.run(initial);
+ const work = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
+ assert.equal(f.progress(work.month).summary,"Past due");
+ assert.ok(f.progress(work.month).gaps.includes("Verify the extension decision. The original deadline still applies."));
  assert.deepEqual(first.finding,{asOf:"2026-11-11",requestDueOn:"2026-03-16",dueOn:"2026-03-31",requestStatus:"On time",
    filingStatus:"Past due",extensionStatus:"Pending decision"});
  assert.deepEqual(f.run(initial),first);
@@ -512,6 +517,7 @@ test("Michigan company renewal preserves the filing target, expiration context a
  assert.ok(f.run({...update,correction:undefined}).error);
  assert.ok(f.run({...update,evidence:{...update.evidence,regulatorStatus:{...regulatorStatus,on:"2026-11-12"}}}).error);
  assert.equal(f.run(update).finding.educationStatus,"Education documented before request");
+ assert.equal(f.progress("2026-12").summary,"1 of 1 recorded originators show renewed status");
  const history=f.run(renewalHistory);
  assert.equal(history.currentFinding.regulatorStatus,"Renewed");
  assert.equal(history.versions[1].finding.regulatorStatus,"No regulator status recorded");
@@ -730,6 +736,8 @@ test("New York employment reporting preserves separate prompt notices and quarte
   assert.ok(f.run(first, f.staff, []).error);
   assert.ok(f.run({ ...first, evidence: { ...evidence, activity: "No reportable activity" } }).error);
   const initial = f.run(first);
+  const work = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
+  assert.ok(f.progress(work.month).gaps.includes("Verify missing individual departure notices."));
   assert.equal(initial.finding.dueOn, "2026-10-30");
   assert.equal(initial.finding.entityNoticesMissing, 1);
   assert.equal(initial.finding.individualNoticesMissing, 1);
@@ -828,6 +836,8 @@ test("Colorado company renewal preserves receipt gaps and the regulator outcome 
    regulatorStatus:{status:"Pending",on:"2026-11-10",reference:"Fictional regulator status"}}};
  const second=f.run(changed);
  assert.equal(second.finding.renewalStatus,"Pending");
+ const work = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
+ assert.ok(f.progress(work.month).gaps.includes("Verify the regulator's renewal status."));
  assert.equal(second.finding.rows.at(-1).nominalDueOn,"2026-03-31");
  assert.equal(second.finding.rows.at(-1).timing,"Nominal date passed without receipt");
  const historicalItem={itemReference:"Fictional 2024 Q2 deficiency",identified:{on:"2025-03-03",reference:"Fictional NMLS notice"}};
@@ -863,6 +873,13 @@ test("New York annual VOOR tracks deadlines and versioned filing evidence", t =>
  assert.equal(JSON.parse(f.run(f.generate({period})).occurrence.snapshot).reportingBasis.nominalDueOn, "2026-06-22");
  const target = {entityId:f.entityId,id:f.id,period};
  const history = {operation:"newYorkVoorHistory",...target};
+ const work = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
+ const month = () => f.program({operation:"month",entityId:f.entityId,month:work.month});
+ assert.equal(month().items[0].filingProgress.summary,"Filing evidence needed");
+ const prior = month();
+ const monthlyReview = f.program({operation:"reviewMonth",entityId:f.entityId,month:work.month,
+   fingerprint:prior.fingerprint,requestId:crypto.randomUUID(),note:"Fictional initial filing review"});
+ assert.equal(monthlyReview.reviews[0].current,true);
  const save = (evidence, expected = 0) => ({operation:"saveNewYorkVoor",...target,requestId:crypto.randomUUID(),
    expected,evidence,...(expected ? {correction:"Fictional record updated"} : {})});
  assert.equal(f.run(history).reportYear, 2025);
@@ -880,6 +897,9 @@ test("New York annual VOOR tracks deadlines and versioned filing evidence", t =>
  assert.ok(f.run(save({...evidence,attestation:{...attestation,on:"2026-06-23"}})).error);
  const firstRequest = save(evidence);
  const first = f.run(firstRequest);
+ assert.equal(month().reviews[0].current,false);
+ assert.equal(JSON.parse(month().reviews[0].snapshot).items[0].filingProgress.summary,"Filing evidence needed");
+ assert.match(month().items[0].filingProgress.gaps[0],/Application Owner/);
  assert.equal(first.finding.initialTiming,"On or before recorded deadline");
  assert.match(first.finding.gaps[0],/Application Owner/);
  assert.deepEqual(f.run(firstRequest),first);
@@ -887,12 +907,14 @@ test("New York annual VOOR tracks deadlines and versioned filing evidence", t =>
  const second = f.run(save({...evidence,attestation:{...attestation,dfsApplicationOwnerReference:"Fictional DFS role"},amendment},1));
  assert.equal(second.version,2);
  assert.deepEqual(second.finding.gaps,[]);
+ assert.deepEqual(month().items[0].filingProgress.gaps,[]);
  assert.equal(f.run({...history,before:2}).versions[0].evidence.original.on,"2026-06-22");
  assert.equal(f.run(history).versions[0].evidence.amendment.on,"2026-06-23");
  assert.ok(f.run({...history,entityId:crypto.randomUUID()}).error);
  assert.ok(f.run(history,f.staff,[]).error);
  const third = f.run(save({...evidence,original:{...original,route:"Mail",on:"2026-06-23"}},2));
  assert.equal(third.finding.initialTiming,"After recorded deadline");
+ assert.ok(month().items[0].filingProgress.gaps.includes("Review the late initial submission."));
  assert.match(third.finding.gaps[0],/notarized affidavit/);
  const laterPeriod = "2026-01";
  assert.equal(JSON.parse(f.run(f.generate({period:laterPeriod})).occurrence.snapshot).reportingBasis.nominalDueOn,null);

@@ -27,8 +27,11 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   const [itemId, setItem] = useState("");
   const pendingTarget = useRef(target);
   const [status, setStatus] = useState("");
+  const [evidenceGapsOnly, setEvidenceGapsOnly] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const feedback = useRef<HTMLDivElement>(null);
+  const returnToWork = useRef(false);
+  const workButton = useRef<HTMLButtonElement>(null);
   const active = useRef(false);
   const retry = useRef<{ body: string; id: string }>(undefined);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, [brokerageId]);
@@ -55,6 +58,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
       .finally(() => { if (current) { setLoading(false); setOpeningReview(false); } });
     return () => { current = false; };
   }, [brokerageId, entityId, month, paused, version]);
+<<<<<<< HEAD
   useEffect(() => {
     if (paused || !target) return;
     let current = true;
@@ -64,6 +68,14 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
     return () => { current = false; };
   }, [brokerageId, paused, target]);
   useEffect(() => { heading.current?.focus(); }, [screen, itemId]);
+=======
+  useEffect(() => { if (!returnToWork.current) heading.current?.focus(); }, [screen, itemId]);
+  useEffect(() => {
+    if (screen !== "list" || loading || !returnToWork.current) return;
+    returnToWork.current = false;
+    (workButton.current ?? heading.current)?.focus();
+  }, [screen, loading]);
+>>>>>>> 5ae41b5e (Surface linked filing evidence gaps in monthly review)
   useEffect(() => { if (error || notice) feedback.current?.focus(); }, [error, notice]);
   function reload() { setLoading(true); setError(""); setNotice(""); setData(undefined); refresh(v => v + 1); }
   function navigate(next: typeof screen) { setError(""); setNotice(""); setScreen(next); }
@@ -89,6 +101,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   }
   const current = data?.entity.id === entityId && data.month === month ? data : undefined;
   const selected = current?.items.find(i => i.id === itemId);
+<<<<<<< HEAD
   const readyToComplete = selected?.status === "Awaiting review";
   const obligation = selected?.obligation;
   const reporting = obligation?.reportingBasis;
@@ -99,6 +112,11 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
     <a className="name-link break-words" href={obligation.sourceUrl} target="_blank" rel="noreferrer">{obligation.authority}</a>
   </>;
   const entityOptions = current && !entities.some(entity => entity.id === current.entity.id) ? [current.entity, ...entities] : entities;
+=======
+  const hasFilingProgress = current?.items.some(item => item.filingProgress);
+  const visibleItems = current?.items.filter(item => (!status || item.status === status) &&
+    (!hasFilingProgress || !evidenceGapsOnly || Boolean(item.filingProgress?.gaps.length))) ?? [];
+>>>>>>> 5ae41b5e (Surface linked filing evidence gaps in monthly review)
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     if (screen === "entity") void save({ operation: "createEntity", name: value(form, "name"), nmls: value(form, "nmls"), scopeNote: value(form, "scopeNote") });
@@ -174,13 +192,20 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
       {loading ? <p role="status">Loading program…</p> : !entityId ? <p>Select or add the legal entity whose internal program you want to review.</p> : current && <>
         <p>{current.counts.open} open · {current.counts.overdue} past internal target · {current.counts.unavailableOwners} needing an owner</p>
         <label className="field">Work status<select value={status} onChange={e => setStatus(e.target.value)}><option value="">All statuses</option>{programStatuses.map(s => <option key={s}>{s}</option>)}</select></label>
+        {hasFilingProgress && <label className="flex min-h-11 items-center gap-2">
+          <input type="checkbox" checked={evidenceGapsOnly} onChange={event => setEvidenceGapsOnly(event.target.checked)} />
+          Filing evidence gaps only
+        </label>}
         <ul className="document-list" aria-label="Monthly work">
-          {current.items.filter(i => !status || i.status === status).map(item => <li className="document-item" key={item.id}>
-            <div><strong>{item.title}</strong><p>{item.category} · {item.status}</p><p>Internal target: {item.internalTarget} · {item.ownerAvailable ? item.ownerEmail : "Owner unavailable"}</p></div>
-            <Button variant="outline" onClick={() => { setItem(item.id); navigate("item"); }}>Review work</Button>
+          {visibleItems.map(item => <li className="document-item" key={item.id}>
+            <div className="min-w-0 [overflow-wrap:anywhere]"><strong>{item.title}</strong><p>{item.category} · {item.status}</p><p>Internal target: {item.internalTarget} · {item.ownerAvailable ? item.ownerEmail : "Owner unavailable"}</p>
+              {item.filingProgress && <p>{item.filingProgress.summary}{item.filingProgress.gaps.length > 0 &&
+                <> · {item.filingProgress.gaps.length} evidence {item.filingProgress.gaps.length === 1 ? "gap" : "gaps"}</>}</p>}</div>
+            <Button ref={item.id === itemId ? workButton : undefined} variant="outline"
+              onClick={() => { setItem(item.id); navigate("item"); }}>Review work</Button>
           </li>)}
         </ul>
-        {!current.items.some(i => !status || i.status === status) && <p>No work matches this month and filter.</p>}
+        {!visibleItems.length && <p>No work matches this month and filter.</p>}
         <Button variant="outline" disabled={!current.items.length} onClick={() => navigate("review")}>Record monthly review</Button>
         <details><summary>Monthly review history</summary>{!current.reviews.length && <p>No monthly reviews recorded.</p>}{current.reviews.map(r => <article className="document-item" key={r.id}><strong>{r.at.slice(0, 10)} · {r.actor}</strong><p>{r.note}</p><p>{r.current ? "Matches current review basis" : "Historical snapshot — review basis has changed"}</p></article>)}</details>
         <details><summary>Work history</summary>{current.history.map((h, index) => <article key={`${h.id}:${index}`}><p>{h.action} · {h.actor} · {h.at}</p><p>{h.note}</p></article>)}{current.moreHistory && <p>Showing the latest 50 events. Earlier events remain retained.</p>}</details>
@@ -197,6 +222,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         </> : <>
           {screen === "schedule" ? <><label className="field">Review title<input name="title" required minLength={3} maxLength={160} /></label>
             <label className="field">Category<select name="category">{programCategories.map(c => <option key={c}>{c}</option>)}</select></label>
+<<<<<<< HEAD
             <label className="field">Work to review<textarea name="instructions" required minLength={5} maxLength={1500} /></label></> : <>{!selected?.stateReview && !reporting && <p>{selected?.instructions}</p>}
             <label className="field">Work status<select name="status" defaultValue={selected?.status} aria-describedby="compliance-review-status-help">
               {programStatuses.map(s => <option key={s} disabled={s === "Completed" && !readyToComplete && selected?.status !== s}>{s}</option>)}
@@ -206,6 +232,13 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
               : selected?.status === "Completed"
                 ? "This review is complete. Choose a different status to reopen it."
                 : "When the work is ready for review, choose Awaiting review and save."}</p></>}
+=======
+            <label className="field">Work to review<textarea name="instructions" required minLength={5} maxLength={1500} /></label></> : <><p className="[overflow-wrap:anywhere]">{selected?.instructions}</p>
+            {selected?.filingProgress && <div><h3>Filing evidence</h3><p>{selected.filingProgress.summary}</p>
+              {selected.filingProgress.gaps.length > 0 && <ul className="list-disc pl-5">
+                {selected.filingProgress.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul>}</div>}
+            <label className="field">Work status<select name="status" defaultValue={selected?.status}>{programStatuses.map(s => <option key={s}>{s}</option>)}</select></label></>}
+>>>>>>> 5ae41b5e (Surface linked filing evidence gaps in monthly review)
           <div className="form-grid"><label className="field">Accountable admin<select name="ownerEmail" required defaultValue={selected?.ownerAvailable ? selected.ownerEmail : ""}>
             <option value="">Select an active admin</option>{current?.owners.map(o => <option key={o.email} value={o.email}>{o.name}</option>)}</select></label>
             <label className="field">Internal target (UTC)<input name="internalTarget" type="date" required defaultValue={selected?.internalTarget ?? `${month}-28`} /></label></div>
@@ -215,7 +248,10 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
             <label className="field">{selected?.stateReview ? "Decision or next action (required)" : "Reason or progress note"}
               <textarea name="note" required minLength={5} maxLength={1500} /></label></>}
         </>}
-        <div className="loan-application-actions"><Button type="submit">{busy ? "Saving…" : "Save review work"}</Button><Button type="button" variant="outline" onClick={() => { navigate("list"); reload(); }}>Back to monthly review</Button></div>
+        <div className="loan-application-actions"><Button type="submit">{busy ? "Saving…" : "Save review work"}</Button>
+          <Button type="button" variant="outline" onClick={() => { returnToWork.current = screen === "item"; navigate("list"); reload(); }}>
+            Back to monthly review
+          </Button></div>
       </fieldset>
     </form>}
   </section>;
