@@ -94,6 +94,17 @@ test("HMDA annual and quarterly evidence stays with the reporting entity and exa
   const amendments = [{on:"2026-06-01",reference:"Fictional amended confirmation",reason:"Fictional corrected record"}];
   assert.equal(f.run({...save,expected:1,requestId:crypto.randomUUID(),correction:"Fictional amended record",evidence:{...evidence,amendments}}).version,2);
   assert.equal(f.run(history).versions[1].evidence.submission.reference,evidence.submission.reference);
+  const update = (expectedRevision,status,internalTarget) => f.program({operation:"update",entityId:f.entityId,
+   month:planned.month,id:planned.workId,requestId:crypto.randomUUID(),expectedRevision,status,internalTarget,
+   ownerEmail:f.actor.email,evidence:"Fictional filing confirmation",note:"Fictional work target review"});
+  const lateTarget = dueOn.slice(0,-2) + (key === "ANNUAL" ? "04" : "31");
+  assert.equal(update(1,"Awaiting review",lateTarget).kind,"programMonth");
+  assert.equal(update(2,"Completed",lateTarget).kind,"programMonth");
+  assert.equal(monthly().status,"Completed");
+  assert.equal(monthly().filingProgress.reviewedDueOn,dueOn);
+  assert.deepEqual(monthly().filingProgress.gaps,["The internal target falls after the reviewed filing deadline."]);
+  assert.equal(update(3,"Awaiting review",dueOn).kind,"programMonth");
+  assert.deepEqual(monthly().filingProgress.gaps,[]);
   assert.ok(f.run({...history,entityId:crypto.randomUUID()}).error);
  }
  f.sql.prepare("UPDATE compliance_program_entities SET name=? WHERE id=?").run("Fictional changed reporting institution",f.entityId);

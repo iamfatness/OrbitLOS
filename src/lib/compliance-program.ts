@@ -246,6 +246,7 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
   let progress = stateBasis && bounds && decision !== "Not applicable"
     ? currentFilingProgress(db, { brokerageId: tenant, entityId, obligationId: String(row.obligationId),
       period: String(row.period), sourceKey: stateBasis.sourceKey, bounds, draft, nominalDueOn: reportingBasis?.nominalDueOn ?? null,
+      internalTarget: String(row.internalTarget),
       basisChanged: cadenceConflict || basisChanged, reviewedScopeIsCurrent: reviewed =>
         Boolean(reviewed.snapshot && reviewed.sourceKey === stateBasis.sourceKey && reviewed.jurisdiction === stateBasis.jurisdiction &&
           savedFilingScopeMatches(db, tenant, entityId, reviewed, currentScope) &&

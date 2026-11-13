@@ -12,6 +12,7 @@ export type FilingProgress = { revision: string | null; summary: string; gaps: s
 type FilingTarget = {
   brokerageId: string; entityId: string; obligationId: string; period: string; sourceKey: string;
   bounds: { from: string; through: string }; nominalDueOn: string | null;
+  internalTarget: string;
   basisChanged?: boolean;
   reviewedScopeIsCurrent: (basis: ObligationStateSource & { snapshot?: string }) => boolean;
   draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">;
@@ -37,6 +38,8 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   if (!row) return {
     revision: null, summary: "Filing evidence needed",
     gaps: [...(nominalDueOn && nominalDueOn < asOf ? ["The nominal date passed without recorded evidence."] : []),
+      ...(component && !target.basisChanged && nominalDueOn && target.internalTarget > nominalDueOn
+        ? ["The internal target falls after the nominal filing date."] : []),
       component ? "Record the original filing receipt and supporting evidence." : "Open the linked period in Obligations to record evidence."],
   };
   const revision = String(row.version);
@@ -46,9 +49,12 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
     const { reviewedScope } = JSON.parse(String(row.finding)) as { reviewedScope?: ObligationStateSource & { snapshot?: string } };
     const rechecked = reviewedScope && review.deadline && target.reviewedScopeIsCurrent(reviewedScope);
     const finding = reviewNmlsFiling(review, nominalDueOn, asOf, component, bounds.through, target.basisChanged && !rechecked);
-    return { revision, summary: finding.summary, gaps: finding.gaps, ...(rechecked && {
-      reviewedScopeRevision: reviewedScope.revision, reviewedDueOn: review.deadline?.on,
-    }) };
+    const reviewedDueOn = review.deadline && finding.dueOn ? finding.dueOn : undefined;
+    if (finding.dueOn && target.internalTarget > finding.dueOn)
+      finding.gaps.push(reviewedDueOn ? "The internal target falls after the reviewed filing deadline." :
+        "The internal target falls after the nominal filing date.");
+    return { revision, summary: finding.summary, gaps: finding.gaps,
+      ...(reviewedDueOn && { reviewedDueOn }), ...(rechecked && { reviewedScopeRevision: reviewedScope.revision }) };
   }
   if (table === "new_york_voor_versions") {
     const finding = reviewNewYorkVoor(evidence as NewYorkVoorEvidence, nominalDueOn, asOf);
