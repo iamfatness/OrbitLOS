@@ -7,6 +7,7 @@ import { handoffCheckpointError } from "./application-review-checkpoint";
 import { findPricingOffer, manualQuoteRouteMessage } from "./manual-pricing-model";
 import { reopenedMockUwmAtSql } from "./processing-conditions";
 import { requestedLoanAmount } from "./application-model";
+import { flagIncomeQuoteReview } from "./quote-worksheet-store";
 import { pricingInputError } from "./income-review-freshness";
 import { mockUwmAmountMismatch, nonAgencyManualHandoffMessage } from "./pricing-model";
 import { closeMockUwmAcceptance, pendingMockUwmAcceptance, saveMockUwmAcceptance } from "./uwm-handoff-recovery";
@@ -195,6 +196,7 @@ function applyMockConditionReopening(db: Store, { loanId, submissionId, conditio
       dueOn = CASE WHEN ? THEN NULL ELSE dueOn END WHERE id = ?`)
       .run(needsReplacement ? "Needs replacement" : "Requested", needsReplacement ? note : "",
         Number(needsReplacement), Number(needsReplacement), request.id);
+    if (request.status === "Accepted") flagIncomeQuoteReview(db, loanId, now, request.id);
   }
   const conditions = previous.conditions.map((item) => item.id === conditionId
     ? { ...item, uploaded: false, satisfiedAt: null, mockReopenedAt: now } : item);

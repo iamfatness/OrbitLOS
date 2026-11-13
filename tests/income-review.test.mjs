@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { sqliteStore } from "../scripts/workspace-baseline.mjs";
 
-const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
+const { initializeStore, insertContact, insertLoan, insertSubmission } = await import("../src/lib/store.ts");
 const { blankApplication, sampleApplication } = await import("../src/lib/application-model.ts");
 const { borrowerCommandResult } = await import("../src/lib/applications.ts");
 const { portalToken } = await import("../src/lib/brokerage-model.ts");
@@ -46,8 +46,19 @@ test("approval attaches to accepted evidence and prevents reuse of a stale prici
   const draft = { ...sampleApplication({ ...blankApplication(), borrowerName: "Fictional Borrower" }), confirmedDemo: true };
   db.prepare(`INSERT INTO applications (loanId, token, expiresAt, draft, revision, updatedAt, submittedAt, reviewedAt)
     VALUES (?, ?, '2099-01-01', ?, ?, ?, ?, ?)`).run(loanId, token, JSON.stringify(draft), revision, at, at, at);
-  db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, status, requestedAt, revision)
-    VALUES (?, ?, 'Pay stub', '', 'Accepted', ?, 2)`).run(documentId, loanId, at);
+  const submissionId = randomUUID();
+  const conditionId = "fixture-income";
+  const otherConditionId = "fixture-unrelated";
+  insertSubmission(db, { id: submissionId, loanId, lender: "UWM", externalId: "MOCK-INCOME-QUOTE", status: "Approved with conditions",
+    syncedAt: at, conditions: [
+      { id: conditionId, category: "Income", description: "Fictional pay stub", uploaded: true, satisfiedAt: null, group: null },
+      { id: otherConditionId, category: "Assets", description: "Fictional unrelated evidence", uploaded: true, satisfiedAt: at, group: null },
+    ] });
+  const otherDocumentId = randomUUID();
+  for (const [requestId, kind, condition] of [[documentId, "Pay stub", conditionId], [otherDocumentId, "Bank statement", otherConditionId]]) {
+    db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, status, requestedAt, revision, submissionId, conditionId)
+      VALUES (?, ?, ?, '', 'Accepted', ?, 2, ?, ?)`).run(requestId, loanId, kind, at, submissionId, condition);
+  }
   const source = { id: randomUUID(), recipient: "Primary borrower", label: "Fictional wages", kind: "Wages",
     method: "Amount per pay period", included: true, start: "", end: "2026-06-15", amount: 325000, periods: 24,
     adjustment: -5000, rationale: "Fictional monthly adjustment.", evidence: [{ id: documentId, revision: 2 }] };
@@ -89,19 +100,30 @@ test("approval attaches to accepted evidence and prevents reuse of a stale prici
   assert.ok(borrowerStatus().quote);
   assert.doesNotMatch(JSON.stringify(borrowerStatus()), /Fictional wages|Reviewed sample pay/);
 
-  db.prepare("UPDATE document_requests SET status = 'Accepted', revision = 4 WHERE id = ?").run(documentId);
+  assert.ok((await send({ type: "reopenMockUwmCondition", submissionId, conditionId: otherConditionId,
+    expectedSatisfiedAt: at, expectedReopenedAt: null })).message);
+  assert.ok(borrowerStatus().quote);
+  assert.equal(db.prepare("SELECT reviewReason FROM published_quotes WHERE loanId = ?").get(loanId).reviewReason, null);
+  assert.ok((await send({ type: "reviewDocument", requestId: documentId, revision: 2, decision: "Needs replacement",
+    replacementNote: "Attach the current fictional pay stub." })).message);
+  const evidenceReview = db.prepare("SELECT reviewRevision, reviewReason FROM published_quotes WHERE loanId = ?").get(loanId);
+  assert.equal(evidenceReview.reviewReason, "Income evidence needs replacement");
   assert.equal(work({ type: "read" }).page.stale, "Evidence changed");
   assert.equal(borrowerStatus().quote, null);
   for (const request of [price, { type: "selectOffer", ...choice }, { type: "publishQuote", ...choice },
     { type: "sendApplication", revision, quote: choice }]) {
     assert.match((await send(request)).error, /reviewed income/i);
   }
-  const revisedSource = { ...source, start: "2026-06-01", evidence: [{ id: documentId, revision: 4 }] };
+  const resubmitted = borrowerCommandResult(db, { type: "attachSample", token, requestId: documentId, revision: 3, statusOnly: true });
+  assert.equal(resubmitted.error, undefined);
+  assert.ok((await send({ type: "reviewDocument", requestId: documentId, revision: 4, decision: "Accepted", replacementNote: "" })).message);
+  const revisedSource = { ...source, start: "2026-06-01", evidence: [{ id: documentId, revision: 5 }] };
   const revise = mutate("save", approve.revision, { sources: [revisedSource] });
   assert.equal(work(revise).page.record.stage, "Draft");
   assert.equal(work(revise).page.record.revision, approve.revision + 1);
   const shared = db.prepare("SELECT publishedAt, reviewRevision, reviewReason FROM published_quotes WHERE loanId = ?").get(loanId);
-  assert.equal(shared.reviewReason, "Income worksheet changed");
+  assert.equal(shared.reviewReason, evidenceReview.reviewReason);
+  assert.equal(shared.reviewRevision, evidenceReview.reviewRevision);
   assert.equal(db.prepare("SELECT count(*) AS total FROM tasks WHERE loanId = ? AND title = 'Review shared sample quote' AND completedAt IS NULL").get(loanId).total, 1);
   assert.match((await send({ type: "keepSharedQuote", publishedAt: shared.publishedAt, reviewRevision: shared.reviewRevision,
     reviewNote: "Keep the original sample quote." })).error, /reviewed income/i);
@@ -119,6 +141,19 @@ test("approval attaches to accepted evidence and prevents reuse of a stale prici
   const manual = (await send({ ...price, incomeReviewRevision: undefined })).state;
   assert.equal(manual.pricingRuns.find(({ id }) => id === run.id).incomeReviewCurrent, false);
   assert.equal(manual.pricingRuns.find(({ id }) => id !== run.id && id !== next.id).incomeReviewRevision, null);
+  assert.ok((await send({ type: "sendConditionDocument", requestId: documentId, revision: 5 })).message);
+  const cleared = await send({ type: "refreshMockUwmClearance", submissionId });
+  const condition = cleared.state.submissions.find(({ id }) => id === submissionId).conditions.find(({ id }) => id === conditionId);
+  assert.ok(condition.satisfiedAt);
+  const reopen = { type: "reopenMockUwmCondition", submissionId, conditionId,
+    expectedSatisfiedAt: condition.satisfiedAt, expectedReopenedAt: null };
+  assert.ok((await send(reopen)).message);
+  assert.match((await send(reopen)).error, /condition changed/i);
+  assert.equal(borrowerStatus().quote, null);
+  assert.equal(db.prepare("SELECT reviewReason FROM published_quotes WHERE loanId = ?").get(loanId).reviewReason, "Income evidence needs replacement");
+  const reviewTasks = readOfficerQueue(db, { horizon: 1 }, officer, tenant).items.filter(item => item.target === "shared-quote-review");
+  assert.equal(reviewTasks.length, 1);
+
 });
 
 test("income verification approval pins the borrower and return through an older mock quote", async (t) => {
