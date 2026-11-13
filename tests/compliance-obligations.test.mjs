@@ -741,7 +741,10 @@ test("New York employment reporting preserves separate prompt notices and quarte
   assert.equal(exported.entity.id, f.entityId);
   assert.equal(exported.dueOn, "2026-10-30");
   assert.deepEqual(exported.rows, [hire, departure, temporary]);
-  assert.deepEqual(exported.gaps, ["Verify the originating entity's legal name and NMLS ID."]);
+  assert.deepEqual(exported.gaps, [
+    "Review missing individual notice evidence for NMLS 12345.",
+    "Verify the originating entity's legal name and NMLS ID.",
+  ]);
   assert.deepEqual(exported.period, { from: "2026-07-01", through: "2026-09-30" });
   assert.deepEqual(exported.obligation, { id: f.id, scopeRevision: scope.revision, sourceKey: "REQ-NY-REPORTING-QRES" });
   assert.equal(exported.recorded.actor, f.staff.email);
@@ -754,6 +757,18 @@ test("New York employment reporting preserves separate prompt notices and quarte
   assert.equal(workpaper(1).recordedFinding.entityNoticesMissing, 1);
   assert.equal(workpaper(2).rows.length, 0);
   assert.ok(workpaper(4).error);
+  const unresolved = { ...complete,
+    separations: [...complete.separations, { ...separation, kind: "Dismissal for cause" }],
+    workpaperRows: [departure, { ...hire, originatorNmls: departure.originatorNmls, hiredOn: "2026-08-02" }],
+  };
+  assert.equal(f.run({ ...update, requestId: crypto.randomUUID(), expected: 3, evidence: unresolved }).version, 4);
+  const unresolvedGaps = workpaper(4).gaps.join(" ");
+  assert.match(unresolvedGaps, /different legal names/);
+  assert.match(unresolvedGaps, /dismissal for cause/);
+  assert.match(unresolvedGaps, /multiple departures/);
+  assert.match(unresolvedGaps, /missing brokerage notice/);
+  assert.match(unresolvedGaps, /missing individual notice/);
+  assert.deepEqual(workpaper(3).gaps, exported.gaps);
   assert.ok(f.run({ ...target, operation: "newYorkEmploymentWorkpaper", version: 3 }, f.staff, []).error);
 
 });

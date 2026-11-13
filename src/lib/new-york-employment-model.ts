@@ -63,21 +63,39 @@ export function prepareNewYorkEmploymentWorkpaper(evidence: NewYorkEmploymentEvi
   if (evidence.activity === "Reportable activity" && !rows.length) gaps.push("Add the reportable originators.");
   if (evidence.activity === "No reportable activity") gaps.push("Confirm the applicable DFS instructions for a quarter without reportable activity.");
   const departureKey = (nmls: string, on: string) => nmls + ":" + on;
-  const departures = new Map(evidence.separations.map(item => [departureKey(item.originatorNmls, item.event.on), item]));
+  const departures = new Map<string, typeof evidence.separations>();
+  for (const item of evidence.separations) {
+    const key = departureKey(item.originatorNmls, item.event.on);
+    const sameDeparture = departures.get(key) ?? [];
+    sameDeparture.push(item);
+    departures.set(key, sameDeparture);
+  }
   const reconciled = new Set<string>();
+  const names = new Map<string, string>();
   for (const row of rows) {
+    const priorName = names.get(row.originatorNmls);
+    if (priorName && priorName !== row.legalName)
+      gaps.push("Reconcile different legal names for NMLS " + row.originatorNmls + ".");
+    names.set(row.originatorNmls, row.legalName);
     if (!row.departedOn) continue;
     const key = departureKey(row.originatorNmls, row.departedOn);
-    const departure = departures.get(key);
+    const candidates = departures.get(key);
+    if (row.hiredOn && row.hiredOn > row.departedOn)
+      gaps.push("Review the hire and departure sequence for NMLS " + row.originatorNmls + ".");
     if (!row.dismissalForCause || row.dismissalForCause === "Needs review" || !row.departureReason)
       gaps.push("Complete the departure details for NMLS " + row.originatorNmls + ".");
-    if (!departure) gaps.push("Reconcile the departure and prompt notices for NMLS " + row.originatorNmls + ".");
+    if (!candidates) gaps.push("Reconcile the departure and prompt notices for NMLS " + row.originatorNmls + ".");
     else if (row.dismissalForCause && row.dismissalForCause !== "Needs review" &&
-      (departure.kind === "Dismissal for cause") !== (row.dismissalForCause === "Yes"))
+      candidates.some(item => (item.kind === "Dismissal for cause") !== (row.dismissalForCause === "Yes")))
       gaps.push("Reconcile the recorded dismissal for cause for NMLS " + row.originatorNmls + ".");
     reconciled.add(key);
   }
-  for (const [key, item] of departures)
-    if (!reconciled.has(key)) gaps.push("Review the filing treatment of the recorded departure for NMLS " + item.originatorNmls + ".");
+  for (const [key, entries] of departures) {
+    const { originatorNmls } = entries[0];
+    if (!reconciled.has(key)) gaps.push("Review the filing treatment of the recorded departure for NMLS " + originatorNmls + ".");
+    if (entries.length > 1) gaps.push("Reconcile multiple departures recorded on the same date for NMLS " + originatorNmls + ".");
+    if (entries.some(item => !item.entityNotice)) gaps.push("Review missing brokerage notice evidence for NMLS " + originatorNmls + ".");
+    if (entries.some(item => !item.individualNotice)) gaps.push("Review missing individual notice evidence for NMLS " + originatorNmls + ".");
+  }
   return { period: { from: period.from, through: period.through }, rows, gaps: [...new Set(gaps)] };
 }
