@@ -6,7 +6,7 @@ import { prepareNewYorkEmploymentWorkpaper, reviewNewYorkEmployment, type NewYor
 import { isNewYorkVoorSource, reviewNewYorkVoor, type NewYorkVoorEvidence } from "./new-york-voor-model";
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
 import { nmlsFilingComponent, reviewNmlsFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
-import type { ObligationDraft } from "./compliance-obligations-model";
+import type { ObligationDraft, ObligationStateSource } from "./compliance-obligations-model";
 
 export type FilingProgress = { revision: string | null; summary: string; gaps: string[]; reviewedScopeRevision?: number; reviewedDueOn?: string };
 type FilingTarget = {
