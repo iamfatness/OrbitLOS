@@ -685,11 +685,16 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   const partial = draft.effectiveFrom > period.from || Boolean(draft.effectiveThrough && draft.effectiveThrough < period.through);
   const stateBasisChanged = Boolean(stateBasis && !currentStateBasis(stateBasis));
   const reportingBasis = obligationReportingBasis(stateBasis?.sourceKey, draft.cadence, draft.annualStartMonth, period);
-  if (reportingBasis?.nominalDueOn && stateBasis?.sourceKey === "REQ-CO-REPORTING-QUARTER-FC") {
+  const sourceKey = stateBasis?.sourceKey;
+  const californiaRoleBased = sourceKey === "REQ-CA-REPORTING-DRE-FC" || sourceKey === "REQ-CA-REPORTING-CFL-FC";
+  if (reportingBasis?.nominalDueOn && stateBasis && (californiaRoleBased || sourceKey === "REQ-CA-REPORTING-CRMLA-FC" ||
+    sourceKey === "REQ-CO-REPORTING-QUARTER-FC")) {
     const scope = db.prepare(`SELECT json_extract(facts,'$.activity') AS activity FROM compliance_state_scope_versions
       WHERE brokerageId=? AND entityId=? AND jurisdiction=? AND revision=?`)
       .get(tenant, data.entityId, stateBasis.jurisdiction, stateBasis.revision);
-    const eligible = !stateBasisChanged && (scope?.activity === "Brokerage and lending" || scope?.activity === "Brokerage and servicing");
+    const brokerPeriod = (californiaRoleBased && draft.cadence === "Annual");
+    const eligible = !stateBasisChanged && (brokerPeriod ? scope?.activity === "Brokerage" :
+      scope?.activity === "Brokerage and lending" || scope?.activity === "Brokerage and servicing");
     if (!eligible) reportingBasis.nominalDueOn = null;
   }
   const lateTarget = Boolean(reportingBasis?.nominalDueOn && period.internalTarget > reportingBasis.nominalDueOn);

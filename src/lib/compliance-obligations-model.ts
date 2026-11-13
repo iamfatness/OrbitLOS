@@ -166,8 +166,8 @@ type FilingRule = {
 };
 const after = (days: number) => (through: string) => shiftReportDate(through, days);
 const quarter = (route: string, review: string, from?: string): FilingRule => ({ route, review, cadence: "Quarterly", due: after(45), from });
-const financialCondition = (review: string): FilingRule => ({
-  route: "NMLS Financial Condition", cadence: "Role-based",
+const financialCondition = (review: string, from?: string): FilingRule => ({
+  route: "NMLS Financial Condition", cadence: "Role-based", from,
   due: (through, cadence) => shiftReportDate(through, cadence === "Quarterly" ? 45 : 90), review,
 });
 const michiganRenewal: FilingRule = {
@@ -208,6 +208,8 @@ const filings: Partial<Record<string, FilingRule>> = {
   "REQ-IL-LICENSING-MLO-RENEW": individualRenewal("NMLS Illinois individual MLO renewal",
     "Verify education or first-year basis, employer affiliation, fees and IDFPR status. For late renewals, verify the last day of February cutoff and approval before origination."),
   "REQ-CA-REPORTING-DRE-MCR": quarter("NMLS Mortgage Call Report", "Confirm DRE company coverage and current NMLS quarterly instructions."),
+  "REQ-CA-REPORTING-DRE-FC": financialCondition(
+    "Verify the DRE company endorsement and activity classification. Use current FV7 instructions for 2026 and later periods. Reconcile older DRE guidance before handling earlier periods.", "2026-01-01"),
   "REQ-CA-LICENSING-DRE-RENEW": { route: "NMLS DRE company endorsement renewal", cadence: "Calendar annual",
     from: "2026-01-01", due: through => through,
     review: "Verify the actual endorsement expiration, including the November 1 issuance exception, underlying DRE license, designated broker attestation, MCR receipts and branch renewal sequence." },
@@ -233,6 +235,8 @@ const filings: Partial<Record<string, FilingRule>> = {
     review: "Verify report-year business-day instructions and the no-business schedules with counsel." },
   "REQ-CA-REPORTING-CFL-MCR": quarter("NMLS Residential Mortgage Loan Activity",
     "Confirm covered residential activity under the CFL authority, the current NMLS calendar, no-activity treatment and any shared filing receipt. Review Financial Condition separately."),
+  "REQ-CA-REPORTING-CFL-FC": financialCondition(
+    "Verify CFL residential mortgage activity and the FV7 reporting classification. Reconcile any shared NMLS submission and track the separate DFPI annual report.", "2026-01-01"),
   "REQ-CA-LICENSING-CFL-ASSESS": { route: "DFPI annual assessment payment per invoice", cadence: "Calendar annual",
     due: through => `${through.slice(0, 4)}-10-31`,
     review: "Use the calendar year the assessment notice is issued. Reconcile licensed locations and the current DFPI invoice, payment instructions and receipt." },
@@ -243,6 +247,8 @@ const filings: Partial<Record<string, FilingRule>> = {
     due: through => `${Number(through.slice(0, 4)) + 1}-03-31`,
     review: "Verify the current form and submission route. Confirm whether to submit loan data or a signed response for HMDA reporting or inactivity." },
   "REQ-CA-REPORTING-CRMLA-MCR": quarter("NMLS Mortgage Call Report", "Confirm the CRMLA scope and whether other California authorities share this NMLS submission."),
+  "REQ-CA-REPORTING-CRMLA-FC": quarter("NMLS Financial Condition",
+    "Verify lending or servicing activity and the current FV7 calendar. Reconcile the quarterly component independently from the fiscal-year audit.", "2026-01-01"),
   "REQ-CA-REPORTING-CRMLA-AUDIT": { route: "NMLS audited financial statement upload", cadence: "Fiscal annual", due: after(105),
     review: "Confirm the fiscal year end, audited statements and required CPA or trust reconciliation supplements." },
   "REQ-MI-REPORTING-RMLA": quarter("NMLS Residential Mortgage Loan Activity", "Verify the entity, filing calendar and no-activity evidence."),

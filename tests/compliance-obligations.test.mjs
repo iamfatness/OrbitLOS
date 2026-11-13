@@ -264,6 +264,14 @@ test("California reporting links DRE, CFL and CRMLA obligations with distinct fi
  };
  const generate=(id,period)=>f.run(f.generate({id,period}));
  const call=save("DRE-MCR",{cadence:"Quarterly"});
+ const filingDate = (id,period) => JSON.parse(generate(id,period).occurrence.snapshot).reportingBasis.nominalDueOn;
+ for (const authority of ["DRE-FC","CFL-FC"]) {
+  const annualFc = save(authority,{cadence:"Annual",annualStartMonth:1});
+  assert.equal(filingDate(annualFc,"2026-01"),"2027-03-31");
+  assert.equal(filingDate(annualFc,"2025-01"),null);
+  assert.equal(filingDate(save(authority,{cadence:"Quarterly"}),"2026-04"),null);
+ }
+ assert.equal(filingDate(save("CRMLA-FC",{cadence:"Quarterly"}),"2026-04"),null);
  assert.equal(JSON.parse(generate(call,"2025-01").occurrence.snapshot).reportingBasis.nominalDueOn,"2025-05-15");
  const annual={cadence:"Annual",applicability:"Required",reviewerEvidence:"Fictional review"};
  const renewal=save("DRE-RENEW",annual,"LICENSING");
@@ -334,6 +342,24 @@ test("California reporting links DRE, CFL and CRMLA obligations with distinct fi
  assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:audit,period:"2025-07",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
  const work=f.sql.prepare("SELECT instructions FROM compliance_program_items WHERE instructions LIKE '%CRMLA-AUDIT%'").get();
  assert.match(work.instructions,/NMLS audited financial statement upload.*2026-10-13/);
+ const scopeUpdate = (activity, expectedRevision) => complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,
+  jurisdiction,expectedRevision,requestId:crypto.randomUUID(),
+  facts:{activity,lienScope:"First lien",companyEvidence:"Fictional licenses",officeEvidence:"",
+    originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
+  f.staff,f.staff.brokerage.id,[f.actor],now);
+ assert.equal(scopeUpdate("Brokerage and servicing",1).revision,2);
+ const scopedFiling = (suffix,cadence,period,revision) => {
+  const id = crypto.randomUUID();
+  const sourceKey = "REQ-CA-REPORTING-" + suffix;
+  assert.equal(f.run(f.save({id,draft:{...f.draft,cadence},stateReference:{jurisdiction,revision,sourceKey}})).revision,1);
+  return filingDate(id,period);
+ };
+ for (const suffix of ["DRE-FC","CFL-FC","CRMLA-FC"]) {
+  assert.equal(scopedFiling(suffix,"Quarterly","2026-04",2),"2026-08-14");
+  assert.equal(scopedFiling(suffix,"Annual","2026-01",2),null);
+ }
+ assert.equal(scopeUpdate("Multiple or unresolved",2).revision,3);
+ assert.equal(scopedFiling("CFL-FC","Quarterly","2026-04",3),null);
 });
 
 test("priority state reporting uses distinct periods and leaves unverified dates open",t=>{
