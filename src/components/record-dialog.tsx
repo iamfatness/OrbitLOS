@@ -57,6 +57,7 @@ import { MichiganLoanPractices } from "./michigan-loan-practices";
 import { disclosureTarget, disclosureTask, findingDisclosureTarget, requestClosingPackageReviewTarget } from "@/lib/disclosure-model";
 import { documentDeliveryTarget, documentDeliveryTargetPrefix, importRejectionTargetPrefix } from "@/lib/incoming-loan-work-model";
 import { documentVerificationTarget, documentVerificationTargetPrefix, importVerificationTargetPrefix } from "@/lib/file-exception-model";
+import { CaliforniaMlds } from "./california-mlds";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
 import { realtorFinancingTarget } from "@/lib/realtor-financing-model";
@@ -764,6 +765,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && application?.hasKansasProperty &&
         <KansasConsumerNotice key={`${staff.brokerage.id}:${loan.id}:KS`} loanId={loan.id}
+          brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
+      {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && application?.hasCaliforniaProperty &&
+        <CaliforniaMlds key={`${staff.brokerage.id}:${loan.id}`} loanId={loan.id}
           brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Compliance" && staff?.brokerage.pilot && <ComplianceQueue key={`${loan.id}:${target}`} brokerageId={staff.brokerage.id}
         loanId={loan.id} initialCaseId={target?.startsWith(complianceCaseTarget("")) ? target.slice(complianceCaseTarget("").length) : undefined}

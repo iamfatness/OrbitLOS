@@ -234,6 +234,7 @@ export interface StaffApplication {
   refinanceBenefitState?: import("./state-refinance-benefit-model").RefinanceBenefitState;
   hasKansasProperty?: true;
   hasMichiganProperty?: true;
+  hasCaliforniaProperty?: true;
   lender: { details: LenderDetails; revision: number } | null;
   manualHandoff?: { exportPrepared: boolean; exportProfiles?: import("./lender-export-model").LenderExportProfile[];
     preparedExports?: import("./lender-export-model").PreparedLenderExport[];
