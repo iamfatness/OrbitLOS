@@ -84,14 +84,17 @@ function ResearchLinks({ source }: { source: ResearchSource }) {
     <li key={link.url}><a className="underline" target="_blank" rel="noreferrer" href={link.url}>{link.label}</a></li>)}</ul>;
 }
 
-export function ComplianceResearch({ brokerageId, paused, startWithState, active, openReview, stateTarget }: {
+export function ComplianceResearch({ brokerageId, paused, startWithState, active, openReview, stateTarget, stateSetup }: {
   brokerageId: string; paused: boolean; startWithState?: boolean; active: boolean;
   openReview: (target: import("@/lib/compliance-program-model").ProgramReviewTarget, origin: string) => void;
   stateTarget?: import("@/lib/compliance-program-model").StateScopeTarget;
+  stateSetup?: import("@/lib/compliance-program-model").ComplianceOwnerHomeData["stateSetup"];
 }) {
   const [view, setView] = useState<"Sources" | "Research work" | "State rollout">(startWithState ? "State rollout" : "Sources");
   const [jurisdiction, setJurisdiction] = useState("US");
-  const [rolloutState, setRolloutState] = useState(stateTarget?.jurisdiction ?? (startWithState ? "" : "MI"));
+  const recordedStates = stateSetup?.jurisdictions;
+  const [rolloutState, setRolloutState] = useState(
+    stateTarget?.jurisdiction ?? (recordedStates?.length === 1 ? recordedStates[0] : startWithState ? "" : "MI"));
   const rolloutSelect = useRef<HTMLSelectElement>(null);
   const rolloutSearch = useRef<HTMLInputElement>(null);
   const [requirementSearch, setRequirementSearch] = useState("");
@@ -223,7 +226,12 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
       <div className="form-grid">
         <label className="field">State<select ref={rolloutSelect} value={rolloutState} disabled={pending} onChange={event => setRolloutState(event.target.value)}>
           {startWithState && <option value="">Choose a state</option>}
-          {states.map(item => <option key={item.key} value={item.jurisdiction}>{item.title}</option>)}
+          {recordedStates?.length ? <optgroup label="On your company profile">
+            {states.filter(item => recordedStates.includes(item.jurisdiction)).map(item =>
+              <option key={item.key} value={item.jurisdiction}>{item.title}</option>)}
+          </optgroup> : null}
+          {states.filter(item => !recordedStates?.includes(item.jurisdiction)).map(item =>
+            <option key={item.key} value={item.jurisdiction}>{item.title}</option>)}
         </select></label>
         <label className="field">Search requirements<input ref={rolloutSearch} type="search" value={requirementSearch}
           disabled={!rolloutState} maxLength={120} onChange={event => setRequirementSearch(event.target.value)} /></label>
@@ -239,7 +247,7 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
             : `${selectedState?.requirements} specific requirements · ${rollout.states.filter(item => item.tracked > 0).length} of ${rollout.states.length} states have tracked work`}</p>
         </div>
         <ComplianceStateScope key={`${brokerageId}:${rolloutState}`} brokerageId={brokerageId} jurisdiction={rolloutState}
-          paused={paused} initiallyOpen={startWithState} initialEntityId={stateTarget?.jurisdiction === rolloutState ? stateTarget.entityId : undefined}
+          paused={paused} initiallyOpen={startWithState} initialEntityId={stateTarget?.jurisdiction === rolloutState ? stateTarget.entityId : stateSetup?.entityId}
           active={active} openReview={openReview} />
         <details className="document-form"><summary>Tracking by state</summary>
           <ul className="document-list">{rollout.states.map(item => <li key={item.jurisdiction} className="document-item">

@@ -125,6 +125,7 @@ export type ComplianceOwnerHomeData = {
   kind: "ownerHome"; branchId?: string; asOf: string; through: string;
   branches: { id: string; name: string; licenseCount: number; active: boolean }[];
   entityCount: number; companyLicenseCount: number; savedStateCount: number;
+  stateSetup?: { entityId: string; jurisdictions: string[] };
   stateScopes: { total: number; needsRecheck: number; items: StateScopeSummary[] };
   renewals: { total: number; items: (LicenseRenewalItem & { branchId: string | null })[] };
   reviews: { total: number; items: {
