@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases, accessLoanRetention } from "@/app/actions";
 import type { ProgramEntity } from "@/lib/compliance-program-model";
 import type { TexasCustodyNoticeResult } from "@/lib/texas-custody-notice";
-import { texasCustodyNoticeFacts, type TexasCustodyNoticeFacts } from "@/lib/texas-custody-notice-model";
+import { texasCustodyNoticeFacts, texasCustodyNoticeTenthDay, type TexasCustodyNoticeFacts } from "@/lib/texas-custody-notice-model";
 import { texasRecordkeepingSources } from "@/lib/texas-recordkeeping-model";
 import { dateTime } from "@/lib/utils";
 import { RegisterChoice, RegisterField } from "./retention-register-fields";
@@ -264,6 +264,8 @@ function NoticeEditor({ entry, busy, onSave }: { entry?: Entry; busy: boolean; o
   const [facts, setFacts] = useState(entry?.facts ?? blank);
   const [holidays, setHolidays] = useState(entry?.facts.calendar?.holidays.join(", ") ?? "");
   const [correction, setCorrection] = useState("");
+  const calendarHelp = useId();
+  const tenthDay = texasCustodyNoticeTenthDay(facts.trigger.on);
   const triggerLabel = facts.kind === "Cessation" ? "Date operations stopped" : "Date records were received";
   const update = (changes: Partial<Facts>) => setFacts(current => ({ ...current, ...changes }));
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -289,14 +291,21 @@ function NoticeEditor({ entry, busy, onSave }: { entry?: Entry; busy: boolean; o
       <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={!!facts.calendar}
         onChange={event => update({ calendar: event.target.checked ? { from: "", through: "", holidays: [], reference: "" } : undefined })} />
         Add a reviewed calendar to calculate the deadline</label>
-      {facts.calendar && <div className="grid gap-3 sm:grid-cols-2">
-        <RegisterChoice label="Texas time zone" value={facts.zone} options={zones} optionLabel={zoneLabel} change={zone => update({ zone })} />
-        <RegisterField label="Calendar evidence reference" value={facts.calendar.reference}
-          change={reference => update({ calendar: { ...facts.calendar!, reference } })} limit={240} required />
-        <RegisterField label="Calendar reviewed from" value={facts.calendar.from} change={from => update({ calendar: { ...facts.calendar!, from } })} date required />
-        <RegisterField label="Calendar reviewed through" value={facts.calendar.through} change={through => update({ calendar: { ...facts.calendar!, through } })} date required />
-        <RegisterField label="Holiday dates (YYYY-MM-DD, separated by commas)" value={holidays} change={setHolidays} limit={371} multiline />
-      </div>}
+      {facts.calendar && <section className="record-form" aria-label="Deadline calendar" aria-describedby={calendarHelp}>
+        <p className="muted max-w-[72ch]" id={calendarHelp}>
+          {tenthDay ? <>Start your review on or before <time dateTime={tenthDay}>{tenthDay}</time>, ten calendar days after the event.</>
+            : "For notices under the current rule, start your review on or before the tenth calendar day after the event."}
+          {" "}Include that day and any following weekends or legal holidays through the first eligible day.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <RegisterChoice label="Texas time zone" value={facts.zone} options={zones} optionLabel={zoneLabel} change={zone => update({ zone })} />
+          <RegisterField label="Calendar evidence reference" value={facts.calendar.reference}
+            change={reference => update({ calendar: { ...facts.calendar!, reference } })} limit={240} required />
+          <RegisterField label="Calendar reviewed from" value={facts.calendar.from} change={from => update({ calendar: { ...facts.calendar!, from } })} date required />
+          <RegisterField label="Calendar reviewed through" value={facts.calendar.through} change={through => update({ calendar: { ...facts.calendar!, through } })} date required />
+          <RegisterField label="Holiday dates (YYYY-MM-DD, separated by commas)" value={holidays} change={setHolidays} limit={371} multiline />
+        </div>
+      </section>}
       <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={!!facts.delivered}
         onChange={event => update({ delivered: event.target.checked ? { on: "", writtenNotice: "", deliveryEvidence: "" } : undefined })} />
         Record delivery to Texas SML</label>

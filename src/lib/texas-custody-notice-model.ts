@@ -36,16 +36,20 @@ export const texasCustodyNoticeRequest = z.strictObject({
 });
 export type TexasCustodyNoticeRequest = z.infer<typeof texasCustodyNoticeRequest>;
 
+export function texasCustodyNoticeTenthDay(triggerOn: string) {
+  return date.safeParse(triggerOn).success && triggerOn >= currentRuleFrom ? shiftReportDate(triggerOn, 10) : null;
+}
+
 export function reviewTexasCustodyNotice(facts: TexasCustodyNoticeFacts, asOf: string) {
   const source = texasRecordkeepingSources.rules;
   const authority = facts.authority === "SML mortgage company" ? "7 TAC §§56.204(b)(4), 56.5" : "7 TAC §§57.204(b)(4), 57.5";
   const basis = { authority, source, asOf };
   if (facts.trigger.on > asOf || (facts.delivered && facts.delivered.on > asOf))
     return { ...basis, status: "Verify event dates", nominalDueOn: null, dueOn: null } as const;
-  if (facts.trigger.on < currentRuleFrom)
+  const nominalDueOn = texasCustodyNoticeTenthDay(facts.trigger.on);
+  if (!nominalDueOn)
     return { ...basis, status: "Historical rule review", nominalDueOn: null, dueOn: null } as const;
 
-  const nominalDueOn = shiftReportDate(facts.trigger.on, 10);
   const { calendar } = facts;
   if (!calendar || nominalDueOn < calendar.from)
     return { ...basis, status: "Verify calendar", nominalDueOn, dueOn: null } as const;
