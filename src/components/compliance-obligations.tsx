@@ -201,7 +201,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
          !sources.length && !selected?.stateBasisChanged && <p className="muted">
            No current state reporting sources. Review the entity’s scope in State rollout or enter the authority manually.
          </p>}
-       {(sourceError||error.startsWith("The state reporting source changed."))&&<div><Button type="button" variant="outline" onClick={reloadStateSources}>Reload sources</Button></div>}
+       {(sourceError||error.startsWith("The state obligation source changed."))&&<div><Button type="button" variant="outline" onClick={reloadStateSources}>Reload sources</Button></div>}
        {linkedSource&&<p className="muted">{linkedSource.jurisdiction} · {linkedSource.title} · Scope version {linkedSource.revision}</p>}
        {selected?.stateBasisChanged && !chosenSource && sources && <p role="status">The saved reporting basis needs review.{" "}
          {sources.length ? "Select a current source." : "Review the entity’s scope under Research & gaps → State rollout."}

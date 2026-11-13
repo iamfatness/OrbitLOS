@@ -224,7 +224,11 @@ test("priority state reporting uses distinct periods and leaves unverified dates
  check("FL","LENDER-AUDIT","Annual","2025-01","Florida Office of Financial Regulation",null);
  const transition=check("FL","AUDIT-CHANGE","Annual","2025-07","Florida Office of Financial Regulation",null,7);
  assert.match(transition.basis.review,/prior audit submission date/);
- assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:transition.id,period:"2025-07",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
+ const planned=f.run({operation:"planWork",entityId:f.entityId,id:transition.id,period:"2025-07",requestId:crypto.randomUUID()});
+ assert.equal(planned.kind,"obligationWorkPlanned");
+ const month=complianceCaseWork(f.db,{type:"program",input:{operation:"month",entityId:f.entityId,month:planned.month}},
+   f.staff,f.staff.brokerage.id,[f.actor],"2026-11-12T12:00:00Z");
+ assert.deepEqual(month.items.find(item=>item.id===planned.workId).obligation.reportingBasis,transition.basis);
  const transitionWork=f.sql.prepare("SELECT instructions FROM compliance_program_items").get().instructions;
  assert.match(transitionWork,/Applicability review gap.*prior audit submission date/);
  assert.doesNotMatch(transitionWork,/Nominal date:/);

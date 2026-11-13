@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import { programCategories, programStatuses, type ProgramEntity, type ProgramMonth, type ProgramRequest, type ProgramReviewTarget } from "@/lib/compliance-program-model";
 import type { ObligationReviewBasis } from "@/lib/compliance-obligations-model";
+import { dateLabel } from "@/lib/client-retention";
 import { ComplianceFilingReceipts } from "./compliance-filing-receipts";
 import { Button } from "./ui/button";
 
@@ -85,6 +86,14 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   }
   const current = data?.entity.id === entityId && data.month === month ? data : undefined;
   const selected = current?.items.find(i => i.id === itemId);
+  const obligation = selected?.obligation;
+  const reporting = obligation?.reportingBasis;
+  const obligationSource = obligation && <>
+    <p><strong>Recorded period {obligation.period} · Obligation version {obligation.version}</strong></p>
+    {!reporting && <p>{obligation.status}</p>}
+    {obligation.stateBasis && <p>{obligation.stateBasis.jurisdiction} · State scope version {obligation.stateBasis.revision}</p>}
+    <a className="name-link break-words" href={obligation.sourceUrl} target="_blank" rel="noreferrer">{obligation.authority}</a>
+  </>;
   const entityOptions = current && !entities.some(entity => entity.id === current.entity.id) ? [current.entity, ...entities] : entities;
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
@@ -100,7 +109,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   if (paused) return <p>Program work is unavailable while the workspace is paused.</p>;
   return <section className="integration manager-panel record-form compliance-pilot-form" aria-label="Compliance program">
     <h2 ref={heading} tabIndex={-1}>{screen === "list" ? "Monthly review" : formTitle}</h2>
-    {screen === "item" && current && !selected?.stateReview && <p className="muted">{current.entity.name} · Review month {current.month}</p>}
+    {screen === "item" && current && !selected?.stateReview && <p className="muted">{current.entity.name}{!reporting && ` · Review month ${current.month}`}</p>}
     {screen === "item" && selected?.stateReview && <section className="record-form" aria-label="Saved state review basis">
       <h3>{selected.stateReview.entityName} · {selected.stateReview.jurisdiction} state record v{selected.stateReview.revision}</h3>
       <p><strong>Question</strong> · {selected.instructions}</p>
@@ -118,11 +127,19 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
       </details>
     </section>}
     {screen === "item" && selected?.obligation && current && <div className="record-form">
-      <div><strong>Recorded period {selected.obligation.period} · Obligation version {selected.obligation.version}</strong>
-        <p>{selected.obligation.status}</p>
-        {selected.obligation.stateBasis && <p>{selected.obligation.stateBasis.jurisdiction} · State scope version {selected.obligation.stateBasis.revision}</p>}
-        <a className="name-link break-words" href={selected.obligation.sourceUrl} target="_blank" rel="noreferrer">{selected.obligation.authority}</a>
-      </div>
+      {reporting && <section className="record-form" aria-label="Filing plan">
+        <p><strong>Review before filing</strong> · {reporting.review}</p>
+        <dl className="form-grid state-scope-facts">
+          <div><dt>Internal target</dt><dd>{dateLabel(selected.internalTarget)}</dd></div>
+          <div><dt>Nominal filing date</dt><dd>{reporting.nominalDueOn ? dateLabel(reporting.nominalDueOn) : "Needs confirmation"}</dd></div>
+          <div><dt>Filing route</dt><dd>{reporting.route}</dd></div>
+          <div><dt>Scope review</dt><dd>{selected.obligation.status === "Applicability review gap" ? "Confirm whether this applies" : selected.obligation.status}</dd></div>
+        </dl>
+      </section>}
+      {reporting ? <details className="details-section">
+        <summary className="min-h-11 content-center">Recorded period and source</summary>
+        {obligationSource}
+      </details> : <div>{obligationSource}</div>}
       {selected.obligation.report && <div><Button size="sm" variant="outline" id="compliance-open-report-prep"
         onClick={() => { if (selected.obligation) openReport(selected.obligation, current.entity.name); }}>
         Open Q{selected.obligation.report.quarter} {selected.obligation.report.year} report preparation
@@ -169,7 +186,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         </> : <>
           {screen === "schedule" ? <><label className="field">Review title<input name="title" required minLength={3} maxLength={160} /></label>
             <label className="field">Category<select name="category">{programCategories.map(c => <option key={c}>{c}</option>)}</select></label>
-            <label className="field">Work to review<textarea name="instructions" required minLength={5} maxLength={1500} /></label></> : <>{!selected?.stateReview && <p>{selected?.instructions}</p>}
+            <label className="field">Work to review<textarea name="instructions" required minLength={5} maxLength={1500} /></label></> : <>{!selected?.stateReview && !reporting && <p>{selected?.instructions}</p>}
             <label className="field">Work status<select name="status" defaultValue={selected?.status}>{programStatuses.map(s => <option key={s}>{s}</option>)}</select></label></>}
           <div className="form-grid"><label className="field">Accountable admin<select name="ownerEmail" required defaultValue={selected?.ownerAvailable ? selected.ownerEmail : ""}>
             <option value="">Select an active admin</option>{current?.owners.map(o => <option key={o.email} value={o.email}>{o.name}</option>)}</select></label>

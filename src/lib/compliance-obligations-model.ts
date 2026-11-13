@@ -115,6 +115,7 @@ export function obligationPeriod(period: string, cadence: ObligationDraft["caden
 export type ObligationReviewBasis = {
   obligationId: string; period: string; version: number; status: string; sourceUrl: string; authority: string;
   report?: { year: string; quarter: number }; stateBasis?: ObligationStateSource;
+  reportingBasis?: z.infer<typeof reportingDateBasis>;
 };
 type FilingRule = {
   route: string; review: string; cadence: "Quarterly" | "Fiscal quarterly" | "Calendar annual" | "Fiscal annual" | "Role-based";

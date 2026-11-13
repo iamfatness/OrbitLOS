@@ -263,11 +263,13 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   for (const row of bases) {
     const item = byItem.get(String(row.workId));
     if (!item) continue;
-    const { draft, stateBasis } = JSON.parse(String(row.snapshot)) as { draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"] };
+    const { draft, stateBasis, reportingBasis } = JSON.parse(String(row.snapshot)) as {
+      draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"]; reportingBasis?: ObligationReviewBasis["reportingBasis"];
+    };
     const [year, month] = String(row.period).split("-");
     item.obligation = {
       obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version), status: String(row.status),
-      sourceUrl: draft.sourceUrl, authority: draft.authority,
+      sourceUrl: draft.sourceUrl, authority: draft.authority, reportingBasis,
       stateBasis: stateBasis && { jurisdiction: stateBasis.jurisdiction, revision: stateBasis.revision, sourceKey: stateBasis.sourceKey,
         title: stateBasis.title, authority: stateBasis.authority, sourceUrl: stateBasis.sourceUrl },
       report: draft.preparation === "Mortgage Call Report" ? { year, quarter: Math.ceil(Number(month) / 3) } : undefined,
