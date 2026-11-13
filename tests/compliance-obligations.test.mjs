@@ -163,7 +163,8 @@ test("California reporting links DRE, CFL and CRMLA obligations with distinct fi
   assert.equal(JSON.parse(generate(trust,"2026-04").occurrence.snapshot).reportingBasis.nominalDueOn,null);
  }
  const noTrust=save("DRE-RE854",fiscalQuarter);
- assert.equal(JSON.parse(generate(noTrust,"2026-04").occurrence.snapshot).reportingBasis.nominalDueOn,"2026-07-30");
+ assert.equal(JSON.parse(generate(noTrust,"2025-07").occurrence.snapshot).reportingBasis.nominalDueOn,"2025-10-30");
+ assert.equal(JSON.parse(generate(noTrust,"2026-04").occurrence.snapshot).reportingBasis.nominalDueOn,null);
  for (const [month,date] of [[1,"2027-05-31"],[2,"2027-05-31"],[3,"2027-05-31"],[4,"2027-06-29"],[12,"2028-05-31"]]) {
   const trust=save("DRE-TAR",{...annual,annualStartMonth:month});
   const period=`2026-${String(month).padStart(2,"0")}`;

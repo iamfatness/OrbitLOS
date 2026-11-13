@@ -159,8 +159,8 @@ const filings: Partial<Record<string, FilingRule>> = {
   "REQ-CA-REPORTING-DRE-TRUST-Q": { route: "California DRE RE 855 and RE 856", cadence: "Fiscal quarterly",
     due: firstThreeFiscalQuarters,
     review: "Use for the first three fiscal quarters when covered trust funds were received. Confirm threshold status, bank and reconciliation records, signers and any written extension." },
-  "REQ-CA-REPORTING-DRE-RE854": { route: "California DRE RE 854", cadence: "Fiscal quarterly", due: after(30),
-    review: "Confirm threshold status and documented absence of covered trust funds for the entire quarter. Check the declaration, fourth-quarter treatment and any written extension." },
+  "REQ-CA-REPORTING-DRE-RE854": { route: "California DRE RE 854", cadence: "Fiscal quarterly", due: firstThreeFiscalQuarters,
+    review: "Confirm threshold status and documented absence of covered trust funds for the entire quarter. The quarterly form lists the first three fiscal quarters. Confirm the annual alternative and any written extension." },
   "REQ-CA-REPORTING-DRE-TAR": { route: "California DRE annual Trust Account Review", cadence: "Fiscal annual",
     due: through => {
       const year = Number(through.slice(0, 4));
