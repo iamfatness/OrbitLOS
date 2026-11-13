@@ -9,6 +9,7 @@ import type { ProgramReviewTarget } from "@/lib/compliance-program-model";
 import { Button } from "./ui/button";
 import { IllinoisAuditEvidence } from "./illinois-audit-evidence";
 import { MichiganMloRenewal } from "./michigan-mlo-renewal";
+import { FloridaAmendments } from "./florida-amendments";
 
 const row = z.object({ id:z.string(),revision:z.number(),draft:obligationDraft,ownerAvailable:z.boolean(),
   stateBasis:obligationStateSource.optional(),stateBasisChanged:z.boolean().optional() });
@@ -48,6 +49,8 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
  const [historyOffset,setHistoryOffset]=useState(0);
  const [evidence,setEvidence]=useState<{ type: "illinoisAudit" | "michiganMloRenewal"; period: string }>();
  const evidenceReturn=useRef<HTMLButtonElement>(null);
+ const [floridaAmendments,setFloridaAmendments]=useState(false);
+ const floridaReturn=useRef<HTMLButtonElement>(null);
  function closeEvidence() {
    if (evidence?.type === "illinoisAudit") refresh(value => value + 1);
    setEvidence(undefined);
@@ -204,7 +207,12 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
    obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
  {selected && evidence?.type === "michiganMloRenewal" && <MichiganMloRenewal brokerageId={brokerageId} entityId={entityId}
    entityName={selectedEntity?.name ?? ""} obligationId={selected.id} period={evidence.period} onBack={closeEvidence} />}
- <div hidden={Boolean(evidence)}><section className="record-form compliance-pilot-form" aria-label="Obligations">
+ {floridaAmendments && selectedEntity && <FloridaAmendments brokerageId={brokerageId} entityId={entityId}
+   entityName={selectedEntity.name} onBack={() => {
+     setFloridaAmendments(false);
+     requestAnimationFrame(() => floridaReturn.current?.focus());
+   }} />}
+ <div hidden={Boolean(evidence) || floridaAmendments}><section className="record-form compliance-pilot-form" aria-label="Obligations">
    <h2 ref={heading} tabIndex={-1}>{selected===undefined?"Obligations":selected?selected.draft.title:"Add obligation"}</h2>
    <p className="muted">Internal planning. Applicability and statutory deadlines require legal review.</p>
    {(error||notice)&&<div ref={feedback} tabIndex={-1} className={error?"application-message banner-error":"application-message"} role={error?"alert":"status"}>{error||notice}{notice&&planned&&<div className="mt-2"><Button size="sm" onClick={()=>openReview(planned)}>Open review item</Button></div>}</div>}
@@ -212,7 +220,10 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
      <div className="form-grid items-start"><label className="field">Legal entity<select value={entityId} title={selectedEntity?.name} disabled={loadingEntities} onChange={e=>{setEntity(e.target.value);setItems([]);setOffset(0);setMore(false);setError("");setNotice("");setLoading(Boolean(e.target.value));}}><option value="">Select an entity</option>{entities.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select>
        {selectedEntity&&<span className="muted break-words xl:hidden" aria-hidden="true">{selectedEntity.name}</span>}</label>
      <label className="field">Applicability on this page<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All decisions</option>{["Needs review","Required","Not applicable"].map(s=><option key={s}>{s}</option>)}</select></label></div>
-     <div className="loan-application-actions"><Button disabled={!entityId||loading} onClick={()=>{newId.current=crypto.randomUUID();edit(null);}}>Add obligation</Button><Button variant="outline" onClick={()=>{setLoading(Boolean(entityId));setError("");setNotice("");refresh(v=>v+1);}}>Refresh</Button></div>
+     <div className="loan-application-actions"><Button disabled={!entityId||loading} onClick={()=>{newId.current=crypto.randomUUID();edit(null);}}>Add obligation</Button>
+       {selectedEntity && <Button className="min-h-11" variant="outline" ref={floridaReturn}
+         onClick={() => setFloridaAmendments(true)}>Florida license amendments</Button>}
+       <Button variant="outline" onClick={()=>{setLoading(Boolean(entityId));setError("");setNotice("");refresh(v=>v+1);}}>Refresh</Button></div>
      {!entityId&&<p>Add a legal entity in Compliance → Licensing to start planning obligations.</p>}
      {loading||loadingEntities?<p role="status">Loading obligations…</p>:entityId&&!error&&<>
        <ul className="document-list">{items.filter(i=>!filter||i.draft.applicability===filter).map(i=><li className="document-item" key={i.id}><div><strong>{i.draft.title}</strong><p>{i.draft.applicability} · {i.draft.cadence} · Version {i.revision}</p><p>{i.ownerAvailable?i.draft.ownerEmail:"Owner unavailable — reassignment needed"}</p>{i.stateBasisChanged&&<p>State obligation source needs review</p>}</div><Button variant="outline" onClick={()=>edit(i)}>Review obligation</Button></li>)}</ul>
