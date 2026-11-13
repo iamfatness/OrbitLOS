@@ -19,7 +19,7 @@ function fixture(t) {
   initializeStore(db, false);
   const entityId=crypto.randomUUID(),tenant=crypto.randomUUID(),id=crypto.randomUUID();
   sql.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,?,?,?)").run(tenant,entityId,"Fictional Michigan","","Review pending","2026-11-11");
-  const actor={email:"admin@example.test",role:"Admin",status:"Active",accessRevision:1};
+  const actor={email:"admin@example.test",name:"Fictional Admin",role:"Admin",status:"Active",accessRevision:1};
   const staff={email:actor.email,brokerage:{id:tenant,role:"Admin",pilot:true,accessRevision:1}};
   const draft={title:"Review reporting scope",sourceUrl:"https://example.test/official",authority:"Fictional authority fixture",basis:"Fictional review basis",
     applicability:"Needs review",applicabilityReason:"Counsel scope determination pending",reviewerEvidence:"",effectiveFrom:"2024-01-01",effectiveThrough:"",
@@ -320,6 +320,16 @@ test("strict schema rejects legal activation claims and missing review evidence"
 });
 test("tenant/entity/current active admin boundaries hold for reads and writes",t=>{
   const f=fixture(t),req=f.save();
+  const available={...f.actor,email:"available@example.test",name:"Available Admin"};
+  const inactive={...available,email:"inactive@example.test",status:"Inactive"};
+  const officer={...available,email:"officer@example.test",role:"LO"};
+  const roster=[f.actor,available,inactive,officer];
+  const list={operation:"list",entityId:f.entityId};
+  assert.deepEqual(f.run(list,f.staff,roster).owners,[
+    {email:f.actor.email,name:f.actor.name},
+    {email:available.email,name:available.name},
+  ]);
+  assert.ok(f.run(list,{...f.staff,brokerage:{...f.staff.brokerage,role:"LO"}},roster).error);
   assert.ok(f.run(req,f.staff,[]).error);
   assert.ok(f.run(req,{...f.staff,brokerage:{...f.staff.brokerage,accessRevision:2}}).error);
   assert.ok(f.run(req,{...f.staff,brokerage:{...f.staff.brokerage,pilot:false}}).error);

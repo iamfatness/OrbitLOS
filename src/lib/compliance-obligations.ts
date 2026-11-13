@@ -55,7 +55,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   const unavailable = { error: "This internal obligation registry is unavailable." };
   const changed = { error: "This obligation changed. Refresh and review before continuing." };
   const tenant = staff.brokerage.id;
-  const active = (email: string) => roster.find(m => m.email === email && m.status === "Active" && m.role === "Admin");
+  const owners = roster.filter(member => member.status === "Active" && member.role === "Admin");
+  const active = (email: string) => owners.find(member => member.email === email);
   const actor = active(staff.email);
   if (!workspaceFeatures(staff.brokerage).compliance || staff.brokerage.role !== "Admin" || !actor ||
       (actor.accessRevision ?? 0) !== (staff.brokerage.accessRevision ?? 0)) return unavailable;
@@ -203,6 +204,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       ORDER BY id LIMIT 51 OFFSET ?`).all(tenant, data.entityId, data.offset);
     let currentSources: StateBasis[] | undefined;
     return { kind: "obligationRegistry", notice: obligationPlanningNotice, more: rows.length > 50, offset: data.offset,
+      owners: owners.map(({ email, name }) => ({ email, name })),
       items: rows.slice(0, 50).map(row => {
         const { stateBasis, ...draft } = JSON.parse(String(row.draft)) as StoredDraft;
         const owner = active(draft.ownerEmail);
