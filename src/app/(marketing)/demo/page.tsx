@@ -118,7 +118,7 @@ export default function DemoPage() {
           <li>Choose which website intake fields staff can correct when creating a 1003. The loan keeps the original answer and the reason for the change.</li>
           <li>Publish brokerage questions for new 1003s. Each applicant can save and resume their own answers, and the loan shows the question version they submitted.</li>
           <li>Preview document requests suggested by each applicant’s reviewed answers. Choose the requests to add and see which answer triggered each one.</li>
-          <li>Review a fictional income worksheet against the submitted 1003, accepted documents, and mock verification returns. Open the exact income worksheet from its mock quote.</li>
+          <li>Send a fictional income worksheet to the assigned loan officer’s Today queue. A pending income review follows the loan when it’s reassigned. Review it against the submitted 1003, accepted documents, and mock verification returns. Open the exact income worksheet from its mock quote. If the worksheet changes or a document it uses needs replacement, Today brings the shared quote back for review.</li>
           <li>Run the fictional wholesale profile checks and download the reviewed MISMO export. Share it with an expiring link, or rehearse a rejection before acknowledgment. Use Today to follow the borrower’s correction through review and revised acknowledgment.</li>
           <li>When the brokerage requires a second 1003 review, open it from the guide. The manager queue distinguishes a corrected revision that needs approval from a file whose current revision already has a lender receipt.</li>
           <li>Compare the recorded Pipeline amount with a corrected 1003 request. Use the reviewed amount from the loan and see the change in its audit history.</li>
@@ -127,7 +127,7 @@ export default function DemoPage() {
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
           <li>Send a file to an assigned processor. Check an interrupted assignment from the loan, Processing, or manager exceptions. Today brings the file back after mock lender clearance.</li>
           <li>Track mock appraisal, title, homeowners insurance, flood, and mortgage insurance orders in Processing. Review the returned PDFs and link accepted evidence to the closing checklist.</li>
-          <li>Track mock employment, income, and asset verification separately for each borrower. Open the exact return from the processor queue and keep its review with the loan.</li>
+          <li>Track mock employment, income, and asset verification separately for each borrower and the submitted 1003 revision. If the 1003 changes while an order is open for entry, review the current revision before saving. Open the exact return from the processor queue and keep its review with the loan.</li>
           <li>Reopen a mock UWM condition and see the hold in the borrower and realtor views. If staff try to record closing or funding from an older view, the open loan shows the condition that needs attention. Replace its evidence and continue when it clears.</li>
           <li>Open a reply from Today, carry the promised callback into the loan, and log the outcome once for both loan activity and campaign reporting.</li>
           <li>See overdue callbacks across leads and loans, with the original deadline and a link to the exact follow-up.</li>

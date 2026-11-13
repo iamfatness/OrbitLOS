@@ -10,7 +10,7 @@ export const officerQueueUnavailable = "This personal work queue is unavailable.
 export const campaignCallbacksUnavailable = "This personal campaign callback queue is unavailable.";
 export const officerQueueKinds = ["lead", "lead-task", "campaign", "contact", "conversation", "loan", "closing", "checklist", "lock", "document",
   "appointment", "review", "handoff", "uwm-alert", "document-review", "lead-hold", "loan-hold", "quiet-lead",
-  "application-review", "playbook-handoff", "funding", "lead-document", "lead-document-review", "sequence", "service-order"] as const;
+  "application-review", "playbook-handoff", "funding", "lead-document", "lead-document-review", "sequence", "service-order", "income-review"] as const;
 const queueDate = z.union([z.iso.date(), z.iso.datetime()]);
 export const officerQueueCursor = z.object({ kind: z.enum(officerQueueKinds), dueAt: queueDate, id: z.string().min(1).max(200) });
 const cursor = officerQueueCursor;
@@ -92,6 +92,7 @@ export function queueActionLabel(item: OfficerQueueItem) {
     case "handoff": return item.handoffDueAt ? "Open returned handoff" : "Open processing handoff";
     case "review": return "Open review";
     case "application-review": return "Review 1003";
+    case "income-review": return "Open income worksheet";
     case "playbook-handoff": return "Open processing handoff";
     case "appointment": return "Open appointment";
     case "service-order": return "Open service order";

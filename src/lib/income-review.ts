@@ -5,6 +5,7 @@ import { documentRecipients, primaryDocumentRecipient, type DocumentRecipient } 
 import { acceptedIncomeVerificationSql, incomeEvidenceMatchesSql } from "./income-review-freshness";
 import { incomeCompletionIssue, incomeEvidenceKey, incomeReviewUnavailable, incomeWorksheetMethod, incomeWorksheetRequest, monthlyWorksheetTotal, sameIncomeEvidence,
   type IncomeEvidence, type IncomeStage, type IncomeWorksheetPage, type IncomeWorksheetRecord } from "./income-review-model";
+import { flagIncomeQuoteReview } from "./quote-worksheet-store";
 import { serviceOrderLimit } from "./service-order-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
@@ -162,6 +163,7 @@ export function incomeWorksheetWork(db: Store, input: unknown, staff: WorkspaceS
       (loanId, revision, applicationRevision, stage, amount, method, sources, evidence, note, updatedBy, updatedAt, requestId, requestHash)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(loanId, revision, applicationRevision, stage, amount,
       incomeWorksheetMethod, JSON.stringify(sources), JSON.stringify(evidence), note, staff.name, at, data.requestId, requestHash);
+    flagIncomeQuoteReview(db, loanId, at);
     const action = stage === "Approved" ? "Approved sample income worksheet" : stage === "Ready for review" ?
       "Sent sample income worksheet for review" : "Saved sample income worksheet";
     addApplicationActivity(db, loanId, `${action} · Worksheet v${revision} · 1003 revision ${applicationRevision} · ${staff.name}`, at);

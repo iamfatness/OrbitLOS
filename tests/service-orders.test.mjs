@@ -156,7 +156,7 @@ test("existing service orders and their closing links survive a catalog upgrade"
   assert.equal(db.prepare("PRAGMA foreign_key_list(closing_service_evidence)").all().find(({ from }) => from === "orderId").table, "service_orders");
   for (const kind of ["Employment verification", "Income verification", "Asset verification"]) {
     const orderId = randomUUID();
-    const created = await send({ type: "createServiceOrder", orderId, kind, dueOn: today, note: "", recipient: "Primary borrower" });
+    const created = await send({ type: "createServiceOrder", orderId, kind, dueOn: today, note: "", recipient: "Primary borrower", applicationRevision: null });
     assert.ok(created.loanWork, created.error);
     assert.deepEqual(created.loanWork.serviceOrders.find(({ id }) => id === titleId).returns, returns);
     const result = await send({ type: "updateServiceOrder", orderId, action: "Simulate return", revision: 0, note: "" });
@@ -173,7 +173,7 @@ test("existing service orders and their closing links survive a catalog upgrade"
 
 test("verification orders keep separate open work and accepted evidence for each borrower", async (t) => {
   const { db, loanId, now, today, overdue, send, queue, processor, another } = fixture(t);
-  const order = { type: "createServiceOrder", orderId: randomUUID(), kind: "Income verification", dueOn: overdue, note: "" };
+  const order = { type: "createServiceOrder", orderId: randomUUID(), kind: "Income verification", dueOn: overdue, note: "", applicationRevision: null };
   const primary = { ...order, recipient: "Primary borrower" };
   const co = { ...order, orderId: randomUUID(), recipient: "Co-borrower" };
   assert.match((await send(order)).error, /choose a borrower/i);
@@ -212,4 +212,31 @@ test("verification orders keep separate open work and accepted evidence for each
   const [receipt] = linked.loanWork.closingServiceEvidence;
   assert.equal(receipt.recipient, "Co-borrower");
   assert.equal(serviceOrderPdf(received.kind, received.returns[0], received.recipient), serviceOrderPdf(receipt.kind, receipt, receipt.recipient));
+});
+
+test("a verification order saves only the submitted 1003 revision staff saw", async (t) => {
+  const { db, loanId, now, today, send, processor } = fixture(t);
+  const started = await send({ type: "startApplication" });
+  assert.ok(started.loanWork ?? started.state, started.error);
+  db.prepare(`INSERT INTO loan_processing (loanId, processorEmail, processorName, status, note, updatedAt, revision)
+    VALUES (?, ?, ?, 'In processing', '', ?, 1)`).run(loanId, processor.email, processor.name, now.toISOString());
+  const order = { type: "createServiceOrder", orderId: randomUUID(), kind: "Asset verification", recipient: "Primary borrower",
+    dueOn: today, note: "Fictional bank statement", applicationRevision: null };
+  const submit = (revision) => db.prepare("UPDATE applications SET revision = ?, submittedAt = ?, correctionNote = '' WHERE loanId = ?")
+    .run(revision, now.toISOString(), loanId);
+  const rows = () => db.prepare("SELECT applicationRevision FROM service_orders WHERE loanId = ?").all(loanId).map((row) => row.applicationRevision);
+  submit(2);
+  assert.match((await send({ ...order, applicationRevision: undefined }, processor)).error, /reload the workspace/i);
+  assert.match((await send(order, processor)).error, /submitted 1003 changed/);
+  assert.match((await send({ ...order, applicationRevision: 1 }, processor)).error, /submitted 1003 changed/);
+  assert.deepEqual(rows(), []);
+  const current = { ...order, applicationRevision: 2 };
+  assert.ok((await send(current, processor)).loanWork);
+  submit(3);
+  assert.match((await send(current, processor)).message, /already recorded/);
+  assert.match((await send({ ...current, applicationRevision: 3 }, processor)).error, /identifier has already been used/);
+  db.prepare("UPDATE applications SET correctionNote = 'Fictional correction' WHERE loanId = ?").run(loanId);
+  assert.match((await send({ ...current, orderId: randomUUID(), kind: "Income verification", applicationRevision: 3 }, processor)).error,
+    /submitted 1003 changed/);
+  assert.deepEqual(rows(), [2]);
 });

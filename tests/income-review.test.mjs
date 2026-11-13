@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { sqliteStore } from "../scripts/workspace-baseline.mjs";
 
-const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
+const { initializeStore, insertContact, insertLoan, insertSubmission } = await import("../src/lib/store.ts");
 const { blankApplication, sampleApplication } = await import("../src/lib/application-model.ts");
 const { borrowerCommandResult } = await import("../src/lib/applications.ts");
 const { portalToken } = await import("../src/lib/brokerage-model.ts");
@@ -12,6 +12,7 @@ const { executeCommand } = await import("../src/lib/commands.ts");
 const { incomeWorksheetWork } = await import("../src/lib/income-review.ts");
 const { incomeSourceMonthly, monthlyWorksheetTotal } = await import("../src/lib/income-review-model.ts");
 const { easternDate } = await import("../src/lib/client-retention.ts");
+const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
 
 test("sample income arithmetic reconciles wages, documented month totals and adjustments", () => {
   const wage = { included: true, method: "Amount per pay period", amount: 325000, periods: 24, adjustment: 0 };
@@ -45,8 +46,19 @@ test("approval attaches to accepted evidence and prevents reuse of a stale prici
   const draft = { ...sampleApplication({ ...blankApplication(), borrowerName: "Fictional Borrower" }), confirmedDemo: true };
   db.prepare(`INSERT INTO applications (loanId, token, expiresAt, draft, revision, updatedAt, submittedAt, reviewedAt)
     VALUES (?, ?, '2099-01-01', ?, ?, ?, ?, ?)`).run(loanId, token, JSON.stringify(draft), revision, at, at, at);
-  db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, status, requestedAt, revision)
-    VALUES (?, ?, 'Pay stub', '', 'Accepted', ?, 2)`).run(documentId, loanId, at);
+  const submissionId = randomUUID();
+  const conditionId = "fixture-income";
+  const otherConditionId = "fixture-unrelated";
+  insertSubmission(db, { id: submissionId, loanId, lender: "UWM", externalId: "MOCK-INCOME-QUOTE", status: "Approved with conditions",
+    syncedAt: at, conditions: [
+      { id: conditionId, category: "Income", description: "Fictional pay stub", uploaded: true, satisfiedAt: null, group: null },
+      { id: otherConditionId, category: "Assets", description: "Fictional unrelated evidence", uploaded: true, satisfiedAt: at, group: null },
+    ] });
+  const otherDocumentId = randomUUID();
+  for (const [requestId, kind, condition] of [[documentId, "Pay stub", conditionId], [otherDocumentId, "Bank statement", otherConditionId]]) {
+    db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, status, requestedAt, revision, submissionId, conditionId)
+      VALUES (?, ?, ?, '', 'Accepted', ?, 2, ?, ?)`).run(requestId, loanId, kind, at, submissionId, condition);
+  }
   const source = { id: randomUUID(), recipient: "Primary borrower", label: "Fictional wages", kind: "Wages",
     method: "Amount per pay period", included: true, start: "", end: "2026-06-15", amount: 325000, periods: 24,
     adjustment: -5000, rationale: "Fictional monthly adjustment.", evidence: [{ id: documentId, revision: 2 }] };
@@ -73,7 +85,11 @@ test("approval attaches to accepted evidence and prevents reuse of a stale prici
   } };
   assert.match((await send({ ...price, incomeReviewRevision: 3 })).error, /reviewed income/i);
   assert.match((await send({ ...price, scenario: { ...price.scenario, monthlyIncome: 6500 } })).error, /reviewed income/i);
-  const run = (await send(price)).state.pricingRuns[0];
+  const providerCall = t.mock.method(globalThis, "fetch", () => assert.fail("Reviewed sample income must stay in Orbit"));
+  const stage = { ORBIT_PRICING_MODE: "uwm-stage", UWM_EQ_CLIENT_ID: "fictional", UWM_EQ_CLIENT_SECRET: "fictional" };
+  const run = (await executeCommand(db, { loanId, ...price }, officer, { uwmEnvironment: stage })).state.pricingRuns[0];
+  assert.equal(providerCall.mock.callCount(), 0);
+  providerCall.mock.restore();
   assert.equal(run.mode, "mock");
   assert.equal(run.incomeReviewRevision, 4);
   assert.equal(run.incomeReviewCurrent, true);
@@ -84,16 +100,60 @@ test("approval attaches to accepted evidence and prevents reuse of a stale prici
   assert.ok(borrowerStatus().quote);
   assert.doesNotMatch(JSON.stringify(borrowerStatus()), /Fictional wages|Reviewed sample pay/);
 
-  db.prepare("UPDATE document_requests SET status = 'Accepted', revision = 4 WHERE id = ?").run(documentId);
+  assert.ok((await send({ type: "reopenMockUwmCondition", submissionId, conditionId: otherConditionId,
+    expectedSatisfiedAt: at, expectedReopenedAt: null })).message);
+  assert.ok(borrowerStatus().quote);
+  assert.equal(db.prepare("SELECT reviewReason FROM published_quotes WHERE loanId = ?").get(loanId).reviewReason, null);
+  assert.ok((await send({ type: "reviewDocument", requestId: documentId, revision: 2, decision: "Needs replacement",
+    replacementNote: "Attach the current fictional pay stub." })).message);
+  const evidenceReview = db.prepare("SELECT reviewRevision, reviewReason FROM published_quotes WHERE loanId = ?").get(loanId);
+  assert.equal(evidenceReview.reviewReason, "Income evidence needs replacement");
   assert.equal(work({ type: "read" }).page.stale, "Evidence changed");
   assert.equal(borrowerStatus().quote, null);
   for (const request of [price, { type: "selectOffer", ...choice }, { type: "publishQuote", ...choice },
     { type: "sendApplication", revision, quote: choice }]) {
     assert.match((await send(request)).error, /reviewed income/i);
   }
+  const resubmitted = borrowerCommandResult(db, { type: "attachSample", token, requestId: documentId, revision: 3, statusOnly: true });
+  assert.equal(resubmitted.error, undefined);
+  assert.ok((await send({ type: "reviewDocument", requestId: documentId, revision: 4, decision: "Accepted", replacementNote: "" })).message);
+  const revisedSource = { ...source, start: "2026-06-01", evidence: [{ id: documentId, revision: 5 }] };
+  const revise = mutate("save", approve.revision, { sources: [revisedSource] });
+  assert.equal(work(revise).page.record.stage, "Draft");
+  assert.equal(work(revise).page.record.revision, approve.revision + 1);
+  const shared = db.prepare("SELECT publishedAt, reviewRevision, reviewReason FROM published_quotes WHERE loanId = ?").get(loanId);
+  assert.equal(shared.reviewReason, evidenceReview.reviewReason);
+  assert.equal(shared.reviewRevision, evidenceReview.reviewRevision);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM tasks WHERE loanId = ? AND title = 'Review shared sample quote' AND completedAt IS NULL").get(loanId).total, 1);
+  assert.match((await send({ type: "keepSharedQuote", publishedAt: shared.publishedAt, reviewRevision: shared.reviewRevision,
+    reviewNote: "Keep the original sample quote." })).error, /reviewed income/i);
+  const submittedAgain = work(mutate("submit", approve.revision + 1)).page.record;
+  const approvedAgain = work(mutate("approve", submittedAgain.revision, { note: "Reviewed the replacement evidence." })).page.record;
+  assert.equal(db.prepare("SELECT reviewRevision FROM published_quotes WHERE loanId = ?").get(loanId).reviewRevision, shared.reviewRevision);
+  const next = (await send({ ...price, incomeReviewRevision: approvedAgain.revision })).state.pricingRuns[0];
+  const nextChoice = { runId: next.id, offerId: next.offers[0].id };
+  assert.ok((await send({ type: "selectOffer", ...nextChoice })).message);
+  const flagged = db.prepare("SELECT publishedAt, reviewRevision FROM published_quotes WHERE loanId = ?").get(loanId);
+  assert.ok((await send({ type: "publishDatedQuote", ...nextChoice, feeRevision: 0, alternatives: [], expiresOn: easternDate(),
+    previousPublishedAt: flagged.publishedAt, reviewRevision: flagged.reviewRevision, reviewNote: "Repriced the approved worksheet." })).message);
+  assert.ok(borrowerStatus().quote);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM tasks WHERE loanId = ? AND title = 'Review shared sample quote' AND completedAt IS NULL").get(loanId).total, 0);
   const manual = (await send({ ...price, incomeReviewRevision: undefined })).state;
   assert.equal(manual.pricingRuns.find(({ id }) => id === run.id).incomeReviewCurrent, false);
-  assert.equal(manual.pricingRuns.find(({ id }) => id !== run.id).incomeReviewRevision, null);
+  assert.equal(manual.pricingRuns.find(({ id }) => id !== run.id && id !== next.id).incomeReviewRevision, null);
+  assert.ok((await send({ type: "sendConditionDocument", requestId: documentId, revision: 5 })).message);
+  const cleared = await send({ type: "refreshMockUwmClearance", submissionId });
+  const condition = cleared.state.submissions.find(({ id }) => id === submissionId).conditions.find(({ id }) => id === conditionId);
+  assert.ok(condition.satisfiedAt);
+  const reopen = { type: "reopenMockUwmCondition", submissionId, conditionId,
+    expectedSatisfiedAt: condition.satisfiedAt, expectedReopenedAt: null };
+  assert.ok((await send(reopen)).message);
+  assert.match((await send(reopen)).error, /condition changed/i);
+  assert.equal(borrowerStatus().quote, null);
+  assert.equal(db.prepare("SELECT reviewReason FROM published_quotes WHERE loanId = ?").get(loanId).reviewReason, "Income evidence needs replacement");
+  const reviewTasks = readOfficerQueue(db, { horizon: 1 }, officer, tenant).items.filter(item => item.target === "shared-quote-review");
+  assert.equal(reviewTasks.length, 1);
+
 });
 
 test("income verification approval pins the borrower and return through an older mock quote", async (t) => {
@@ -122,7 +182,7 @@ test("income verification approval pins the borrower and return through an older
   const mutate = (type, version, fields = {}) => ({ type, revision: version, applicationRevision: revision, requestId: randomUUID(), ...fields });
   const orderId = randomUUID(), assetId = randomUUID();
   const prior = { type: "createServiceOrder", orderId: randomUUID(), kind: "Employment verification", dueOn: easternDate(now),
-    recipient: "Co-borrower", note: "" };
+    recipient: "Co-borrower", note: "", applicationRevision: null };
   db.prepare("UPDATE applications SET submittedAt = NULL WHERE loanId = ?").run(loanId);
   assert.ok((await send(prior, processor)).message);
   db.prepare("UPDATE applications SET submittedAt = ? WHERE loanId = ?").run(at, loanId);
@@ -133,7 +193,8 @@ test("income verification approval pins the borrower and return through an older
   assert.equal(db.prepare("SELECT applicationRevision FROM service_orders WHERE id = ?").get(prior.orderId).applicationRevision, null);
   assert.deepEqual(work({ type: "read" }).page.eligible, []);
   for (const [id, kind] of [[orderId, "Income verification"], [assetId, "Asset verification"]]) {
-    const created = await send({ type: "createServiceOrder", orderId: id, kind, dueOn: easternDate(now), recipient: "Co-borrower", note: "" }, processor);
+    const created = await send({ type: "createServiceOrder", orderId: id, kind, dueOn: easternDate(now), recipient: "Co-borrower",
+      note: "", applicationRevision: revision }, processor);
     assert.ok(created.message, created.error);
     const received = await send({ type: "updateServiceOrder", orderId: id, revision: 0, action: "Simulate return", note: "" }, processor);
     assert.ok(received.message, received.error);
@@ -155,9 +216,23 @@ test("income verification approval pins the borrower and return through an older
   assert.match(work(mutate("save", 0, { sources: [{ ...source, evidence: [{ id, revision: orderRevision, returnReference: "wrong-return" }] }] }), processor).error, /evidence changed/);
   assert.match(work(mutate("save", 0, { sources: [{ ...source, evidence: [{ id, revision: orderRevision }] }] }), processor).error, /evidence changed/);
   assert.equal(work(mutate("save", 0, { sources: [source] }), processor).page.record.amount, 625000);
+  const incomeWork = (actor) => readOfficerQueue(db, { horizon: 1 }, actor, tenant, now).items.filter(({ kind }) => kind === "income-review");
+  assert.deepEqual(incomeWork(officer), []);
   assert.equal(work(mutate("submit", 1), processor).page.record.stage, "Ready for review");
+  assert.deepEqual(incomeWork(officer).map(({ recordId, target, overdue }) => ({ recordId, target, overdue })),
+    [{ recordId: loanId, target: "income-worksheet", overdue: false }]);
+  assert.deepEqual(incomeWork({ ...officer, email: outsider.email }), []);
+  assert.deepEqual(incomeWork({ ...officer, brokerage: { ...officer.brokerage, pilot: false } }), []);
+  db.prepare("UPDATE loans SET officerEmail = ? WHERE id = ?").run(outsider.email, loanId);
+  assert.deepEqual(incomeWork(officer), []);
+  assert.equal(incomeWork({ ...officer, email: outsider.email }).length, 1);
+  db.prepare("UPDATE loans SET officerEmail = ? WHERE id = ?").run(officer.email, loanId);
+  db.prepare("UPDATE applications SET reviewedAt = NULL WHERE loanId = ?").run(loanId);
+  assert.deepEqual(incomeWork(officer), []);
+  db.prepare("UPDATE applications SET reviewedAt = ? WHERE loanId = ?").run(at, loanId);
   assert.match(work(mutate("approve", 2, { note: "Verified sample return" }), processor).error, /loan officer/);
   const approved = work(mutate("approve", 2, { note: "Verified sample return" })).page.record;
+  assert.deepEqual(incomeWork(officer), []);
   assert.deepEqual(approved.evidence, [eligible]);
   const price = { type: "runPricing", applicationRevision: revision, incomeReviewRevision: approved.revision, scenario: {
     purpose: "Purchase", loanAmount: 350000, propertyValue: 450000, purchasePrice: null, zip: "48304",
@@ -187,7 +262,7 @@ test("income verification approval pins the borrower and return through an older
   assert.deepEqual(corrected.requested, approved);
   assert.deepEqual(corrected.eligible, []);
   assert.match(work(mutate("save", updated.revision, { sources: [source] }), processor).error, /evidence changed/);
-  const newOrder = { ...prior, orderId: randomUUID(), kind: "Income verification" };
+  const newOrder = { ...prior, orderId: randomUUID(), kind: "Income verification", applicationRevision: revision };
   assert.ok((await send(newOrder, processor)).message);
   assert.ok((await send({ ...delayedReturn, orderId: newOrder.orderId }, processor)).message);
   assert.ok((await send({ ...delayedReturn, orderId: newOrder.orderId, revision: 1, action: "Accept" }, processor)).message);

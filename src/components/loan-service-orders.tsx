@@ -29,9 +29,9 @@ function ServiceOrderCard({ item, today, submittedRevision, busy, editable, save
     <div className="document-item-head"><strong>{item.kind}{item.recipient && ` · ${item.recipient}`}</strong><span className="pill">{item.status}</span></div>
     <p className="muted">{item.owner} · {open && item.dueOn < today ? "Overdue since" : "Due"} {dateLabel(item.dueOn)} ET</p>
     <p className="muted">Recorded by {item.createdBy} · {dateTime(item.createdAt)} ET</p>
-    {forIncome && <p>
+    {isVerificationOrder(item.kind) && <p>
       {item.applicationRevision == null ? "No submitted 1003 linked." : `Ordered for 1003 revision ${item.applicationRevision}.`}
-      {(item.applicationRevision == null || item.applicationRevision !== submittedRevision) && item.status !== "Cancelled" &&
+      {forIncome && (item.applicationRevision == null || item.applicationRevision !== submittedRevision) && item.status !== "Cancelled" &&
         (open ? " Cancel this order before starting fresh verification for the current 1003." : " Start a new order to use verification in the current income worksheet.")}
     </p>}
     {item.note && <p>{item.note}</p>}
@@ -94,9 +94,10 @@ export function LoanServiceOrders({ loanId, orders, owner, joint, submittedRevis
     const values = new FormData(form);
     const kind = values.get("kind"), recipient = values.get("recipient") ?? undefined;
     const dueOn = values.get("dueOn"), note = String(values.get("note") ?? "").trim();
-    const key = JSON.stringify([kind, recipient, dueOn, note]);
+    const applicationRevision = recipient ? submittedRevision : undefined;
+    const key = JSON.stringify([kind, recipient, dueOn, note, applicationRevision]);
     if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
-    void save({ type: "createServiceOrder", orderId: attempt.current.id, loanId, kind, recipient, dueOn, note }, () => {
+    void save({ type: "createServiceOrder", orderId: attempt.current.id, loanId, kind, recipient, dueOn, note, applicationRevision }, () => {
       attempt.current = null;
       form.reset();
     });
@@ -116,8 +117,8 @@ export function LoanServiceOrders({ loanId, orders, owner, joint, submittedRevis
           <label className="field">Expected return date (Eastern)<input name="dueOn" type="date" required defaultValue={shiftReportDate(today, 3)}
             min={shiftReportDate(today, -30)} max={shiftReportDate(today, 365)} disabled={busy} /></label>
         </div>
-        {forIncome && <p className="muted">{submittedRevision === null
-          ? "Submit the 1003 first if you want to use the return in an income worksheet."
+        {isVerificationOrder(selected) && <p className="muted">{submittedRevision === null
+          ? forIncome ? "Submit the 1003 first to use the return in an income worksheet." : "No submitted 1003 will be linked to this order."
           : `This order will use submitted 1003 revision ${submittedRevision}.`}</p>}
         <p className="muted">Choose a past date to rehearse an overdue order.</p>
         <label className="field">Order instructions (optional)<textarea name="note" maxLength={500} rows={2} disabled={busy} /></label>

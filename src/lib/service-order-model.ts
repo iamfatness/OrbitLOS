@@ -14,6 +14,7 @@ export const serviceOrderTargetPrefix = "loan-service-order-";
 export const serviceOrdersTarget = "loan-service-orders";
 export const serviceOrderTarget = (id: string) => serviceOrderTargetPrefix + id;
 export const serviceOrdersUnavailable = "Mock service orders are available on assigned loans in fictional workspaces.";
+export const staleVerificationOrder = "The submitted 1003 changed. Check the revision shown in Service orders before saving again.";
 export const serviceOrderSlug = (kind: ServiceOrder["kind"]) => kind.toLowerCase().replaceAll(" ", "-");
 const id = z.string().min(1).max(100);
 const orderId = z.uuid();
@@ -22,9 +23,11 @@ const note = z.string().trim().max(500);
 
 export const createServiceOrder = z.strictObject({
   type: z.literal("createServiceOrder"), loanId: id, orderId, kind: z.enum(serviceOrderKinds), dueOn, note,
-  recipient: z.enum(documentRecipients).optional(),
+  recipient: z.enum(documentRecipients).optional(), applicationRevision: z.number().int().nonnegative().nullable().optional(),
 }).refine(({ kind, recipient }) => isVerificationOrder(kind) === Boolean(recipient),
-  "Choose a borrower for verification orders only.");
+  "Choose a borrower for verification orders only.")
+  .refine(({ kind, applicationRevision }) => isVerificationOrder(kind) || applicationRevision === undefined,
+    "Only borrower verification orders can include a 1003 revision.");
 export const updateServiceOrder = z.strictObject({
   type: z.literal("updateServiceOrder"), loanId: id, orderId, revision: z.number().int().nonnegative(),
   action: z.enum(["Reschedule", "Simulate return", "Accept", "Request replacement", "Cancel"]), dueOn: dueOn.optional(), note,

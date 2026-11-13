@@ -3,6 +3,7 @@ import { demoBrokerageId } from "./brokerage-model";
 import { batchReviewsDocuments, documentBatchChanged, documentBatchEligible, type DocumentBatchInput } from "./document-batch-model";
 import { pdfColumns } from "./document-files-model";
 import { primaryDocumentRecipient, type LoanDocumentRequest } from "./document-model";
+import { flagIncomeQuoteReview } from "./quote-worksheet-store";
 import type { Condition } from "./model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -28,7 +29,10 @@ export function reviewLoanDocument(db: Store, data: Review, staff: WorkspaceStaf
   db.prepare(`UPDATE document_requests SET status = ?, replacementNote = ?, revision = revision + 1,
     dueOn = ?, deadlineRevision = deadlineRevision + ? WHERE id = ?`)
     .run(data.decision, replacement ? data.replacementNote : "", nextDueOn, Number(nextDueOn !== request.dueOn), data.requestId);
-  if (replaceAccepted) archiveMockDocumentDelivery(db, data.requestId);
+  if (replaceAccepted) {
+    archiveMockDocumentDelivery(db, data.requestId);
+    flagIncomeQuoteReview(db, data.loanId, now, data.requestId);
+  }
   if (!replacement) {
     db.prepare("INSERT INTO document_acceptances (requestId, revision, actor, at) VALUES (?, ?, ?, ?)")
       .run(data.requestId, data.revision + 1, staff?.name ?? "Demo staff", now);

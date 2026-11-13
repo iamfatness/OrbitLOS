@@ -4,7 +4,7 @@ import { easternDate } from "./client-retention";
 import { savedFeeProviderOrigin } from "./fee-provider";
 import { feeTemplateChanged } from "./fee-template-model";
 import { feeOriginForQuote } from "./fee-templates";
-import { pricingInputError } from "./income-review-freshness";
+import { approvedIncomeSql, pricingInputError } from "./income-review-freshness";
 import type { PricingApplication, PricingOffer, PricingScenario } from "./pricing-model";
 import { estimateFees, feeAllocationIssue, feeBasisIssue, quoteOption, type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type QuotePresentation,
   type quoteSelection, type SaveFeeWorksheet } from "./quote-worksheet";
@@ -103,6 +103,22 @@ export function flagSharedQuoteReview(db: Store, loanId: string, reason: string,
     title = excluded.title, dueAt = CASE WHEN tasks.completedAt IS NOT NULL THEN excluded.dueAt ELSE tasks.dueAt END, completedAt = NULL`)
     .run(sharedQuoteReviewId(loanId), loanId, "Review shared sample quote", now);
   addApplicationActivity(db, loanId, `Shared sample quote needs review · ${reason}.`, now);
+}
+
+export function flagIncomeQuoteReview(db: Store, loanId: string, now: string, documentId?: string) {
+  const reason = documentId ? "Income evidence needs replacement" : "Income worksheet changed";
+  const affected = db.prepare(`SELECT 1 FROM published_quotes quote JOIN pricing_runs run ON run.loanId = quote.loanId
+    WHERE quote.loanId = ? AND coalesce(quote.reviewReason, '') NOT IN ('Income worksheet changed', 'Income evidence needs replacement')
+      AND run.incomeReviewRevision IS NOT NULL
+      AND NOT EXISTS (${approvedIncomeSql("run.loanId", "run.incomeReviewRevision")})
+      AND (run.id = quote.runId OR EXISTS (
+        SELECT 1 FROM json_each(quote.presentation, '$.alternatives') option WHERE json_extract(option.value, '$.runId') = run.id
+      )) AND (? IS NULL OR EXISTS (
+        SELECT 1 FROM loan_income_worksheets worksheet JOIN json_each(worksheet.evidence) evidence
+        WHERE worksheet.loanId = run.loanId AND worksheet.revision = run.incomeReviewRevision
+          AND json_extract(evidence.value, '$.id') = ? AND json_extract(evidence.value, '$.returnReference') IS NULL
+      )) LIMIT 1`).get(loanId, documentId ?? null, documentId ?? null);
+  if (affected) flagSharedQuoteReview(db, loanId, reason, now);
 }
 
 export function finishSharedQuoteReview(db: Store, loanId: string, now: string) {
