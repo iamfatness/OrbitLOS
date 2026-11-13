@@ -98,15 +98,18 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
         WHERE recent.loanId = loan.id AND recent.environment = rejected.environment AND recent.kind = 'import'
         ORDER BY recent.startedAt DESC, recent.rowid DESC LIMIT 1)` : ""}
     ${deliveryEnvironment ? `UNION ALL
-    SELECT 'document-delivery', request.id, loan.id, contact.name, request.updatedAt, evidence.applicationRevision,
-      CASE request.action WHEN 'upload-document' THEN 'UWM document upload needs verification'
-        WHEN 'attach-documents' THEN 'UWM condition attachment needs verification'
-        ELSE 'UWM underwriting submission needs verification' END,
+    SELECT CASE WHEN follow.requestId IS NOT NULL THEN 'document-delivery-follow-up' ELSE 'document-delivery' END,
+      request.id, loan.id, contact.name, coalesce(follow.recordedAt, request.updatedAt), evidence.applicationRevision,
+      (CASE request.action WHEN 'upload-document' THEN 'UWM document upload'
+        WHEN 'attach-documents' THEN 'UWM condition attachment' ELSE 'UWM underwriting submission' END) ||
+        CASE WHEN follow.requestId IS NOT NULL THEN ' was not applied' ELSE ' needs verification' END,
       ${team ? "processing.processorName" : "NULL"}, 0, NULL, NULL, NULL, NULL, NULL
     FROM uwm_live_requests request JOIN loans loan ON loan.id = request.loanId ${contacts}
     JOIN loan_processing processing ON processing.loanId = loan.id
     JOIN uwm_request_evidence evidence ON evidence.requestId = request.id
-    WHERE request.environment = ? AND request.state = 'Unknown'
+    LEFT JOIN uwm_document_follow_ups follow ON follow.requestId = request.id
+    LEFT JOIN uwm_document_follow_up_reviews followReview ON followReview.requestId = follow.requestId
+    WHERE request.environment = ? AND (request.state = 'Unknown' OR (follow.requestId IS NOT NULL AND followReview.requestId IS NULL))
       AND request.action IN ('upload-document', 'attach-documents', 'submit-documents')
       AND ${activeProcessingLoan} AND ${scope}` : ""}
     ${mockUnderwriting ? `UNION ALL

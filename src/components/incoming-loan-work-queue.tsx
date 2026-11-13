@@ -2,7 +2,7 @@
 
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { readIncomingLoanWork } from "@/app/actions";
-import type { IncomingLoanWorkItem, IncomingLoanWorkPage, IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
+import { isDocumentDeliveryWork, type IncomingLoanWorkItem, type IncomingLoanWorkPage, type IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 import { dateTime } from "@/lib/utils";
 import { manualReturnSteps } from "@/lib/lender-export-model";
@@ -80,25 +80,25 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
         item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" :
         item.kind === "lead-document" ? "Review lead document" : item.kind === "question" ? "Review borrower answer" :
           item.kind === "underwriting" ? "Open order" : item.kind === "import-rejection" ? "Open rejected import" :
-            item.kind === "document-delivery" ? "Open delivery" : item.kind === "realtor-financing" ? "Open financing summary" : "Open handoff");
+            isDocumentDeliveryWork(item.kind) ? "Open delivery" : item.kind === "realtor-financing" ? "Open financing summary" : "Open handoff");
       return <li className={item.returnEventId ? "loan-task lender-return-task" :
         item.kind === "realtor-financing" ? "loan-task realtor-financing-task" : letter ? "loan-task preapproval-task" : "loan-task"}
         key={`${item.kind}:${item.id}:${item.returnEventId ?? ""}`}>
       <div className="loan-task-copy"><strong>{item.name} · {item.title}</strong>
         <span>{letter ? `Letter v${item.revision} · ${letter.time}` : item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " :
           item.kind === "underwriting" ? "Ordered " : item.kind === "import-rejection" ? "Rejected " :
-            item.kind === "document-delivery" ? "Unconfirmed since " : item.kind === "realtor-financing" ? "Permissions complete " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
+            item.kind === "document-delivery-follow-up" ? "Admin verified " : item.kind === "document-delivery" ? "Unconfirmed since " : item.kind === "realtor-financing" ? "Permissions complete " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
         {item.returnDeadline && <span className={item.returnDeadline.overdue ? "open-chip" : "muted"}>
           {item.returnDeadline.overdue ? "Return overdue since" : "Follow up by"} {dateTime(item.returnDeadline.dueAt)} ET
         </span>}
         {item.note && <span>{item.note}</span>}
         {item.returnFollowUp ? <><span>{lenderReturnFollowUpLabel(item.returnFollowUp)}</span><span>{item.returnFollowUp.note}</span></> :
           item.returnEventId && <span className="muted">No follow-up logged yet.</span>}</div>
-      <Button size="sm" variant="outline" disabled={paused} aria-label={item.kind === "document-delivery" ? `Open delivery for ${item.name}, ${item.title}` : item.kind === "underwriting" ?
+      <Button size="sm" variant="outline" disabled={paused} aria-label={isDocumentDeliveryWork(item.kind) ? `Open delivery for ${item.name}, ${item.title}` : item.kind === "underwriting" ?
         `Open order for ${item.name}, ${item.title.toLowerCase()}` :
         `${item.kind === "document" ? `Review ${item.title.toLowerCase()}` : action} for ${item.name}`}
         onClick={() => {
-          if (item.kind === "document-delivery") openedDelivery.current = { id: item.id, page };
+          if (isDocumentDeliveryWork(item.kind)) openedDelivery.current = { id: item.id, page };
           open(item);
         }}>{action}</Button>
       {item.kind !== "lead-document" && item.returnEventId && <div className="lender-return-follow-up">

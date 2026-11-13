@@ -2005,5 +2005,14 @@ test("processing routes unconfirmed lender document deliveries to the assigned p
   db.prepare("UPDATE uwm_live_requests SET state = 'Reconciled' WHERE id = 'attachment'").run();
   assert.equal(countFileExceptions(db, admin, tenant, new Date(at), 100, undefined, env), before - 1);
   assert.deepEqual(queue(processor).items.map(({ id }) => id), ["upload"]);
+  save("decision", "assigned", "reconcile-request", "Acknowledged");
+  db.prepare("UPDATE uwm_request_evidence SET details = ? WHERE requestId = 'decision'")
+    .run(JSON.stringify({ requestId: "attachment", outcome: "Not applied" }));
+  assert.equal(queue(processor).items.find(({ id }) => id === "attachment").kind, "document-delivery-follow-up");
+  assert.equal(readActionCounts(db, processor, tenant, new Date(at), undefined, undefined, env).processing, 2);
+  assert.equal(countFileExceptions(db, admin, tenant, new Date(at), 100, undefined, env), before - 1);
+  db.prepare("INSERT INTO uwm_document_follow_up_reviews VALUES ('attachment', ?, ?)").run(processor.email, at);
+  assert.deepEqual(queue(processor).items.map(({ id }) => id), ["upload"]);
+
 
 });

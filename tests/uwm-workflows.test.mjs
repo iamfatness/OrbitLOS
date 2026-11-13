@@ -321,3 +321,33 @@ test("document verification preserves exact evidence and cannot override a lende
   assert.equal(selected.verification.actor,staff.email);
   assert.equal((await readUwmFile(db,env,officer,view)).requests[0].verification,undefined);
 });
+
+test("Not applied routes a one-time review to the current processor without any lender action", async t=>{
+  const {db,api,writes}=setup(t);
+  db.exec("ALTER TABLE loans ADD disposition TEXT DEFAULT 'Active'; ALTER TABLE loans ADD stage TEXT DEFAULT 'Processing'; ALTER TABLE loan_processing ADD status TEXT DEFAULT 'In processing'");
+  const processor={...staff,email:"assigned@example.test",brokerage:{...staff.brokerage,role:"Processor"}};
+  const replacement={...processor,email:"replacement@example.test"};
+  db.prepare("INSERT INTO loan_processing(loanId,processorEmail) VALUES(?,?)").run(loanId,processor.email);
+  const original=base(), at=new Date().toISOString();
+  db.prepare("INSERT INTO uwm_live_requests VALUES (?,?,'stage',?,'attach-documents',?,'Unknown',NULL,?,?)")
+    .run(original.id,loanId,staff.email,"digest",at,at);
+  db.prepare("INSERT INTO uwm_request_evidence VALUES (?,1,'{}')").run(original.id);
+  const acknowledge={...base(),action:"review-document-follow-up",requestId:original.id};
+  await assert.rejects(runUwmWorkflow(db,env,processor,acknowledge,api),/changed/);
+  await runUwmWorkflow(db,env,staff,{...base(),action:"reconcile-request",requestId:original.id,
+    outcome:"Not applied",evidence:"Fictional lender activity confirmed no attachment was created."},api);
+  const read=async(actor=processor)=>(await readUwmFile(db,env,actor,{loanId,view:"activity",requestId:original.id})).requests[0];
+  assert.ok((await read()).followUpAt);
+  assert.equal((await read()).verification,undefined);
+  await assert.rejects(runUwmWorkflow(db,env,processor,{...acknowledge,applicationRevision:2},api),/changed/);
+  await assert.rejects(runUwmWorkflow(db,env,{...staff,brokerage:{...staff.brokerage,role:"LO"}},acknowledge,api),/assigned processor/);
+  db.prepare("UPDATE loan_processing SET processorEmail=?").run(replacement.email);
+  await assert.rejects(runUwmWorkflow(db,env,processor,acknowledge,api),/unavailable/);
+  const reviewed=await runUwmWorkflow(db,env,replacement,acknowledge,api);
+  assert.equal(reviewed.state,"Reviewed");
+  assert.deepEqual(await runUwmWorkflow(db,env,replacement,{...acknowledge,id:crypto.randomUUID()},api),reviewed);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM uwm_document_follow_up_reviews").get().total,1);
+  assert.ok((await read(replacement)).followUpReviewedAt);
+  assert.equal((await read(replacement)).state,"Reconciled");
+  assert.equal(writes(),0);
+});

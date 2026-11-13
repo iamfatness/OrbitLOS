@@ -16,11 +16,12 @@ type Import = { id: string; actor: string; state: string; applicationRevision: n
 type Activity = { uploads: {xml:boolean;documents:boolean}; imports: Import[]; requests: RequestActivity[] };
 type RequestActivity = {id:string;action:string;state:string;createdAt:string;updatedAt:string;applicationRevision:number|null;transactionId:string|null;
   fileName:string|null;documentId:number|null;
+  followUpAt?:string|null;followUpReviewedAt?:string|null;
   verification?:{outcome:string;evidence:string;recordedAt:string;actor:string}};
-const documentSteps: Record<string,{label:string; acknowledged:string}> = {
-  "upload-document": {label:"Document upload", acknowledged:"Confirmed in UWM holding"},
-  "attach-documents": {label:"Attach to conditions", acknowledged:"Attachment confirmed"},
-  "submit-documents": {label:"Submit to underwriting", acknowledged:"Submission acknowledged"},
+const documentSteps: Record<string,{label:string; acknowledged:string; next:string}> = {
+  "upload-document": {label:"Document upload", acknowledged:"Confirmed in UWM holding", next:"Review the original file and choose it again under Document to upload when ready."},
+  "attach-documents": {label:"Attach to conditions", acknowledged:"Attachment confirmed", next:"Load UWM documents and attachments. Compare the held files and conditions before preparing a new attachment."},
+  "submit-documents": {label:"Submit to underwriting", acknowledged:"Submission acknowledged", next:"Load UWM documents and attachments. Check which are still unsubmitted before preparing a new underwriting submission."},
 };
 type Branch = {entityId:number;name:string|null;contacts:{contactId:number;firstName:string|null;lastName:string|null}[]};
 type Attachment = {attachmentId:number;revisionId:string;documentType:string;comments:string;SubmittedDateTime:string|null;files:{documentId:number}[];conditions:string[]};
@@ -46,6 +47,8 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
   const [documents,setDocuments]=useState<Documents|null>(null), [rateAction,setRateAction]=useState<RateAction>("products");
   const [products,setProducts]=useState<unknown[]|null>(null);
   const confirmation=useRef<HTMLDivElement>(null);
+  const documentInput=useRef<HTMLInputElement>(null);
+  const heldDocumentsButton=useRef<HTMLButtonElement>(null);
   useEffect(()=>{if(pending)confirmation.current?.focus();},[pending]);
   const sending=useRef(false), endpoint=`/api/uwm-file?brokerage=${encodeURIComponent(staff.brokerage.id)}`;
   const accountUrl=`/api/uwm-account?brokerage=${encodeURIComponent(staff.brokerage.id)}`;
@@ -78,12 +81,14 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
   const unresolved=activity?.requests.some(item=>["Unknown","Dispatching"].includes(item.state));
   const documentRequests=activity?.requests.filter(request=>documentSteps[request.action]) ?? [];
   const deliveryPanel=useRef<HTMLLIElement>(null);
-  const deliveryState=documentRequests.find(request=>request.id===deliveryId)?.state;
+  const delivery=documentRequests.find(request=>request.id===deliveryId);
+  const deliveryState=delivery?.state;
+  const deliveryReviewedAt=delivery?.followUpReviewedAt;
   useEffect(()=>{
     if(!deliveryId || !deliveryState || loading) return;
     deliveryPanel.current?.scrollIntoView({block:"start"});
     deliveryPanel.current?.focus({preventScroll:true});
-  },[deliveryId,deliveryState,loading]);
+  },[deliveryId,deliveryReviewedAt,deliveryState,loading]);
   const selectedRequestId=verificationId ?? deliveryId;
   const connected=!!account?.configured && !!account.connectedAt;
   const canWrite=connected && reviewed && !unresolved && !uncertain && !busy;
@@ -179,6 +184,18 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
       setError(failure instanceof Error?failure.message:"Could not check the original document request.");
     } finally {setBusy(false);}
   }
+  async function reviewDocumentFollowUp(request:RequestActivity) {
+    if(busy || !request.applicationRevision) return;
+    setBusy(true);setError("");setMessage("");
+    try {
+      await json(endpoint,{action:"review-document-follow-up",id:crypto.randomUUID(),requestId:request.id,loanId,
+        applicationRevision:request.applicationRevision,confirmed:true});
+      await refresh();
+      setMessage("Follow-up reviewed in Orbit.");
+    } catch(failure) {
+      setError(failure instanceof Error ? failure.message : "Could not confirm the follow-up review. Try again.");
+    } finally {setBusy(false);}
+  }
   async function price(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();const values=formValues(event.currentTarget);
     try {
@@ -209,6 +226,22 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
             <p>{request.state==="Acknowledged" ? step.acknowledged : request.state==="Unknown" ? "Needs verification" :
               request.state==="Dispatching" ? "Request in progress" : request.state==="Reconciled" ? "Staff verification recorded" : "Request rejected"}
               {request.documentId && ` · Document ${request.documentId}`}</p>
+            {selected && request.followUpAt && <div className="record-form">
+              <strong>Admin verified the delivery was not applied</strong>
+              <p className="muted">{dateTime(request.followUpAt)} ET</p>
+              <p>{step.next}</p>
+              <div className="loan-application-actions">
+                {linked && (request.action==="upload-document" ? activity?.uploads.documents && canWrite : connected && !busy) &&
+                  <Button size="sm" variant="outline" className="min-h-11" onClick={()=>{
+                    const control=request.action==="upload-document" ? documentInput.current : heldDocumentsButton.current;
+                    control?.scrollIntoView({block:"center"});
+                    control?.focus({preventScroll:true});
+                  }}>{request.action==="upload-document" ? "Go to document upload" : "Go to held documents"}</Button>}
+                {!request.followUpReviewedAt && <Button size="sm" variant="outline" className="min-h-11" disabled={busy}
+                  onClick={()=>void reviewDocumentFollowUp(request)}>Mark follow-up reviewed</Button>}
+              </div>
+              {request.followUpReviewedAt && <p>Follow-up reviewed in Orbit.</p>}
+            </div>}
             {request.state==="Unknown" && (request.action!=="upload-document" || request.documentId ?
               <div><Button size="sm" variant="outline" className="min-h-11" disabled={busy||!connected}
                 aria-label={request.fileName ? `${checkLabel} for ${request.fileName}` : undefined}
@@ -287,8 +320,8 @@ export function UwmLoanActions({loanId,staff,application,view,rejectionId,verifi
       {view==="documents" && <>
         {!linked?<p>Document delivery becomes available after UWM confirms this loan’s import.</p>:<>
           {!activity?.uploads.documents && <p className="uwm-feedback">Orbit still needs UWM’s approved document upload address. Existing held documents can be reviewed below.</p>}
-          <form className="uwm-loan-form" onSubmit={event=>void uploadDocument(event)}><fieldset disabled={!canWrite||!activity?.uploads.documents}><label className="field"><span>Document to upload</span><input type="file" name="document" required accept=".pdf,.doc,.docx,.txt,.tif,.tiff,.gif,.jpg,.jpeg,.png,.xls,.xlsx,.csv,.heif,.heic,.bmp"/></label><Button type="submit">Review document upload</Button></fieldset></form>
-          <Button variant="outline" disabled={!connected||busy} onClick={()=>void loadDocuments()}>Load UWM documents &amp; attachments</Button>
+          <form className="uwm-loan-form" onSubmit={event=>void uploadDocument(event)}><fieldset disabled={!canWrite||!activity?.uploads.documents}><label className="field"><span>Document to upload</span><input ref={documentInput} type="file" name="document" required accept=".pdf,.doc,.docx,.txt,.tif,.tiff,.gif,.jpg,.jpeg,.png,.xls,.xlsx,.csv,.heif,.heic,.bmp"/></label><Button type="submit">Review document upload</Button></fieldset></form>
+          <Button ref={heldDocumentsButton} variant="outline" disabled={!connected||busy} onClick={()=>void loadDocuments()}>Load UWM documents &amp; attachments</Button>
           {documents && <DocumentActions documents={documents} disabled={!canWrite} review={review}/>}
         </>}
       </>}

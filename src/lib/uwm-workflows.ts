@@ -27,6 +27,7 @@ export const uwmWorkflowRequest = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("reconcile-request"), ...base, requestId: z.uuid(),
     outcome: z.enum(["Not applied", "Verified in UWM"]), evidence: z.string().trim().min(20).max(2000) }),
   z.strictObject({ action: z.literal("check-document-request"), ...base, requestId: z.uuid() }),
+  z.strictObject({ action: z.literal("review-document-follow-up"), ...base, requestId: z.uuid() }),
 ]);
 type Input = z.infer<typeof uwmWorkflowRequest>;
 type Client = ReturnType<typeof uwmPublicClient>;
@@ -51,7 +52,19 @@ export function initializeUwmWorkflows(db: Store) {
   );
   CREATE TABLE IF NOT EXISTS uwm_request_evidence (
     requestId TEXT PRIMARY KEY REFERENCES uwm_live_requests(id), applicationRevision INTEGER NOT NULL, details TEXT NOT NULL
-  );`);
+  );
+  CREATE TABLE IF NOT EXISTS uwm_document_follow_up_reviews (
+    requestId TEXT PRIMARY KEY REFERENCES uwm_live_requests(id), actor TEXT NOT NULL, reviewedAt TEXT NOT NULL
+  );
+  CREATE VIEW IF NOT EXISTS uwm_document_follow_ups AS
+    SELECT original.id AS requestId, original.loanId, original.environment, max(decision.updatedAt) AS recordedAt
+    FROM uwm_live_requests decision JOIN uwm_request_evidence evidence ON evidence.requestId = decision.id
+    JOIN uwm_live_requests original ON original.id = json_extract(evidence.details, '$.requestId')
+      AND original.loanId = decision.loanId AND original.environment = decision.environment
+    WHERE decision.action = 'reconcile-request' AND decision.state = 'Acknowledged'
+      AND json_extract(evidence.details, '$.outcome') = 'Not applied'
+      AND original.state = 'Reconciled' AND original.action IN ('upload-document','attach-documents','submit-documents')
+    GROUP BY original.id;`);
 }
 
 function context(db: Store, env: UwmEnvironment, staff: WorkspaceStaff, loanId: string, writing = false) {
@@ -146,6 +159,23 @@ function requestResult(row: { id?: unknown; state?: unknown; result?: unknown })
 export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: WorkspaceStaff, raw: unknown, client?: Client, registerTransaction?: (operationId: string, transactionId: string) => Promise<void>) {
   const input = uwmWorkflowRequest.parse(raw);
   const environment = context(db, env, staff, input.loanId, true);
+  if (input.action === "review-document-follow-up") {
+    if (staff.brokerage.role === "LO") throw new UwmError("Only an assigned processor or brokerage admin can review this follow-up.");
+    return db.transaction(() => {
+      const original = db.prepare(`SELECT 1 FROM uwm_document_follow_ups follow
+        JOIN uwm_request_evidence evidence ON evidence.requestId = follow.requestId
+        JOIN loans loan ON loan.id = follow.loanId JOIN loan_processing processing ON processing.loanId = loan.id
+        WHERE follow.requestId = ? AND follow.loanId = ? AND follow.environment = ? AND evidence.applicationRevision = ?
+          AND loan.disposition = 'Active' AND loan.stage NOT IN ('Funded','Closed')
+          AND processing.processorEmail IS NOT NULL AND processing.status IN ('Assigned','Ready for processing','In processing','Returned to LO')
+          AND (? OR processing.processorEmail = ?)`)
+        .get(input.requestId, input.loanId, environment, input.applicationRevision, staff.brokerage.role === "Admin" ? 1 : 0, staff.email);
+      if (!original) throw new UwmError("This follow-up changed. Return to Processing and refresh your work.");
+      db.prepare(`INSERT INTO uwm_document_follow_up_reviews VALUES (?, ?, ?)
+        ON CONFLICT(requestId) DO NOTHING`).run(input.requestId, staff.email, new Date().toISOString());
+      return { id: input.requestId, state: "Reviewed", result: { message: "Follow-up reviewed in Orbit." } };
+    });
+  }
   if (input.action === "check-document-request") {
     const original = db.prepare(`SELECT request.action,request.state,request.result,evidence.applicationRevision
       FROM uwm_live_requests request JOIN uwm_request_evidence evidence ON evidence.requestId=request.id
@@ -404,14 +434,19 @@ export async function readUwmFile(db: Store, env: UwmEnvironment, staff: Workspa
           AND decision.action='reconcile-request' AND decision.state='Acknowledged'
           AND json_extract(note.details,'$.requestId')=request.id
         ORDER BY decision.updatedAt DESC, decision.id DESC LIMIT 1
-      ) END AS verification
+      ) END AS verification,
+      CASE WHEN request.id IS ? THEN follow.recordedAt END AS followUpAt,
+      CASE WHEN request.id IS ? THEN followReview.reviewedAt END AS followUpReviewedAt
       FROM uwm_live_requests request
       LEFT JOIN uwm_request_evidence evidence ON evidence.requestId=request.id
+      LEFT JOIN uwm_document_follow_ups follow ON follow.requestId=request.id AND request.id IS ?
+      LEFT JOIN uwm_document_follow_up_reviews followReview ON followReview.requestId=follow.requestId
       LEFT JOIN uwm_operations operation ON operation.id=CASE WHEN request.action='prepare-import' THEN request.id
         WHEN request.action='commit-import' THEN json_extract(evidence.details,'$.importId') END
         AND operation.loanId=request.loanId AND operation.environment=request.environment
       WHERE request.loanId=? AND request.environment=? ORDER BY (request.id IS ?) DESC,request.createdAt DESC LIMIT 50`)
-      .all(staff.brokerage.role === "Admin" ? 1 : 0, input.requestId ?? null, input.loanId, environment, input.requestId ?? null)
+      .all(staff.brokerage.role === "Admin" ? 1 : 0, input.requestId ?? null, input.requestId ?? null, input.requestId ?? null,
+        input.requestId ?? null, input.loanId, environment, input.requestId ?? null)
       .map(({ verification, ...request }) => ({ ...request, ...(typeof verification === "string" ? { verification: JSON.parse(verification) } : {}) })),
   };
   const number = linkedLoan(db, input.loanId, environment), api = uwmPublicClient(db, env, staff);

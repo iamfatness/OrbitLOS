@@ -96,7 +96,7 @@ import type { QuotePrefillSelection } from "@/lib/quote-intake-questions";
 import { applyLoanMutation, loanWorkUnavailable, type EditableLoan } from "@/lib/loan-work-model";
 import { announceBorrowerChange, borrowerChecklistTokens, borrowerDisclosureTokens } from "@/lib/borrower-change-signal";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
-import { documentDeliveryTarget, documentDeliveryTargetPrefix, importRejectionTarget, incomingLoanWorkProcessingStatuses, type IncomingLoanWorkItem, type IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
+import { documentDeliveryTarget, documentDeliveryTargetPrefix, importRejectionTarget, incomingLoanWorkProcessingStatuses, isDocumentDeliveryWork, type IncomingLoanWorkItem, type IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
 import { realtorFinancingTarget } from "@/lib/realtor-financing-model";
 import { isPreapprovalWork, samplePreapprovalTarget } from "@/lib/preapproval-policy-model";
 import { leadDocumentsUnavailable, type LeadDocumentLocation } from "@/lib/lead-document-model";
@@ -914,7 +914,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             run.id === item.id && (run.applicationRevision ?? 0) === item.revision && run.result.status === unconfirmedMockOrder) :
           item.kind === "import-rejection" ? view === "today" && uwmEnabled && !!staff &&
             !staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId :
-          item.kind === "document-delivery" ? view === "processing" && uwmEnabled && !!staff &&
+          isDocumentDeliveryWork(item.kind) ? view === "processing" && uwmEnabled && !!staff &&
             !staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId :
           item.kind === "realtor-financing" ? view === "today" && result.realtorFinancingReadyId === item.id :
           isPreapprovalWork(item.kind) ? view === "today" && letter?.kind === item.kind &&
@@ -1190,7 +1190,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
         eventId: item.returnEventId, personal: true });
     const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` :
       item.kind === "import-rejection" ? importRejectionTarget(item.id) :
-      item.kind === "document-delivery" ? documentDeliveryTarget(item.id) :
+      isDocumentDeliveryWork(item.kind) ? documentDeliveryTarget(item.id) :
       item.kind === "question" ? staffQuestionTarget(item.id) : item.kind === "underwriting" ? creditAusAttemptTarget(item.id) :
       item.kind === "realtor-financing" ? realtorFinancingTarget : isPreapprovalWork(item.kind) ? samplePreapprovalTarget : "processing-handoff";
     void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
