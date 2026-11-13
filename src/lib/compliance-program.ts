@@ -237,8 +237,11 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
     ? { revision: Number(latest.revision), decision: updated.applicability, reason: updated.applicabilityReason,
       evidence: updated.reviewerEvidence, reviewer: String(latest.reviewer), reviewedAt: String(latest.reviewedAt) }
     : undefined;
+  const partialPeriod = Boolean(bounds &&
+    (draft.effectiveFrom > bounds.from || (draft.effectiveThrough && draft.effectiveThrough < bounds.through)));
   const decision = applicabilityReview?.decision ??
-    (report && basisChanged && draft.applicability === "Not applicable" ? "Needs review" : draft.applicability);
+    (report && (basisChanged || partialPeriod) && draft.applicability === "Not applicable" ? "Needs review" : draft.applicability);
+  const applicabilityPending = decision === "Needs review" || (partialPeriod && !applicabilityReview);
   const statePortalFiling = decision !== "Not applicable" &&
     Boolean(bounds && statePortalAnnualFilingComponent(stateBasis?.sourceKey ?? "", draft, bounds.from));
   const basisReview = "Verify the filing evidence against the current scope and source.";
@@ -254,7 +257,6 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
           savedFilingScopeMatches(db, tenant, entityId, reviewed, currentScope) &&
           financialConditionScopeMatches(db, tenant, entityId, reviewed, draft.cadence)) }, now)
     : undefined;
-  const hasTrackedProgress = Boolean(progress);
   if (statePortalFiling && progress?.revision === null && String(row.evidence ?? "").trim()) {
     progress.summary = "Earlier filing reference recorded";
   }
@@ -267,7 +269,7 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
     if (!hasReference) gaps.push("Record the filing evidence reference or document the applicable filing treatment.");
     progress = { revision: null, summary: hasReference ? "Filing reference recorded" : "Filing evidence needed", gaps };
   }
-  if (report && decision === "Needs review" && progress && (hmdaFiling || statePortalFiling || !hasTrackedProgress || draft.applicability !== "Needs review" || applicabilityReview)) {
+  if (report && applicabilityPending && progress) {
     progress.gaps.unshift("Confirm whether this report applies to the brokerage.");
   }
   const filingProgress = applicabilityReview?.decision === "Not applicable"

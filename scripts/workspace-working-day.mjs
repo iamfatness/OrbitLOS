@@ -2117,7 +2117,8 @@ try {
     assert.equal((await suite(owner, "obligations", renewalHistory)).versions.length, 1);
     assert.equal((await suite(owner, "obligations", { ...renewalHistory, originatorNmls: "67890" })).versions.length, 0);
 
-    const activity = await recordPeriod("MI", "REQ-MI-REPORTING-RMLA", "Quarterly", "2026-01", 2);
+    const activity = await recordPeriod("MI", "REQ-MI-REPORTING-RMLA", "Quarterly", "2026-01", 2,
+      { applicability: "Required", reviewerEvidence: "Fictional Michigan applicability review" });
     const activityPlan = await suite(owner, "obligations", { ...activity, operation: "planWork", requestId: randomUUID() });
     assert.equal(activityPlan.kind, "obligationWorkPlanned", activityPlan.error);
     const activityMonth = { entityId: entity.id, month: activityPlan.month };

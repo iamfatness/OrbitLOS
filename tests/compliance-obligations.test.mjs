@@ -114,6 +114,62 @@ test("HMDA annual and quarterly evidence stays with the reporting entity and exa
  assert.ok(f.run({operation:"list",entityId:f.entityId}).items.every(item=>item.stateBasisChanged));
 });
 
+test("completed state filing work retains an applicability gap until the entire period is reviewed", t => {
+ for (const initial of [{applicability:"Needs review"},{applicability:"Required",effectiveFrom:"2026-04-10"}]) {
+  const f = fixture(t);
+  const scope = complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction:"MI",
+   expectedRevision:0,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional license",
+    officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
+    f.staff,f.staff.brokerage.id,[f.actor],"2026-11-11T12:00:00Z");
+  const draft = {...f.draft,cadence:"Quarterly",reviewerEvidence:"Fictional review",...initial};
+  assert.equal(f.run(f.save({draft,stateReference:{jurisdiction:"MI",sourceKey:"REQ-MI-REPORTING-RMLA",revision:scope.revision}})).revision,1);
+  const target = {entityId:f.entityId,id:f.id,period:"2026-04"};
+  assert.equal(f.run(f.generate({period:target.period})).kind,"obligationOccurrence");
+  const planned = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
+  const monthly = () => f.program({operation:"month",entityId:f.entityId,month:planned.month});
+  assert.deepEqual(f.run({operation:"saveMichiganFiling",...target,expected:0,requestId:crypto.randomUUID(),evidence:{
+   deadline:{on:"2026-08-14",reference:"Fictional reviewed date"}, reconciliation:{activity:"No reportable activity",reference:"Fictional reconciliation"},
+   submission:{on:"2026-08-14",reference:"Fictional filing confirmation"},
+  }}).finding.gaps,[]);
+  const update = {operation:"update",entityId:f.entityId,month:planned.month,id:planned.workId,ownerEmail:f.actor.email,
+   internalTarget:"2026-08-14",evidence:"Fictional receipt",note:"Fictional filing review"};
+  assert.equal(f.program({...update,expectedRevision:1,status:"Awaiting review",requestId:crypto.randomUUID()}).items[0].status,"Awaiting review");
+  const completed = f.program({...update,expectedRevision:2,status:"Completed",requestId:crypto.randomUUID()});
+  const pending = "Confirm whether this report applies to the brokerage.";
+  assert.equal(completed.items[0].status,"Completed");
+  assert.deepEqual(completed.items[0].filingProgress.gaps,[pending]);
+  const decision = {...draft,applicability:"Required",effectiveFrom:"2026-04-01"};
+  assert.equal(f.run(f.save({expectedRevision:1,draft:{...decision,effectiveFrom:"2026-04-20"}})).revision,2);
+  assert.deepEqual(monthly().items[0].filingProgress.gaps,[pending]);
+  assert.equal(f.run(f.save({expectedRevision:2,draft:decision})).revision,3);
+  assert.deepEqual(monthly().items[0].filingProgress.gaps,[]);
+  assert.equal(monthly().items[0].obligation.applicabilityReview.revision,3);
+ }
+});
+
+test("a partial exclusion does not hide a state filing gap", t => {
+ const f = fixture(t);
+ const scope = complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction:"MI",
+   expectedRevision:0,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional license",
+    officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
+    f.staff,f.staff.brokerage.id,[f.actor],"2026-11-11T12:00:00Z");
+ const draft = {...f.draft,cadence:"Quarterly",applicability:"Not applicable",effectiveFrom:"2026-04-10",
+   reviewerEvidence:"Fictional limited-period exclusion"};
+ assert.equal(f.run(f.save({draft,stateReference:{jurisdiction:"MI",sourceKey:"REQ-MI-REPORTING-RMLA",revision:scope.revision}})).revision,1);
+ const target = {entityId:f.entityId,id:f.id,period:"2026-04"};
+ const generated = f.run(f.generate({period:target.period})).occurrence;
+ assert.equal(generated.status,"Applicability review gap");
+ const work = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
+ const progress = () => f.progress(work.month);
+ const pending = "Confirm whether this report applies to the brokerage.";
+ assert.ok(progress().gaps.includes(pending));
+ assert.equal(f.run(f.save({expectedRevision:1,draft:{...draft,effectiveFrom:"2026-04-01",effectiveThrough:"2026-06-29"}})).revision,2);
+ assert.ok(progress().gaps.includes(pending));
+ assert.equal(f.run(f.save({expectedRevision:2,draft:{...draft,effectiveFrom:"2026-04-01",effectiveThrough:"2026-06-30"}})).revision,3);
+ assert.deepEqual(progress(),{revision:null,summary:"Internal exclusion recorded",gaps:[]});
+ assert.equal(f.run(f.generate({period:target.period,expectedRevision:3})).occurrence.snapshot,generated.snapshot);
+});
+
 test("monthly filing gaps include state reports with manual evidence", t => {
  const f = fixture(t);
  const jurisdiction = "CA";
@@ -256,7 +312,7 @@ test("priority-state FV7 filing evidence respects the source, period, cadence an
  for (const jurisdiction of ["CA","FL","TX","NY","CO","IL"]) assert.equal(saveScope(jurisdiction,"Brokerage").revision,1);
  const record = (jurisdiction, suffix, cadence = "Quarterly", period = "2026-04", annualStartMonth) => {
   const id = crypto.randomUUID();
-  assert.equal(f.run(f.save({id, draft:{...f.draft,cadence,annualStartMonth},
+  assert.equal(f.run(f.save({id, draft:{...f.draft,cadence,annualStartMonth,applicability:"Required",reviewerEvidence:"Fictional confirmed scope"},
    stateReference:{jurisdiction,revision:1,sourceKey:`REQ-${jurisdiction}-REPORTING-${suffix}`}})).revision,1);
   assert.equal(f.run(f.generate({id,period})).kind,"obligationOccurrence");
   return {entityId:f.entityId,id,period};
@@ -1193,7 +1249,7 @@ test("New York annual VOOR tracks deadlines and versioned filing evidence", t =>
    f.staff, f.staff.brokerage.id, [f.actor], "2026-11-11T12:00:00Z");
  assert.equal(scope.revision, 1);
  const stateReference = {jurisdiction:"NY", revision:1, sourceKey:"REQ-NY-REPORTING-VOOR"};
- const draft = {...f.draft, cadence:"Annual", annualStartMonth:1};
+ const draft = {...f.draft, cadence:"Annual", annualStartMonth:1,applicability:"Required",reviewerEvidence:"Fictional confirmed scope"};
  assert.equal(f.run(f.save({draft,stateReference})).revision, 1);
  const period = "2025-01";
  assert.equal(JSON.parse(f.run(f.generate({period})).occurrence.snapshot).reportingBasis.nominalDueOn, "2026-06-22");
