@@ -3191,6 +3191,18 @@
     "checkedOn": "2026-11-12"
   },
   {
+    "jurisdiction": "CO",
+    "area": "REPORTING",
+    "id": "QUARTER-FC",
+    "title": "Quarterly Financial Condition for lending or servicing",
+    "authority": "NMLS Policy Guidebook, Mortgage Call Report",
+    "sourceUrl": "https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/pubs/policyGuide/reference/policyGuide/maps/topics/nmlsPG_MCR_subsection-1.html",
+    "summary": "Companies reporting mortgage lending or servicing activity complete Financial Condition each calendar quarter on the NMLS Mortgage Call Report schedule.",
+    "evidence": "Entity-level lending or servicing classification, required NMLS component, quarter, current filing schedule and receipt.",
+    "counsel": "Confirm the company's full NMLS activity and license classification, the applicable quarter and any separate state financial statement.",
+    "checkedOn": "2026-11-13"
+  },
+  {
     "jurisdiction": "AZ",
     "area": "LICENSING",
     "id": "COMPANY",

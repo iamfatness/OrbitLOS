@@ -272,6 +272,8 @@ const filings: Partial<Record<string, FilingRule>> = {
   "REQ-NY-REPORTING-QRES": { route: "Mail to New York DFS Mortgage Banking", cadence: "Quarterly", due: after(30), from: "2025-07-01",
     review: "Confirm reportable hires, separations, Temporary Authority, notarization and no-change instructions with counsel." },
   "REQ-CO-REPORTING-MCR": quarter("NMLS Mortgage Call Report", "Confirm registration, current FV7 components and applicable periods."),
+  "REQ-CO-REPORTING-QUARTER-FC": quarter("NMLS Financial Condition",
+    "Confirm the company reports lending or servicing activity for the quarter, verify the NMLS component and filing receipt, and review separate state financial statements.", "2026-01-01"),
   "REQ-CO-REPORTING-STD-FC": { route: "NMLS Financial Condition", cadence: "Fiscal annual", due: () => null,
     review: "Reconcile Colorado's standard-section fiscal-year rule with current FV7 and confirm the filing basis with counsel." },
   "REQ-IL-REPORTING-ANNUAL-AUDIT": { route: "Illinois IDFPR or applicable NMLS filing", cadence: "Fiscal annual", due: after(90),
