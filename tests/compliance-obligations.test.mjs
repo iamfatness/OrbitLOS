@@ -365,6 +365,10 @@ test("priority state reporting uses distinct periods and leaves unverified dates
  ]) {
   const renewal=check(state,suffix,"Annual","2026-01",route,"2026-12-31",1,"LICENSING");
   assert.match(renewal.basis.review,review);
+  const work=f.run({operation:"planWork",entityId:f.entityId,id:renewal.id,period:"2026-01",requestId:crypto.randomUUID()});
+  const item=f.sql.prepare("SELECT category,instructions FROM compliance_program_items WHERE id=?").get(work.workId);
+  assert.equal(item.category,"License review",state);
+  assert.ok(item.instructions.includes(route),state);
   check(state,suffix,"Annual","2025-01",route,null,1,"LICENSING");
   check(state,suffix,"Annual","2026-07",route,null,7,"LICENSING");
   if (state==="CO" || suffix==="DRE-MLO-RNW") check(state,suffix,"Annual","2027-01",route,null,1,"LICENSING");
@@ -384,7 +388,7 @@ test("priority state reporting uses distinct periods and leaves unverified dates
  const month=complianceCaseWork(f.db,{type:"program",input:{operation:"month",entityId:f.entityId,month:planned.month}},
    f.staff,f.staff.brokerage.id,[f.actor],"2026-11-12T12:00:00Z");
  assert.deepEqual(month.items.find(item=>item.id===planned.workId).obligation.reportingBasis,transition.basis);
- const transitionWork=f.sql.prepare("SELECT instructions FROM compliance_program_items").get().instructions;
+ const transitionWork=f.sql.prepare("SELECT instructions FROM compliance_program_items WHERE instructions LIKE '%AUDIT-CHANGE%'").get().instructions;
  assert.match(transitionWork,/Applicability review gap.*prior audit submission date/);
  assert.doesNotMatch(transitionWork,/Nominal date:/);
  check("TX","MCR","Quarterly","2026-01","NMLS Residential Mortgage Loan Activity","2026-05-15");
