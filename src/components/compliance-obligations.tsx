@@ -47,15 +47,24 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
  const [sourceError,setSourceError]=useState("");
  const [sourceRefresh,refreshSources]=useState(0);
  const [sourceKey,chooseSource]=useState("");
+ const [sourceNeedsReselection,setSourceNeedsReselection]=useState(false);
  const [cadence,setCadence]=useState<ObligationDraft["cadence"]>("Monthly");
  const [manualAuthority,setManualAuthority]=useState({sourceUrl:"",authority:""});
  const [loadingEntities,setLoadingEntities]=useState(true);
  const [loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const feedback=useRef<HTMLDivElement>(null), heading=useRef<HTMLHeadingElement>(null);
+ const sourceSelect=useRef<HTMLSelectElement>(null), sourceReload=useRef<HTMLButtonElement>(null);
+ const recoveringSource=useRef(false);
  const alive=useRef(false),retry=useRef<{body:string;id:string}|undefined>(undefined),newId=useRef("");
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useEffect(()=>{heading.current?.focus();},[selected]);
  useEffect(()=>{if(error||notice)feedback.current?.focus();},[error,notice]);
+ useEffect(()=>{
+   if(!recoveringSource.current || (!sources && !sourceError))return;
+   recoveringSource.current=false;
+   if(sources?.length)sourceSelect.current?.focus();
+   else sourceReload.current?.focus();
+ },[sources,sourceError]);
  useEffect(()=>{
    if (returnToItem) document.getElementById(`obligation-review-${returnToItem}`)?.focus();
  },[returnToItem,history]);
@@ -108,6 +117,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
    setSources(undefined);
    setSourceError("");
    chooseSource("");
+   setSourceNeedsReselection(false);
    setPlanned(undefined);
    setCadence(record?.draft.cadence??"Monthly");
    setManualAuthority({sourceUrl:record?.draft.sourceUrl??"",authority:record?.draft.authority??""});
@@ -116,6 +126,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
    setHistory(undefined);
  }
  function reloadStateSources(){
+   recoveringSource.current=true;
    setSources(undefined);
    setSourceError("");
    setError("");
@@ -145,11 +156,18 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
        close ? "Saved a new obligation version." : "Period recorded. Existing period evidence is preserved.";
      setNotice(message);
      if(!close)refresh(v=>v+1);
-   }catch(e){if(alive.current)setError(e instanceof Error?e.message:"Save could not be confirmed. Retry the unchanged form.");}
+   }catch(e){
+     if(!alive.current)return;
+     const message=e instanceof Error?e.message:"Save could not be confirmed. Retry the unchanged form.";
+     if(message.startsWith("The state obligation source changed."))setSourceNeedsReselection(true);
+     setError(message);
+   }
    finally{if(alive.current)setBusy(false);}
  }
  function save(event:FormEvent<HTMLFormElement>){
-   event.preventDefault();const form=new FormData(event.currentTarget);
+   event.preventDefault();
+   if(sourceRecoveryPending)return;
+   const form=new FormData(event.currentTarget);
    const draft=Object.fromEntries(["title","sourceUrl","authority","basis","applicability","applicabilityReason","reviewerEvidence","effectiveFrom","effectiveThrough","cadence","ownerEmail"].map(k=>[k,text(form,k)]));
    const parsed=obligationDraft.safeParse({...draft,
      ...(linkedSource?{sourceUrl:linkedSource.sourceUrl,authority:linkedSource.authority}:{}),
@@ -165,6 +183,8 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
  }
  const draft:Partial<ObligationDraft>=selected?.draft??{};
  const chosenSource=sources?.find(source=>source.sourceKey===sourceKey);
+ const staleSource=error.startsWith("The state obligation source changed.");
+ const sourceRecoveryPending=sourceNeedsReselection&&(!chosenSource||staleSource);
  const linkedSource=chosenSource??selected?.stateBasis;
  const selectedEntity=entities.find(entity=>entity.id===entityId);
  if(paused)return <p>Obligations are unavailable while the workspace is paused.</p>;
@@ -191,8 +211,10 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
      <form className="record-form" onSubmit={save}><fieldset className="record-form" disabled={busy}>
        <label className="field">Title<input name="title" required minLength={3} maxLength={160} defaultValue={draft.title}/></label>
        <label className="field">State obligation source
-         <select value={sourceKey} disabled={!sources?.length} onChange={e=>chooseSource(e.target.value)}>
-           <option value="">{selected?.stateBasis?"Keep saved source":"Enter source manually"}</option>
+         <select ref={sourceSelect} value={sourceKey} disabled={!sources?.length || staleSource}
+           onChange={e=>chooseSource(e.target.value)}>
+           <option value="">{sourceRecoveryPending ? "Choose a current source" :
+             selected?.stateBasis ? "Keep saved source" : "Enter source manually"}</option>
            {sources?.map(source=><option key={source.sourceKey} value={source.sourceKey}>{source.jurisdiction} · {source.title}</option>)}
          </select>
        </label>
@@ -201,8 +223,16 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
          !sources.length && !selected?.stateBasisChanged && <p className="muted">
            No current state reporting sources. Review the entity’s scope in State rollout or enter the authority manually.
          </p>}
-       {(sourceError||error.startsWith("The state obligation source changed."))&&<div><Button type="button" variant="outline" onClick={reloadStateSources}>Reload sources</Button></div>}
-       {linkedSource&&<p className="muted">{linkedSource.jurisdiction} · {linkedSource.title} · Scope version {linkedSource.revision}</p>}
+       {(sourceError||sourceRecoveryPending)&&<div className="record-form">
+         {sourceRecoveryPending&&<p role="status">
+           {staleSource ? "Reload sources, then select a current source. Your edits will stay here." :
+             sources?.length ? "Select the current source to continue. Your edits are still here." :
+               sources ? "No current sources are available. Review this entity’s state record before trying again." : "Your edits will stay here while sources reload."}
+         </p>}
+         <div><Button ref={sourceReload} type="button" variant="outline" aria-disabled={!sources&&!sourceError}
+           onClick={()=>{if(sources||sourceError)reloadStateSources();}}>Reload sources</Button></div>
+       </div>}
+       {linkedSource&&<p className="muted">{linkedSource.jurisdiction} · {linkedSource.title} · {sourceRecoveryPending ? "Earlier scope version" : "Scope version"} {linkedSource.revision}</p>}
        {selected?.stateBasisChanged && !chosenSource && sources && <p role="status">The saved reporting basis needs review.{" "}
          {sources.length ? "Select a current source." : "Review the entity’s scope under Research & gaps → State rollout."}
        </p>}
@@ -227,7 +257,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
        </select></label>
        <label className="field">Internal target day in final month (UTC)<input name="internalTargetDay" type="number" required min={1} max={31} defaultValue={draft.internalTargetDay??28}/></label></div>
        <p className="muted">Short months use their final day. These targets are not statutory deadline calculations. Keep borrower data and privileged material out of notes.</p>
-       <div className="loan-application-actions"><Button type="submit">{busy?"Saving…":"Save new version"}</Button>{!selected&&<Button type="button" variant="outline" onClick={back}>Back to obligations</Button>}</div>
+       <div className="loan-application-actions"><Button type="submit" disabled={sourceRecoveryPending}>{busy?"Saving…":"Save new version"}</Button>{!selected&&<Button type="button" variant="outline" onClick={back}>Back to obligations</Button>}</div>
      </fieldset></form></details>
      {selected && <div><Button variant="outline" onClick={back}>Back to obligations</Button></div>}
      {selected&&<>
