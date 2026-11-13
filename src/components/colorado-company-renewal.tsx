@@ -62,6 +62,45 @@ function ReceiptFields({ row, initial }: {
   </fieldset>;
 }
 
+type OlderDeficiency = NonNullable<Version["evidence"]["olderDeficiencies"]>[number];
+
+function DeficiencyFields({ id, index, initial, remove }: {
+  id: number; index: number; initial?: OlderDeficiency; remove: () => void;
+}) {
+  const prefix = "deficiency-" + id;
+  const [cleared, setCleared] = useState(Boolean(initial?.clearance));
+  return <fieldset className="record-form min-w-0 rounded-lg border p-3">
+    <legend>Older deficiency {index + 1}</legend>
+    <input type="hidden" name="deficiency" value={id} />
+    <label className="field">Deficiency identifier or period<input id={prefix} name={prefix + "Item"} required minLength={4}
+      maxLength={240} defaultValue={initial?.itemReference} /></label>
+    <EventFields prefix={prefix + "Notice"} label="Deficiency notice" value={initial?.identified} />
+    <label className="flex min-h-11 items-center gap-2"><input type="checkbox" name={prefix + "Cleared"} checked={cleared}
+      onChange={event => setCleared(event.target.checked)} />Record clearance evidence</label>
+    {cleared && <EventFields prefix={prefix + "Clearance"} label="Clearance evidence" value={initial?.clearance} />}
+    <div><Button type="button" className="min-h-11" variant="outline" aria-label={"Remove older deficiency " + (index + 1)}
+      onClick={remove}>Remove deficiency</Button></div>
+  </fieldset>;
+}
+
+function OlderDeficiencyFields({ saved }: { saved?: OlderDeficiency[] }) {
+  const [rows, setRows] = useState<{ id: number; initial?: OlderDeficiency }[]>(() => (saved ?? []).map((initial, id) => ({ id, initial })));
+  const next = useRef(rows.length);
+  const add = useRef<HTMLButtonElement>(null);
+  return <div className="record-form">
+    <h4 className="font-semibold">Older filing deficiencies</h4>
+    {rows.map(({ id, initial }, index) => <DeficiencyFields key={id} id={id} index={index} initial={initial} remove={() => {
+      setRows(items => items.filter(item => item.id !== id));
+      requestAnimationFrame(() => add.current?.focus());
+    }} />)}
+    <div><Button ref={add} type="button" className="min-h-11" variant="outline" disabled={rows.length >= 30} onClick={() => {
+      const id = next.current++;
+      setRows(items => [...items, { id }]);
+      requestAnimationFrame(() => document.getElementById("deficiency-" + id)?.focus());
+    }}>Add older deficiency</Button></div>
+  </div>;
+}
+
 function RenewalForm({ latest, year, busy, conflict, submit, cancel }: {
   latest?: Version; year: number; busy: boolean; conflict: boolean; submit: (form: FormData) => void; cancel: () => void;
 }) {
@@ -85,6 +124,7 @@ function RenewalForm({ latest, year, busy, conflict, submit, cancel }: {
       <h4 className="font-semibold">Reporting periods</h4>
       {rows.map(row => <ReceiptFields key={row.component + ":" + row.period} row={row}
         initial={evidence?.receipts.find(item => item.component === row.component && item.period === row.period)?.disposition} />)}
+      <OlderDeficiencyFields saved={evidence?.olderDeficiencies} />
       <h4 className="font-semibold">Renewal and regulator status</h4>
       <label className="flex min-h-11 items-center gap-2"><input type="checkbox" name="renewal" checked={requested}
         onChange={event => setRequested(event.target.checked)} />Record renewal request</label>
@@ -117,6 +157,14 @@ function RenewalSummary({ entry, review = entry.finding }: { entry: Version; rev
     <p>Version {entry.version} · Reviewed <time dateTime={review.asOf}>{review.asOf}</time></p>
     <dl className="form-grid">{summary.filter(([, value]) => value).map(([label, value]) =>
       <div key={label}><dt className="font-semibold">{label}</dt><dd>{value}</dd></div>)}</dl>
+    {!!evidence.olderDeficiencies?.length && <>
+      <h4 className="font-semibold">Older filing deficiencies</h4>
+      <ul className="document-list">{evidence.olderDeficiencies.map(item => <li className="document-item" key={item.itemReference}><div>
+        <strong>{item.itemReference}</strong>
+        <p>Notice · {dated(item.identified)}</p>
+        <p>{item.clearance ? "Clearance · " + dated(item.clearance) : "Clearance evidence needed"}</p>
+      </div></li>)}</ul>
+    </>}
     {review.classificationNeedsReview && <p>Verify Financial Condition requirements for the company’s reporting classification.</p>}
     <h4 className="font-semibold">Reporting periods</h4>
     <ul className="document-list">{review.rows.map(row => {
@@ -187,7 +235,11 @@ export function ColoradoCompanyRenewal({ brokerageId, entityId, obligationId, pe
         { status, receipt: dated(prefix) } : { status, reference: get(prefix + "Reference") } }] : [];
     });
     const evidence = coloradoCompanyRenewalEvidence.safeParse({
-      olderDeficiencies: latest?.evidence.olderDeficiencies,
+      olderDeficiencies: form.getAll("deficiency").map(id => {
+        const prefix = "deficiency-" + id;
+        return { itemReference: get(prefix + "Item"), identified: dated(prefix + "Notice"),
+          clearance: form.has(prefix + "Cleared") ? dated(prefix + "Clearance") : undefined };
+      }),
       classification: get("classification"), classificationReference: get("classificationReference"),
       filingInventoryReference: get("filingInventoryReference"), priorFiscalYearEnd: get("priorFiscalYearEnd") || undefined, receipts,
       renewalRequest: form.has("renewal") ? dated("renewal") : undefined,
