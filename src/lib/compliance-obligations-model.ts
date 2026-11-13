@@ -35,12 +35,19 @@ const companyRenewals = [
 ];
 export const isObligationStateSource = (key: string) =>
   /^REQ-[A-Z]{2}-REPORTING-[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(key) || companyRenewals.includes(key);
-export const obligationStateReference = z.strictObject({
+export const hmdaSources = [
+  { sourceKey: "FED-HMDA-ANNUAL", title: "HMDA annual filing", authority: "12 CFR §1003.5(a)(1)(i), (iii)" },
+  { sourceKey: "FED-HMDA-QUARTERLY", title: "HMDA quarterly filing (Q1–Q3)", authority: "12 CFR §1003.5(a)(1)(ii), (iii)" },
+] as const;
+const obligationSourceFields = z.strictObject({
   jurisdiction: z.string().regex(/^[A-Z]{2}$/),
   revision: z.number().int().positive(),
-  sourceKey: z.string().max(30).refine(isObligationStateSource),
+  sourceKey: z.string().max(30),
 });
-export const obligationStateSource = obligationStateReference.extend({
+export const obligationStateReference = obligationSourceFields.refine(reference => reference.jurisdiction === "US"
+  ? hmdaSources.some(source => source.sourceKey === reference.sourceKey)
+  : isObligationStateSource(reference.sourceKey));
+export const obligationStateSource = obligationSourceFields.extend({
   title: z.string(), authority: z.string(), sourceUrl: z.url(),
 });
 export type ObligationStateSource = z.infer<typeof obligationStateSource>;
@@ -124,6 +131,10 @@ type FilingRule = {
   from?: string;
 };
 const after = (days: number) => (through: string) => shiftReportDate(through, days);
+function hmdaFilingDay(date: string) {
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return weekday === 0 ? shiftReportDate(date, 1) : weekday === 6 ? shiftReportDate(date, 2) : date;
+}
 const quarter = (route: string, review: string, from?: string): FilingRule => ({ route, review, cadence: "Quarterly", due: after(45), from });
 const financialCondition = (review: string): FilingRule => ({
   route: "NMLS Financial Condition", cadence: "Role-based",
@@ -139,6 +150,12 @@ const texasRenewal: FilingRule = {
   review: "Verify the applicable Texas SML renewal instructions, receipt and current license or registration status.",
 };
 const filings: Partial<Record<string, FilingRule>> = {
+  "FED-HMDA-ANNUAL": { route: "FFIEC HMDA Platform", cadence: "Calendar annual",
+    due: through => hmdaFilingDay(`${Number(through.slice(0, 4)) + 1}-03-01`),
+    review: "Confirm Regulation C coverage, the responsible reporting institution and report-year filing instructions." },
+  "FED-HMDA-QUARTERLY": { route: "FFIEC HMDA Platform", cadence: "Quarterly",
+    due: through => hmdaFilingDay(shiftReportDate(through, 60)),
+    review: "Confirm the prior-year threshold of 60,000 covered loans and applications, excluding purchased loans." },
   "REQ-MI-LICENSING-FIRST-RENEW": michiganRenewal,
   "REQ-MI-LICENSING-SECOND-RENEW": michiganRenewal,
   "REQ-CA-REPORTING-DRE-MCR": quarter("NMLS Mortgage Call Report", "Confirm DRE company coverage and current NMLS quarterly instructions."),

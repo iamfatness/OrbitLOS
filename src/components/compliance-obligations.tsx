@@ -21,14 +21,16 @@ type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
 const months = Array.from({length:12}, (_, index) => new Intl.DateTimeFormat("en-US",{month:"long",timeZone:"UTC"})
   .format(new Date(Date.UTC(2026,index,1))));
-function periodInstructions(draft: ObligationDraft) {
+function periodInstructions(draft: ObligationDraft, sourceKey?: string) {
   const start = (draft.annualStartMonth ?? 1) - 1;
   if (draft.cadence === "Annual") return `Choose ${months[start]} as the first month.`;
   if (draft.cadence === "Fiscal quarterly") {
     const starts = [0, 3, 6, 9].map(offset => months[(start + offset) % 12]);
     return `Choose ${starts.slice(0, 3).join(", ")} or ${starts[3]} as the first month.`;
   }
-  if (draft.cadence === "Quarterly") return "Choose January, April, July or October as the first month.";
+  if (draft.cadence === "Quarterly") return sourceKey === "FED-HMDA-QUARTERLY"
+    ? "Choose January, April or July. Include fourth-quarter data in the annual filing."
+    : "Choose January, April, July or October as the first month.";
   return "Choose the month to review.";
 }
 
@@ -68,7 +70,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
      const parsed=stateSources.safeParse("kind" in r&&r.kind==="obligations"?r.result:null);
      if(!parsed.success)throw new Error("Could not load state sources.");
      setSources(parsed.data.items);
-   }).catch(()=>{if(current)setSourceError("Could not load state obligation sources.");});
+   }).catch(()=>{if(current)setSourceError("Could not load obligation sources.");});
    return()=>{current=false;};
  },[brokerageId,editing,entityId,paused,sourceRefresh]);
  useEffect(()=>{
@@ -179,7 +181,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
      <div className="loan-application-actions"><Button disabled={!entityId||loading} onClick={()=>{newId.current=crypto.randomUUID();edit(null);}}>Add obligation</Button><Button variant="outline" onClick={()=>{setLoading(Boolean(entityId));setError("");setNotice("");refresh(v=>v+1);}}>Refresh</Button></div>
      {!entityId&&<p>Add a legal entity in Compliance → Licensing to start planning obligations.</p>}
      {loading||loadingEntities?<p role="status">Loading obligations…</p>:entityId&&!error&&<>
-       <ul className="document-list">{items.filter(i=>!filter||i.draft.applicability===filter).map(i=><li className="document-item" key={i.id}><div><strong>{i.draft.title}</strong><p>{i.draft.applicability} · {i.draft.cadence} · Version {i.revision}</p><p>{i.ownerAvailable?i.draft.ownerEmail:"Owner unavailable — reassignment needed"}</p>{i.stateBasisChanged&&<p>State obligation source needs review</p>}</div><Button variant="outline" onClick={()=>edit(i)}>Review obligation</Button></li>)}</ul>
+       <ul className="document-list">{items.filter(i=>!filter||i.draft.applicability===filter).map(i=><li className="document-item" key={i.id}><div><strong>{i.draft.title}</strong><p>{i.draft.applicability} · {i.draft.cadence} · Version {i.revision}</p><p>{i.ownerAvailable?i.draft.ownerEmail:"Owner unavailable — reassignment needed"}</p>{i.stateBasisChanged&&<p>Obligation source needs review</p>}</div><Button variant="outline" onClick={()=>edit(i)}>Review obligation</Button></li>)}</ul>
        {!items.some(i=>!filter||i.draft.applicability===filter)&&<p>No obligations match this page and filter.</p>}
        <div className="loan-application-actions"><Button variant="outline" disabled={!offset} onClick={()=>{setOffset(Math.max(0,offset-50));setLoading(true);}}>Previous page</Button><Button variant="outline" disabled={!more} onClick={()=>{setOffset(offset+50);setLoading(true);}}>Next page</Button></div>
      </>}
@@ -190,22 +192,18 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
      <details className="document-form" open={selected === null}><summary>{selected ? "Edit obligation version" : "Obligation details"}</summary>
      <form className="record-form" onSubmit={save}><fieldset className="record-form" disabled={busy}>
        <label className="field">Title<input name="title" required minLength={3} maxLength={160} defaultValue={draft.title}/></label>
-       <label className="field">State obligation source
+       <label className="field">Obligation source
          <select value={sourceKey} disabled={!sources?.length} onChange={e=>chooseSource(e.target.value)}>
            <option value="">{selected?.stateBasis?"Keep saved source":"Enter source manually"}</option>
-           {sources?.map(source=><option key={source.sourceKey} value={source.sourceKey}>{source.jurisdiction} · {source.title}</option>)}
+           {sources?.map(source=><option key={source.sourceKey} value={source.sourceKey}>{source.jurisdiction==="US"?"Federal":source.jurisdiction} · {source.title}</option>)}
          </select>
        </label>
-       {sourceError ? <p role="status">{sourceError}</p> :
-         !sources ? <p role="status">Loading state reporting sources…</p> :
-         !sources.length && !selected?.stateBasisChanged && <p className="muted">
-           No current state reporting sources. Review the entity’s scope in State rollout or enter the authority manually.
-         </p>}
-       {(sourceError||error.startsWith("The state obligation source changed."))&&<div><Button type="button" variant="outline" onClick={reloadStateSources}>Reload sources</Button></div>}
-       {linkedSource&&<p className="muted">{linkedSource.jurisdiction} · {linkedSource.title} · Scope version {linkedSource.revision}</p>}
-       {selected?.stateBasisChanged && !chosenSource && sources && <p role="status">The saved reporting basis needs review.{" "}
-         {sources.length ? "Select a current source." : "Review the entity’s scope under Research & gaps → State rollout."}
-       </p>}
+       {sourceError?<p role="status">{sourceError}</p>:
+         !sources?<p role="status">Loading obligation sources…</p>:
+         !sources.some(source=>source.jurisdiction!=="US")&&<p className="muted">To link a state source, save the company business facts under Research &amp; sources.</p>}
+       {(sourceError||error.startsWith("The obligation source changed."))&&<div><Button type="button" variant="outline" onClick={reloadStateSources}>Reload sources</Button></div>}
+       {linkedSource&&<p className="muted">{linkedSource.jurisdiction==="US"?"Federal":linkedSource.jurisdiction} · {linkedSource.title} · {linkedSource.jurisdiction==="US"?"Source":"Scope"} version {linkedSource.revision}</p>}
+       {selected?.stateBasisChanged&&!chosenSource&&<p role="status">The saved scope or source changed. Select a current source to update this obligation.</p>}
        {linkedSource?<p><a className="underline" href={linkedSource.sourceUrl} target="_blank" rel="noreferrer">{linkedSource.authority}</a></p>:<>
          <label className="field">Authority source (HTTPS)<input name="sourceUrl" type="url" required maxLength={2000}
            value={manualAuthority.sourceUrl} onChange={e=>setManualAuthority({...manualAuthority,sourceUrl:e.target.value})}/></label>
@@ -237,7 +235,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
            <div><strong>{period.period} · Version {period.version}</strong><p>{period.status}</p>
              <p>{dateLabel(period.from)} through {dateLabel(period.through)}</p>
              <p>Internal target {dateLabel(period.internalTarget)} · {period.ownerEmail}</p>
-             {period.stateBasis && <p>Scope version {period.stateBasis.revision} · {period.stateBasis.jurisdiction} ·{" "}
+             {period.stateBasis && <p>{period.stateBasis.jurisdiction==="US"?"Federal source":"State scope"} version {period.stateBasis.revision} · {period.stateBasis.jurisdiction==="US"?"Federal":period.stateBasis.jurisdiction} ·{" "}
                <a className="underline" href={period.stateBasis.sourceUrl} target="_blank" rel="noreferrer">{period.stateBasis.title}</a>
              </p>}
              {period.filingStatus && <p>External filing · {period.filingStatus}</p>}
@@ -256,7 +254,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
          </div>}
        </>}
        <details className="document-form"><summary>Add a reporting period</summary>
-         <form className="record-form" onSubmit={e=>{e.preventDefault();void mutate({operation:"generate",entityId,id:selected.id,expectedRevision:selected.revision,period:text(new FormData(e.currentTarget),"period")},false);}}><p>Uses saved version {selected.revision}. {periodInstructions(selected.draft)}</p><label className="field">Period first month<input type="month" name="period" required min="2000-01" max="2099-12"/></label><div><Button type="submit" disabled={busy}>Record period</Button></div></form>
+         <form className="record-form" onSubmit={e=>{e.preventDefault();void mutate({operation:"generate",entityId,id:selected.id,expectedRevision:selected.revision,period:text(new FormData(e.currentTarget),"period")},false);}}><p>Uses saved version {selected.revision}. {periodInstructions(selected.draft,selected.stateBasis?.sourceKey)}</p><label className="field">Period first month<input type="month" name="period" required min="2000-01" max="2099-12"/></label><div><Button type="submit" disabled={busy}>Record period</Button></div></form>
        </details>
      </>}
    </>}

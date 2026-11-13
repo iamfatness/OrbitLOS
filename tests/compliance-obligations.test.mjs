@@ -57,7 +57,7 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   const f=fixture(t);
   const now="2026-11-12T12:00:00Z", jurisdiction="MI";
   const stateSources={operation:"stateSources",entityId:f.entityId};
-  assert.deepEqual(f.run(stateSources).items,[]);
+  assert.deepEqual(f.run(stateSources).items.map(item=>item.jurisdiction),["US","US"]);
   const saveScope=expectedRevision=>complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction,
     expectedRevision,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional license",
       officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
@@ -71,7 +71,7 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   const sources=f.run(stateSources).items;
   const source=sources.find(item=>item.sourceKey==="REQ-MI-REPORTING-RMLA");
   const reference={jurisdiction,revision:1,sourceKey:source.sourceKey};
-  assert.ok(sources.every(item=>item.jurisdiction===jurisdiction));
+  assert.ok(sources.every(item=>[jurisdiction,"US"].includes(item.jurisdiction)));
   assert.ok(f.run(f.save({stateReference:{...reference,jurisdiction:"OH"}})).error);
   assert.ok(f.run(f.save({stateReference:{...reference,sourceKey:"REQ-MI-LICENSING-FIRST"}})).error);
   const save=f.save({stateReference:reference,draft:{...f.draft,cadence:"Quarterly",applicability:"Required",reviewerEvidence:"Fictional internal review"}});
@@ -89,7 +89,7 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   assert.equal(snapshot.reportingBasis.nominalDueOn,"2024-05-15");
   assert.equal(JSON.parse(snapshot.stateBasis.snapshot).key,source.sourceKey);
   assert.equal(saveLicense({ ...license, revision: 1, requestId: crypto.randomUUID(), status: "Expired" }).kind, "programLicenses");
-  assert.deepEqual(f.run(stateSources).items, []);
+  assert.deepEqual(f.run(stateSources).items.filter(item => item.jurisdiction !== "US"), []);
   assert.equal(f.run(list).items[0].stateBasisChanged, true);
   const licenseGap = f.run(f.generate({ period: "2024-04" })).occurrence;
   assert.equal(licenseGap.status, "Applicability review gap");
@@ -305,6 +305,38 @@ test("Michigan company renewal preserves the filing target, expiration context a
  assert.equal(record("SECOND",14,"2026-07",7).basis.nominalDueOn,null);
  assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:secondary.id,period:"2026-01",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
  assert.match(f.sql.prepare("SELECT instructions FROM compliance_program_items").get().instructions,/Nominal date: 2026-12-15.*internal target falls after/);
+});
+
+test("federal HMDA periods preserve entity and authority, adjust weekends and exclude Q4",t=>{
+ const f=fixture(t);
+ const sources=f.run({operation:"stateSources",entityId:f.entityId}).items;
+ const add=(sourceKey,cadence)=>{
+  const source=sources.find(item=>item.sourceKey===sourceKey),id=crypto.randomUUID();
+  assert.equal(source.jurisdiction,"US");
+  const draft={...f.draft,cadence};
+  const stateReference={sourceKey,jurisdiction:"US",revision:source.revision};
+  assert.ok(f.run(f.save({id,draft,stateReference:{...stateReference,jurisdiction:"MI"}})).error);
+  assert.ok(f.run(f.save({id,draft,stateReference:{...stateReference,revision:2}})).error);
+  assert.equal(f.run(f.save({id,draft,stateReference})).revision,1);
+  return id;
+ };
+ const annual=add("FED-HMDA-ANNUAL","Annual");
+ const quarterly=add("FED-HMDA-QUARTERLY","Quarterly");
+ const generate=(id,period)=>f.run(f.generate({id,period}));
+ const annualPeriod=generate(annual,"2025-01").occurrence;
+ const snapshot=JSON.parse(annualPeriod.snapshot);
+ assert.equal(snapshot.reportingBasis.nominalDueOn,"2026-03-02");
+ assert.equal(snapshot.reportingBasis.route,"FFIEC HMDA Platform");
+ assert.equal(snapshot.stateBasis.sourceUrl,"https://www.consumerfinance.gov/rules-policy/regulations/1003/5/");
+ assert.equal(annualPeriod.status,"Applicability review gap");
+ assert.equal(JSON.parse(generate(quarterly,"2026-01").occurrence.snapshot).reportingBasis.nominalDueOn,"2026-06-01");
+ assert.equal(JSON.parse(generate(quarterly,"2025-07").occurrence.snapshot).reportingBasis.nominalDueOn,"2025-12-01");
+ assert.match(generate(quarterly,"2026-10").error,/fourth-quarter HMDA data in the annual filing/);
+ assert.equal(f.run({operation:"planWork",entityId:f.entityId,id:annual,period:"2025-01",requestId:crypto.randomUUID()}).kind,"obligationWorkPlanned");
+ assert.match(f.sql.prepare("SELECT instructions FROM compliance_program_items").get().instructions,/Federal source version 1, FED-HMDA-ANNUAL.*2026-03-02/);
+ f.sql.prepare("UPDATE compliance_program_entities SET name=? WHERE id=?").run("Updated fictional entity",f.entityId);
+ assert.equal(f.run({operation:"list",entityId:f.entityId}).items.find(item=>item.id===annual).stateBasisChanged,true);
+ assert.equal(generate(annual,"2025-01").occurrence.snapshot,annualPeriod.snapshot);
 });
 
 test("planning rejects unavailable owners and rolls back monthly work on audit failure",t=>{

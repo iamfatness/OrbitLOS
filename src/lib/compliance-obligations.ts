@@ -4,7 +4,7 @@ import { complianceProgramWork } from "./compliance-program";
 import { stateScopeLicenseSnapshot } from "./compliance-state-basis";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
-import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
+import { hmdaSources, isObligationStateSource, obligationReportingBasis, filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
   type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
 
@@ -152,17 +152,21 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     return read();
   }
   const stateSources = () => {
+    const federal = hmdaSources.map(source => {
+      const reference = { ...source, jurisdiction: "US", revision: 1, sourceUrl: "https://www.consumerfinance.gov/rules-policy/regulations/1003/5/" };
+      return { ...reference, snapshot: JSON.stringify({ ...reference, entity }) };
+    });
     const versions = db.prepare(`SELECT s.jurisdiction,s.revision,s.entitySnapshot,s.sourceSnapshots,s.licenseSnapshots FROM compliance_state_scope_versions s
       WHERE s.brokerageId=? AND s.entityId=? AND s.revision=(
         SELECT max(n.revision) FROM compliance_state_scope_versions n
         WHERE n.brokerageId=s.brokerageId AND n.entityId=s.entityId AND n.jurisdiction=s.jurisdiction)
       ORDER BY s.jurisdiction`).all(tenant, data.entityId);
-    if (!versions.length) return [];
+    if (!versions.length) return federal;
     const register = complianceProgramWork(db, { operation: "licenses", entityId: data.entityId }, staff, roster, now);
-    if ("error" in register || register.kind !== "programLicenses") return [];
+    if ("error" in register || register.kind !== "programLicenses") return federal;
     const entitySnapshot = JSON.stringify(entity);
     const licensesByState = Map.groupBy(register.licenses, license => license.jurisdiction);
-    return versions.flatMap(version => {
+    const state = versions.flatMap(version => {
       if (version.entitySnapshot !== entitySnapshot ||
         version.licenseSnapshots !== stateScopeLicenseSnapshot(licensesByState.get(String(version.jurisdiction)) ?? [])) return [];
       const savedSources = new Set(JSON.parse(String(version.sourceSnapshots)) as string[]);
@@ -174,6 +178,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
           title: source.title, authority: source.relatedSources?.[0]?.label ?? source.title, sourceUrl: source.sourceUrl, snapshot }];
       });
     });
+    return [...federal, ...state];
   };
   if (data.operation === "stateSources")
     return { kind: "obligationStateSources", items: stateSources().map(describeStateBasis) };
@@ -229,7 +234,9 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     let workId = linked ? String(linked.workId) : "";
     if (!linked) {
       const requestId = crypto.randomUUID();
-      const stateNote = snapshot.stateBasis ? ` State scope version ${snapshot.stateBasis.revision}, ${snapshot.stateBasis.sourceKey}.` : "";
+      const stateNote = snapshot.stateBasis ? snapshot.stateBasis.jurisdiction === "US"
+        ? ` Federal source version ${snapshot.stateBasis.revision}, ${snapshot.stateBasis.sourceKey}.`
+        : ` State scope version ${snapshot.stateBasis.revision}, ${snapshot.stateBasis.sourceKey}.` : "";
       const reporting = snapshot.reportingBasis;
       const routeNote = reporting ? ` Filing route: ${reporting.route}.${reporting.nominalDueOn ? ` Nominal date: ${reporting.nominalDueOn}.` : ""} ${reporting.review}` : "";
       const result = complianceProgramWork(db,{operation:"schedule",requestId,entityId:data.entityId,month,
@@ -262,7 +269,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const reference = data.stateReference;
     const stateBasis = reference ? stateSources().find(source => source.jurisdiction === reference.jurisdiction &&
       source.revision === reference.revision && source.sourceKey === reference.sourceKey) : existingBasis;
-    if (reference && !stateBasis) return { error: "The state obligation source changed. Refresh sources or save a current state scope." };
+    if (reference && !stateBasis) return { error: "The obligation source changed. Reload sources and check the saved state scope if applicable." };
     const draft = stateBasis ? { ...data.draft, sourceUrl: stateBasis.sourceUrl, authority: stateBasis.authority, stateBasis } : data.draft;
     const revision = data.expectedRevision + 1;
     db.prepare("INSERT INTO compliance_obligation_versions VALUES (?,?,?,?,?,?,?,?)").run(tenant, data.entityId, data.id, revision,
@@ -275,6 +282,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   if (!owner || (owner.accessRevision ?? 0) !== latest.ownerRevision) return { error: "Review the unavailable owner and save a new version before generation." };
   const period = obligationPeriod(data.period, draft.cadence, draft.internalTargetDay, draft.annualStartMonth);
   if (!period) return { error: "Choose the first month of the internal cadence period." };
+  if (stateBasis?.sourceKey === "FED-HMDA-QUARTERLY" && draft.cadence === "Quarterly" && data.period.endsWith("-10"))
+    return { error: "Include fourth-quarter HMDA data in the annual filing. Choose a first-, second- or third-quarter period here." };
   if (period.through < draft.effectiveFrom || (draft.effectiveThrough && period.from > draft.effectiveThrough))
     return { error: "This internal period falls outside the version's effective dates." };
   const existing = db.prepare("SELECT * FROM compliance_obligation_occurrences WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?")
