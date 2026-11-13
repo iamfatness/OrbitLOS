@@ -5,7 +5,7 @@ import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illin
 import { prepareNewYorkEmploymentWorkpaper, reviewNewYorkEmployment, type NewYorkEmploymentEvidence } from "./new-york-employment-model";
 import { isNewYorkVoorSource, reviewNewYorkVoor, type NewYorkVoorEvidence } from "./new-york-voor-model";
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
-import { michiganFilingComponent, reviewMichiganFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
+import { nmlsFilingComponent, reviewNmlsFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
 import type { ObligationDraft } from "./compliance-obligations-model";
 
 export type FilingProgress = { revision: string | null; summary: string; gaps: string[] };
@@ -19,8 +19,8 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   const { sourceKey, bounds, nominalDueOn } = target;
   if (sourceKey === "REQ-MI-LICENSING-MLO-RENEW" && nominalDueOn)
     return michiganRenewalProgress(db, target, nominalDueOn, now);
-  const michiganComponent = michiganFilingComponent(sourceKey, target.draft);
-  const table = michiganComponent ? "michigan_filing_versions" :
+  const nmlsComponent = nmlsFilingComponent(sourceKey, target.draft, bounds.from);
+  const table = nmlsComponent ? "michigan_filing_versions" :
     isNewYorkVoorSource(sourceKey) && bounds.from.endsWith("-01-01") && bounds.through.endsWith("-12-31")
     ? "new_york_voor_versions" : sourceKey === "REQ-NY-REPORTING-QRES" && nominalDueOn ? "new_york_employment_versions"
     : sourceKey === "REQ-CO-LICENSING-CO-RENEW" && nominalDueOn && bounds.from >= "2026-01-01" ? "colorado_company_renewal_versions"
@@ -35,12 +35,12 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   if (!row) return {
     revision: null, summary: "Filing evidence needed",
     gaps: [...(nominalDueOn && nominalDueOn < asOf ? ["The nominal date passed without recorded evidence."] : []),
-      michiganComponent ? "Record the original filing receipt and supporting evidence." : "Open the linked period in Obligations to record evidence."],
+      nmlsComponent ? "Record the original filing receipt and supporting evidence." : "Open the linked period in Obligations to record evidence."],
   };
   const revision = String(row.version);
   const evidence: unknown = JSON.parse(String(row.evidence));
   if (table === "michigan_filing_versions") {
-    const finding = reviewMichiganFiling(evidence as MichiganFilingEvidence, nominalDueOn, asOf, michiganComponent, bounds.through);
+    const finding = reviewNmlsFiling(evidence as MichiganFilingEvidence, nominalDueOn, asOf, nmlsComponent, bounds.through);
     return { revision, summary: finding.summary, gaps: finding.gaps };
   }
   if (table === "new_york_voor_versions") {

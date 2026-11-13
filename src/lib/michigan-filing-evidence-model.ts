@@ -5,13 +5,36 @@ const reference = z.string().trim().min(5).max(1500);
 const receipt = z.strictObject({ on: z.iso.date(), reference });
 const amendment = receipt.extend({ reason: reference });
 
-export function michiganFilingComponent(source: string, draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">) {
-  if (source === "REQ-MI-REPORTING-RMLA" && draft.cadence === "Quarterly") return "Residential Mortgage Loan Activity";
-  if (source === "REQ-MI-REPORTING-FC" && (draft.cadence === "Quarterly" ||
-    (draft.cadence === "Annual" && (draft.annualStartMonth ?? 1) === 1))) return "Financial Condition";
+const quarterlyActivitySources = new Set([
+  "REQ-MI-REPORTING-RMLA", "REQ-CA-REPORTING-DRE-MCR", "REQ-CA-REPORTING-CFL-MCR", "REQ-CA-REPORTING-CRMLA-MCR",
+  "REQ-FL-REPORTING-MCR", "REQ-TX-REPORTING-MCR", "REQ-NY-REPORTING-MCR", "REQ-CO-REPORTING-MCR",
+  "REQ-IL-REPORTING-ACTIVITY",
+]);
+const calendarAnnualConditionSources = new Set([
+  "REQ-MI-REPORTING-FC", "REQ-CA-REPORTING-DRE-FC", "REQ-CA-REPORTING-CFL-FC", "REQ-FL-REPORTING-BROKER-FC",
+  "REQ-TX-REPORTING-FC",
+]);
+const quarterlyConditionSources = new Set([
+  "REQ-MI-REPORTING-FC", "REQ-CA-REPORTING-DRE-FC", "REQ-CA-REPORTING-CFL-FC", "REQ-CA-REPORTING-CRMLA-FC",
+  "REQ-FL-REPORTING-LENDER-FC", "REQ-TX-REPORTING-FC", "REQ-CO-REPORTING-QUARTER-FC",
+]);
+
+export function nmlsFilingComponent(source: string, draft: Pick<ObligationDraft, "cadence" | "annualStartMonth">, periodStart: string) {
+  if (!source.startsWith("REQ-MI-") && periodStart < "2026-01-01") return null;
+  const { cadence, annualStartMonth } = draft;
+  if (cadence === "Quarterly" && quarterlyActivitySources.has(source)) return "Residential Mortgage Loan Activity";
+  if (cadence === "Quarterly" && quarterlyConditionSources.has(source)) return "Financial Condition";
+  if (cadence === "Annual" && (annualStartMonth ?? 1) === 1 && calendarAnnualConditionSources.has(source))
+    return "Financial Condition";
+  if (source === "REQ-CO-REPORTING-STD-FC" && cadence === "Annual" && annualStartMonth !== undefined) return "Financial Condition";
+  if (source === "REQ-TX-REPORTING-SSSF" && cadence === "Quarterly") return "State-Specific Supplemental Form";
   if (source === "REQ-MI-REPORTING-GAAP" && draft.cadence === "Annual" && draft.annualStartMonth !== undefined)
     return "Fiscal-year financial statement";
   return null;
+}
+
+export function nmlsFilingDate(now: string) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
 }
 
 export const michiganFilingEvidence = z.strictObject({
@@ -26,8 +49,8 @@ export type MichiganFilingEvidence = z.infer<typeof michiganFilingEvidence>;
 export const michiganFilingAmendments = (evidence: MichiganFilingEvidence) =>
   evidence.amendments ?? (evidence.amendment ? [evidence.amendment] : []);
 
-export function reviewMichiganFiling(evidence: MichiganFilingEvidence, nominalDueOn: string | null, asOf: string,
-  component: ReturnType<typeof michiganFilingComponent>, periodEnd: string) {
+export function reviewNmlsFiling(evidence: MichiganFilingEvidence, nominalDueOn: string | null, asOf: string,
+  component: ReturnType<typeof nmlsFilingComponent>, periodEnd: string) {
   const dueOn = evidence.deadline?.on ?? nominalDueOn;
   const gaps: string[] = [];
   if (!evidence.deadline) gaps.push("Verify the component and deadline against the current filing instructions.");
@@ -37,7 +60,7 @@ export function reviewMichiganFiling(evidence: MichiganFilingEvidence, nominalDu
   if (!evidence.submission) gaps.push("Record the original NMLS submission receipt.");
   if (evidence.submission && dueOn && evidence.submission.on > dueOn) gaps.push("Review the late submission.");
   const amendments = michiganFilingAmendments(evidence);
-  if (component === "Residential Mortgage Loan Activity" || component === "Financial Condition") {
+  if (component && component !== "Fiscal-year financial statement") {
     const cutoff = String(Number(periodEnd.slice(0, 4)) + 2) + periodEnd.slice(4);
     if (amendments.some(item => item.on > cutoff))
       gaps.push("Verify amendment evidence after the published two-year NMLS filing window.");

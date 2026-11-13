@@ -13,7 +13,7 @@ import { coloradoRenewalReportingPeriods, reviewColoradoCompanyRenewal, type Col
 import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
-import { michiganFilingAmendments, michiganFilingComponent, reviewMichiganFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
+import { michiganFilingAmendments, nmlsFilingComponent, nmlsFilingDate, reviewNmlsFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
 
 type StateBasis = ObligationStateSource & { snapshot: string };
 type StoredDraft = ObligationDraft & { stateBasis?: StateBasis };
@@ -248,21 +248,21 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const snapshot = occurrence ? JSON.parse(String(occurrence.snapshot)) as OccurrenceSnapshot : null;
     const basis = snapshot?.stateBasis;
     if (!snapshot || !basis || snapshot.draft.applicability === "Not applicable") return unavailable;
-    const component = michiganFilingComponent(basis.sourceKey, snapshot.draft);
+    const component = nmlsFilingComponent(basis.sourceKey, snapshot.draft, snapshot.period.from);
     if (!component) return unavailable;
     const scopeMatches = financialConditionScopeMatches(db, tenant, data.entityId, basis, snapshot.draft.cadence);
     const nominalDueOn = scopeMatches ? snapshot.reportingBasis?.nominalDueOn ?? null : null;
     const scopeChanged = !scopeMatches || !currentStateBasis(basis);
-    const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+    const asOf = nmlsFilingDate(now);
     if (data.operation === "michiganFilingHistory") {
       const before = data.before ?? null;
       const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM michigan_filing_versions
         WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND (? IS NULL OR version<?) ORDER BY version DESC LIMIT 21`)
         .all(...target, before, before);
       const versions = rows.slice(0, 20).map(row => ({ ...row, evidence: JSON.parse(String(row.evidence)) as MichiganFilingEvidence,
-        finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewMichiganFiling> }));
-      return { kind: "michiganFilingHistory", component, nominalDueOn, scopeChanged, bounds: snapshot.period, versions,
-        currentFinding: before === null && versions[0] ? reviewMichiganFiling(versions[0].evidence, nominalDueOn, asOf, component, snapshot.period.through) : null,
+        finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewNmlsFiling> }));
+      return { kind: "michiganFilingHistory", component, sourceTitle: basis.title, nominalDueOn, scopeChanged, bounds: snapshot.period, versions,
+        currentFinding: before === null && versions[0] ? reviewNmlsFiling(versions[0].evidence, nominalDueOn, asOf, component, snapshot.period.through) : null,
         next: rows.length > 20 ? rows[19].version : null };
     }
     const request = JSON.stringify(data);
@@ -284,7 +284,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     if (new Set(amendments.map(item => JSON.stringify([item.on, item.reference.toLowerCase()]))).size !== amendments.length)
       return { error: "Record each amendment receipt once." };
     const version = data.expected + 1;
-    const finding = reviewMichiganFiling(evidence, nominalDueOn, asOf, component, snapshot.period.through);
+    const finding = reviewNmlsFiling(evidence, nominalDueOn, asOf, component, snapshot.period.through);
     db.prepare("INSERT INTO michigan_filing_versions VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(...target, version, JSON.stringify(evidence), JSON.stringify(finding), staff.email, now, data.correction ?? null);
     const result = { kind: "michiganFilingSaved", version, finding, scopeChanged };
@@ -587,7 +587,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       return { ...row, ...(cadenceConflict && { status: "Applicability review gap" }),
         reportingBasis: cadenceConflict ? { ...reportingBasis, nominalDueOn: null, review: financialConditionCadenceReview } : reportingBasis,
         illinoisAudit, newYorkVoor: hasNewYorkVoorEvidence({ draft, stateBasis }),
-        michiganFiling: draft.applicability !== "Not applicable" && Boolean(michiganFilingComponent(stateBasis?.sourceKey ?? "", draft)),
+        nmlsFiling: draft.applicability !== "Not applicable" && Boolean(nmlsFilingComponent(stateBasis?.sourceKey ?? "", draft, period.from)),
         coloradoCompanyRenewal: stateBasis?.sourceKey === "REQ-CO-LICENSING-CO-RENEW" &&
           Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable",
         newYorkEmployment: stateBasis?.sourceKey === "REQ-NY-REPORTING-QRES" &&

@@ -66,6 +66,67 @@ test("period history preserves original versions and remains entity scoped",t=>{
  assert.ok(f.run(query,f.staff,[]).error);
 });
 
+test("priority-state FV7 filing evidence respects the source, period, cadence and review status", t => {
+ const f = fixture(t);
+ const saveScope = (jurisdiction, activity, expectedRevision = 0) => complianceCaseWork(f.db, {type:"stateScope",input:{
+  operation:"save", entityId:f.entityId, jurisdiction, expectedRevision, requestId:crypto.randomUUID(),
+  facts:{activity,lienScope:"First lien",companyEvidence:"Fictional company license",officeEvidence:"",originatorEvidence:"",
+   products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
+  f.staff,f.staff.brokerage.id,[f.actor],"2026-11-11T12:00:00Z");
+ for (const jurisdiction of ["CA","FL","TX","NY","CO","IL"]) assert.equal(saveScope(jurisdiction,"Brokerage").revision,1);
+ const record = (jurisdiction, suffix, cadence = "Quarterly", period = "2026-04", annualStartMonth) => {
+  const id = crypto.randomUUID();
+  assert.equal(f.run(f.save({id, draft:{...f.draft,cadence,annualStartMonth},
+   stateReference:{jurisdiction,revision:1,sourceKey:`REQ-${jurisdiction}-REPORTING-${suffix}`}})).revision,1);
+  assert.equal(f.run(f.generate({id,period})).kind,"obligationOccurrence");
+  return {entityId:f.entityId,id,period};
+ };
+ const history = target => f.run({operation:"michiganFilingHistory",...target});
+ const save = (target,evidence) => f.run({operation:"saveMichiganFiling",...target,expected:0,requestId:crypto.randomUUID(),evidence});
+ const cases = [
+  ["CA","DRE-MCR"],["CA","CFL-MCR"],["CA","CRMLA-MCR"],["FL","MCR"],["TX","MCR"],
+  ["NY","MCR"],["CO","MCR"],["IL","ACTIVITY"],
+ ];
+ const lateReceipt = {on:"2026-08-15",reference:"Fictional original NMLS receipt"};
+ for (const [jurisdiction,suffix] of cases) {
+  const target = record(jurisdiction,suffix);
+  assert.equal(history(target).component,"Residential Mortgage Loan Activity");
+  assert.equal(history(target).versions.length,0);
+  const planned = f.run({operation:"planWork",...target,requestId:crypto.randomUUID()});
+  const progress = () => f.program({operation:"month",entityId:f.entityId,month:planned.month}).items.find(item=>item.id===planned.workId).filingProgress;
+  assert.ok(progress().gaps.includes("The nominal date passed without recorded evidence."));
+  const saved = save(target,{deadline:{on:"2026-08-14",reference:"Fictional reviewed deadline"},submission:lateReceipt,
+   reconciliation:{activity:"No reportable activity",reference:"Fictional period reconciliation"}});
+  assert.equal(saved.version,1);
+  assert.deepEqual(progress().gaps,["Review the late submission."]);
+ }
+ for (const [jurisdiction,suffix,start] of [["CA","DRE-FC"],["CA","CFL-FC"],["FL","BROKER-FC"],["TX","FC"]]) {
+  const target = record(jurisdiction,suffix,"Annual","2026-01",start);
+  assert.equal(history(target).component,"Financial Condition");
+  assert.equal(history(target).nominalDueOn,"2027-03-31");
+  assert.deepEqual(history(target).versions,[]);
+ }
+ for (const [jurisdiction,suffix] of [["CA","DRE-FC"],["CA","CFL-FC"],["CA","CRMLA-FC"],["FL","LENDER-FC"],["TX","FC"],["CO","QUARTER-FC"]])
+  assert.equal(history(record(jurisdiction,suffix)).component,"Financial Condition");
+ const coloradoFiscal = record("CO","STD-FC","Annual","2026-07",7);
+ assert.equal(history(coloradoFiscal).component,"Financial Condition");
+ assert.equal(history(coloradoFiscal).nominalDueOn,null);
+ const supplement = record("TX","SSSF");
+ assert.equal(history(supplement).component,"State-Specific Supplemental Form");
+ assert.match(save(supplement,{reconciliation:{activity:"No reportable activity",reference:"Fictional period reconciliation"}}).error,/activity determination/);
+ assert.equal(save(supplement,{submission:lateReceipt}).version,1);
+ assert.ok(history(record("NY","MCR","Quarterly","2025-10")).error);
+ assert.ok(history(record("TX","MCR","Annual","2026-01")).error);
+ assert.ok(history(record("NY","VOOR","Annual","2026-01")).error);
+ assert.equal(saveScope("TX","Brokerage and servicing",1).revision,2);
+ const month = f.program({operation:"month",entityId:f.entityId,month:"2026-06"});
+ const texas = month.items.find(item => item.instructions.includes("REQ-TX-REPORTING-MCR"));
+ assert.ok(texas.filingProgress.gaps.includes("Verify the filing evidence against the current scope and source."));
+});
+
+
+
+
 test("Illinois audit evidence preserves the original deadline and regulator decision history",t=>{
  const f=fixture(t);
  const scope=complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,jurisdiction:"IL",expectedRevision:0,

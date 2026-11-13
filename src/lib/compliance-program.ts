@@ -8,11 +8,11 @@ import { storedQuoteRouting } from "./quote-intake-model";
 import type { SqlValue, Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
-import { financialConditionCadenceReview, financialConditionScopeMatches, stateScopeBasisChanges, stateScopeLicenseSnapshot, stateScopeSourceBasis } from "./compliance-state-basis";
+import { financialConditionCadenceReview, financialConditionScopeMatches, savedFilingScopeMatches, stateScopeBasisChanges, stateScopeLicenseSnapshot, stateScopeSourceBasis } from "./compliance-state-basis";
 import { stateScopePageSize, type StateScopeSummary } from "./compliance-program-model";
 import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth, type ComplianceOwnerHomeData } from "./compliance-program-model";
 import { currentFilingProgress } from "./compliance-filing-progress";
-import { michiganFilingComponent } from "./michigan-filing-evidence-model";
+import { nmlsFilingComponent } from "./michigan-filing-evidence-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -202,7 +202,7 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
   obligationId: SqlValue; period: SqlValue; snapshot: SqlValue;
 }, now: string) {
   const { draft, stateBasis, reportingBasis: recordedReportingBasis, period: bounds } = JSON.parse(String(row.snapshot)) as {
-    draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"]; reportingBasis?: ObligationReviewBasis["reportingBasis"];
+    draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"] & { snapshot?: string }; reportingBasis?: ObligationReviewBasis["reportingBasis"];
     period?: { from: string; through: string };
   };
   const cadenceConflict = Boolean(recordedReportingBasis && stateBasis && draft.applicability !== "Not applicable" &&
@@ -213,10 +213,15 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
     ? currentFilingProgress(db, { brokerageId: tenant, entityId, obligationId: String(row.obligationId),
       period: String(row.period), sourceKey: stateBasis.sourceKey, bounds, draft, nominalDueOn: reportingBasis?.nominalDueOn ?? null }, now)
     : undefined;
-  const filingProgress = cadenceConflict
+  let filingProgress = cadenceConflict
     ? { revision: progress?.revision ?? null, summary: "Filing date needs review",
       gaps: [financialConditionCadenceReview, ...(progress?.gaps ?? [])] } : progress;
-  return { draft, stateBasis, cadenceConflict, reportingBasis, filingProgress };
+  const nmlsFiling = draft.applicability !== "Not applicable" &&
+    Boolean(bounds && nmlsFilingComponent(stateBasis?.sourceKey ?? "", draft, bounds.from));
+  if (nmlsFiling && filingProgress && stateBasis && !savedFilingScopeMatches(db, tenant, entityId, stateBasis)) {
+    filingProgress = { ...filingProgress, gaps: ["Verify the filing evidence against the current scope and source.", ...filingProgress.gaps] };
+  }
+  return { draft, stateBasis, cadenceConflict, reportingBasis, filingProgress, nmlsFiling };
 }
 
 function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, roster: readonly VersionedBrokerageMember[],
@@ -308,7 +313,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   for (const row of bases) {
     const item = byItem.get(String(row.workId));
     if (!item) continue;
-    const { draft, stateBasis, reportingBasis, cadenceConflict, filingProgress } = recordedFilingBasis(db,
+    const { draft, stateBasis, reportingBasis, cadenceConflict, filingProgress, nmlsFiling } = recordedFilingBasis(db,
       staff.brokerage.id, entity.id, { obligationId: row.obligationId, period: row.period, snapshot: row.snapshot }, now);
     if (filingProgress) item.filingProgress = filingProgress;
     const [year, month] = String(row.period).split("-");
@@ -317,7 +322,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
       status: cadenceConflict ? "Applicability review gap" : String(row.status),
       sourceUrl: draft.sourceUrl, authority: draft.authority, reportingBasis,
       filingReceipts: supportsFilingReceipts({ draft, stateBasis, reportingBasis }),
-      michiganFiling: draft.applicability !== "Not applicable" && Boolean(michiganFilingComponent(stateBasis?.sourceKey ?? "", draft)),
+      nmlsFiling,
       stateBasis: stateBasis && { jurisdiction: stateBasis.jurisdiction, revision: stateBasis.revision, sourceKey: stateBasis.sourceKey,
         title: stateBasis.title, authority: stateBasis.authority, sourceUrl: stateBasis.sourceUrl },
       report: draft.preparation === "Mortgage Call Report" ? { year, quarter: Math.ceil(Number(month) / 3) } : undefined,

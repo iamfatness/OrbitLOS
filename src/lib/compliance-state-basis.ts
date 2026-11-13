@@ -55,3 +55,19 @@ export function financialConditionScopeMatches(db: Store, brokerageId: string, e
   return roleBasedFinancialCondition.has(basis.sourceKey) && cadence === "Annual" ? scope?.activity === "Brokerage" :
     cadence === "Quarterly" && (scope?.activity === "Brokerage and lending" || scope?.activity === "Brokerage and servicing");
 }
+
+
+export function savedFilingScopeMatches(db: Store, brokerageId: string, entityId: string, basis: ObligationStateSource & { snapshot?: string }) {
+  const snapshot = basis.snapshot;
+  if (!snapshot) return true;
+  const rows = db.prepare(`SELECT revision, facts, entitySnapshot, licenseSnapshots, sourceSnapshots FROM compliance_state_scope_versions
+    WHERE brokerageId=? AND entityId=? AND jurisdiction=? AND revision>=? ORDER BY revision`)
+    .all(brokerageId, entityId, basis.jurisdiction, basis.revision);
+  const saved = rows[0];
+  if (!saved || saved.revision !== basis.revision) return false;
+  const currentSource = requirementsByState.get(basis.jurisdiction)?.find(source => source.key === basis.sourceKey);
+  return Boolean(currentSource && sourceSnapshot(currentSource) === snapshot &&
+    rows.every((row, index) => Number(row.revision) === basis.revision + index &&
+      (index === 0 || (sameStateScopeFacts(saved, row) && row.sourceSnapshots !== rows[index - 1].sourceSnapshots)) &&
+      (JSON.parse(String(row.sourceSnapshots)) as string[]).includes(snapshot)));
+}

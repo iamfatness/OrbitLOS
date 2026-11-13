@@ -6,7 +6,7 @@ import { programCategories, programStatuses, type ProgramEntity, type ProgramMon
 import type { ObligationReviewBasis } from "@/lib/compliance-obligations-model";
 import { dateLabel } from "@/lib/client-retention";
 import { ComplianceFilingReceipts } from "./compliance-filing-receipts";
-import { MichiganFilingEvidence } from "./michigan-filing-evidence";
+import { NmlsFilingEvidence } from "./michigan-filing-evidence";
 import { Button } from "./ui/button";
 
 const value = (form: FormData, name: string) => String(form.get(name) ?? "");
@@ -131,7 +131,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   const formTitle = screen === "entity" ? "Add entity profile" : screen === "schedule" ? "Schedule review work" : screen === "review" ? "Record monthly review" :
     selected?.stateReview ? "State review question" : selected?.title ?? "Monthly review";
   if (paused) return <p>Program work is unavailable while the workspace is paused.</p>;
-  if (filingOpen && current && selected?.obligation?.michiganFiling) return <MichiganFilingEvidence
+  if (filingOpen && current && selected?.obligation?.nmlsFiling) return <NmlsFilingEvidence
     brokerageId={brokerageId} entityId={current.entity.id} obligationId={selected.obligation.obligationId}
     period={selected.obligation.period} backLabel="Back to review work"
     onBack={() => { returnToFilingButton.current = true; setFilingOpen(false); reload(); }} />;
@@ -232,8 +232,8 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
             {selected?.filingProgress && <div className="record-form"><h3>Filing evidence</h3><p>{selected.filingProgress.summary}</p>
               {selected.filingProgress.gaps.length > 0 && <ul className="list-disc pl-5">
                 {selected.filingProgress.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul>}
-              {selected.obligation?.michiganFiling && <div><Button ref={filingButton} type="button" size="sm" variant="outline"
-                className="min-h-11" onClick={() => setFilingOpen(true)}>Review Michigan filing evidence</Button></div>}</div>}
+              {selected.obligation?.nmlsFiling && <div><Button ref={filingButton} type="button" size="sm" variant="outline"
+                className="min-h-11" onClick={() => setFilingOpen(true)}>Review NMLS filing evidence</Button></div>}</div>}
             <label className="field">Work status<select name="status" defaultValue={selected?.status} aria-describedby="compliance-review-status-help">
               {programStatuses.map(s => <option key={s} disabled={s === "Completed" && !readyToComplete && selected?.status !== s}>{s}</option>)}
             </select></label>

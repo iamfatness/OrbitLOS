@@ -71,3 +71,9 @@ In **Compliance → Obligations**, add a source-linked annual obligation for the
 The planning service was tested with fictional scopes and calendar periods. These additions await hosted acceptance and entity-specific owner and lawyer review.
 
 When only the research catalog changes, Orbit carries a recorded counsel disposition and its reference forward for each identical source. Control evidence stays on the earlier scope version for review. An existing obligation and its planned period keep their original basis through a catalog-only refresh when the authority, company, licenses and business facts still match. New or changed requirements need their own review.
+
+## NMLS filing evidence for the priority group
+
+The staged owner workflow records the reviewed deadline, workpaper or reconciliation reference, original NMLS receipt, and amendments against the selected filing period. In **Compliance**, open the item from **Needs attention** or from **Plan filings and renewals**, then choose **Review NMLS filing evidence**. Monthly review shows what evidence is missing and keeps the internal work status separate from the recorded receipt.
+
+Michigan remains the first pilot. The next group is California, Florida, Texas, New York, Colorado and Illinois. The candidate covers quarterly loan activity, the supported Financial Condition sources and the Texas supplement. New paths start with 2026 periods. Colorado fiscal-year Financial Condition retains its date review. Before regulatory use, verify the legal entity, authority, applicable component, date and any shared receipt. [NMLS FV7 guide](https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/pubs/mcr/licensing/mcr/topics/mcrUserGuide_start-1.html)
