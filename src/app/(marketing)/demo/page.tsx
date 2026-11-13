@@ -30,6 +30,7 @@ export default function DemoPage() {
           <li>Record counsel and control evidence against a saved brokerage scope and reopen the historical review.</li>
           <li>On a fictional Michigan loan, review application and disclosure receipt dates, borrower intent to proceed, and fee timing.</li>
           <li>In a fictional Michigan loan, review charge and rate guarantee evidence and record when the application booklet was provided.</li>
+          <li>In a fictional Michigan brokerage, record advertising evidence and retrieve the reviewed version from history.</li>
           <li>In fictional pilots, review Midwest brokerage agreement timing and record refinance benefit evidence for Minnesota and Nebraska.</li>
           <li>Compare itemized charges on the original Loan Estimate and Closing Disclosure, and see which differences need review.</li>
           <li>Review the affected charges and timing on a revised Loan Estimate while keeping the original comparison available.</li>
