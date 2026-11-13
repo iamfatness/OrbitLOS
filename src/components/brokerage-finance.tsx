@@ -112,6 +112,9 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
   const [exceptionView, setExceptionView] = useState<SettlementQueueQuery["view"]>("Differences");
   const [returnTo, setReturnTo] = useState<{ loanId: string; cycle: number }>();
   const [selection, setSelection] = useState<{ loanId: string; cycle: number; before?: number; settlementBefore?: number; feeBefore?: number; focusFees?: true }>();
+  const [sourceCycle, setSourceCycle] = useState<{ loanId: string; cycle: number }>();
+  const ledgerHeading = useRef<HTMLHeadingElement>(null);
+  const focusLedger = useRef(false);
   const [version, setVersion] = useState(0);
   const [list, setList] = useState<{ query: FinanceListQuery; data: List | { error: string } }>();
   const [detail, setDetail] = useState<{ selection: typeof selection; data: Detail | { error: string } }>();
@@ -154,6 +157,12 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
 
   const showingQueue = showExceptions && !selection;
   const data = selection ? detail?.selection === selection ? detail?.data : undefined : !showingQueue && list?.query === query ? list.data : undefined;
+  useEffect(() => {
+    if (focusLedger.current && data && ("error" in data || data.kind === "detail")) {
+      focusLedger.current = false;
+      ledgerHeading.current?.focus();
+    }
+  }, [data]);
   const owners = [...new Map(loans.filter(({ officer }) => officer).map((loan) => [loan.officerEmail ? `email:${loan.officerEmail}` : `name:${loan.officer}`, loan.officer])).entries()]
     .sort((a, b) => a[1].localeCompare(b[1]));
   const save = (change: Change | SettlementChange | SettlementFeeChange, after?: () => void) => {
@@ -177,8 +186,13 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
         onClick={() => { setShowExceptions(true); setFeedback(undefined); }}>Settlement exceptions</Button>
     </div>}
     {selection ? <div className="loan-application-actions"><Button size="sm" variant="outline" disabled={busy} onClick={() => {
+      if (sourceCycle) {
+        focusLedger.current = true;
+        setSelection(sourceCycle); setSourceCycle(undefined); setFeedback(undefined);
+        return;
+      }
       setReturnTo(showExceptions ? selection : undefined); setSelection(undefined); setFeedback(undefined);
-    }}>{showExceptions ? "Back to settlement exceptions" : "Back to financials"}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setVersion((value) => value + 1)}>Refresh ledger</Button></div>
+    }}>{sourceCycle ? "Back to original funding cycle" : showExceptions ? "Back to settlement exceptions" : "Back to financials"}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setVersion((value) => value + 1)}>Refresh ledger</Button></div>
       : showingQueue ? <SettlementExceptionQueue brokerageId={brokerageId} fundingVersion={fundingVersion} view={exceptionView} selectView={setExceptionView} returnTo={returnTo}
         open={(loanId, cycle, focusFees) => { setFeedback(undefined); setSelection({ loanId, cycle, focusFees }); }} /> : <>
       <form className="record-form" key={`${query.from}:${query.through}:${query.view}:${query.owner}`} onSubmit={(event) => {
@@ -224,11 +238,16 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
       </div>
     </>}
     {data && "kind" in data && data.kind === "detail" && <section className="record-form" aria-label="Loan financial ledger">
-      <div className="section-heading"><h3>{data.loan.borrower}</h3>{!data.loan.reversedAt && <Button size="sm" variant="outline" disabled={busy} onClick={() => openFunding(data.loan.id)}>Open funding record</Button>}</div>
+      <div className="section-heading"><h3 ref={ledgerHeading} tabIndex={-1}>{data.loan.borrower}</h3>{!data.loan.reversedAt && <Button size="sm" variant="outline" disabled={busy} onClick={() => openFunding(data.loan.id)}>Open funding record</Button>}</div>
       <p className="muted">Funded {dateLabel(data.loan.date)} · Cycle {data.loan.cycle}{data.loan.reversedAt && ` · Reversed ${dateTime(data.loan.reversedAt)} ET · Archived ledger`}</p>
       <SettlementReconciliation work={data.settlement} today={data.today} active={!data.loan.reversedAt} busy={busy} save={save}
         importEvidence={<>
-          <SettlementFeed key={`${data.loan.id}:${data.loan.cycle}`} brokerageId={brokerageId} loan={data.loan} onImported={() => setVersion(value => value + 1)} />
+          <SettlementFeed key={`${data.loan.id}:${data.loan.cycle}`} brokerageId={brokerageId} loan={data.loan} onImported={() => setVersion(value => value + 1)}
+            openCycle={(loanId, cycle) => {
+              focusLedger.current = true;
+              setSourceCycle(sourceCycle ?? { loanId: data.loan.id, cycle: data.loan.cycle });
+              setSelection({ loanId, cycle });
+            }} />
           {!data.loan.reversedAt && <SettlementEvidenceImport brokerageId={brokerageId} loan={data.loan} busy={busy}
             onSaved={(message) => { setFeedback({ text: message }); setVersion(value => value + 1); }} />}
         </>}

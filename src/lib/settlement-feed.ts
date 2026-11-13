@@ -32,7 +32,7 @@ function simulatedDeliveries(loan: FinanceLoan): ProviderEvidence[] {
 }
 
 export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoan | undefined,
-  staff: WorkspaceStaff, at: string, today: string): FinanceResult {
+  staff: WorkspaceStaff, at: string, today: string, findCycle: (id: string, cycle: number) => FinanceLoan | undefined): FinanceResult {
   if (!loan || (input.type !== "settlementFeed" && loan.reversedAt) ||
       ("fundingDate" in input && input.fundingDate !== loan.date)) {
     return { error: "This funding cycle changed. Reopen it before pulling settlement evidence." };
@@ -86,6 +86,15 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
     if (rows.length !== 1 || (row.status !== "Needs review" && (row.status !== decision || row.reviewNote !== input.note))) {
       return { error: "This delivery has changed. Reload the provider results." };
     }
+    const destination = input.type === "matchSettlementFeed" ? input.destination : undefined;
+    if (matching && row.status === "Matched by owner") {
+      const saved = db.prepare("SELECT payload FROM settlement_imports WHERE source = ? AND evidenceId = ?").get(source, input.evidenceId);
+      const evidence = settlementEvidence.safeParse(saved && JSON.parse(String(saved.payload)));
+      if (!evidence.success || evidence.data.loanId !== (destination?.id ?? loan.id) ||
+          evidence.data.cycle !== (destination?.cycle ?? loan.cycle) || evidence.data.fundingDate !== (destination?.date ?? loan.date)) {
+        return { error: "This delivery has changed. Reload the provider results." };
+      }
+    }
     if (row.status === "Needs review") {
       let detail: string | null = null;
       if (matching) {
@@ -93,15 +102,20 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
         if (!isUnmatchedWire({ fundingReference: reference, ...fields }, loan) || !checkedFundingDate) {
           return { error: "Only an unmatched wire from this funding date can be matched here." };
         }
-        const evidence = settlementEvidence.parse({ ...fields, schemaVersion: 1, source, loanId: loan.id, cycle: loan.cycle, fundingDate: loan.date });
-        const target = { loanId: loan.id, cycle: loan.cycle, evidence };
-        const preview = importSettlementEvidence(db, { ...target, type: "settlementEvidencePreview" }, loan, staff, at, today);
+        const selected = destination ? findCycle(destination.id, destination.cycle) : loan;
+        if (!selected || selected.reversedAt || (destination && (selected.id === loan.id || selected.date !== destination.date))) {
+          return { error: "The destination funding cycle changed. Search again and choose the current cycle." };
+        }
+        const evidence = settlementEvidence.parse({ ...fields, schemaVersion: 1, source, loanId: selected.id, cycle: selected.cycle, fundingDate: selected.date });
+        const target = { loanId: selected.id, cycle: selected.cycle, evidence };
+        const preview = importSettlementEvidence(db, { ...target, type: "settlementEvidencePreview" }, selected, staff, at, today);
         if ("error" in preview) return preview;
         if (preview.kind !== "settlementEvidencePreview") return { error: "Could not check this delivery against the settlement ledger." };
-        const imported = importSettlementEvidence(db, { ...target, type: "settlementEvidenceImport", fundingDate: loan.date,
-          revision: preview.revision, entryId: crypto.randomUUID() }, loan, staff, at, today);
+        const imported = importSettlementEvidence(db, { ...target, type: "settlementEvidenceImport", fundingDate: selected.date,
+          revision: preview.revision, entryId: crypto.randomUUID() }, selected, staff, at, today);
         if ("error" in imported) return imported;
-        detail = preview.alreadyRecorded ? "The wire was already recorded in this cycle." : "The owner confirmed the wire belongs to this cycle and added it to received proceeds.";
+        detail = destination ? "The owner matched the wire to a different funding cycle." :
+          preview.alreadyRecorded ? "The wire was already recorded in this cycle." : "The owner confirmed the wire belongs to this cycle and added it to received proceeds.";
       }
       db.prepare(`UPDATE settlement_feed_receipts SET status = ?, detail = coalesce(?, detail), reviewNote = ?, reviewedBy = ?, reviewedAt = ?
         WHERE loanId = ? AND cycle = ? AND sequence = ?`)
@@ -112,8 +126,14 @@ export function settlementFeedWork(db: Store, input: FeedInput, loan: FinanceLoa
     FROM settlement_feed_receipts WHERE loanId = ? AND cycle = ? ORDER BY sequence`).all(...args) as unknown as Receipt[];
   return { kind: "settlementFeed", checkedFundingDate, rows: receipts.map(({ payload, ...receipt }) => {
     const record = JSON.parse(payload) as ProviderEvidence;
+    const imported = receipt.status === "Matched by owner" && db.prepare(`SELECT event.loanId, event.cycle, contact.name AS borrower,
+      json_extract(imported.payload, '$.fundingDate') AS date FROM settlement_imports imported
+      JOIN settlement_events event ON event.id = imported.eventId JOIN loans loan ON loan.id = event.loanId
+      JOIN contacts contact ON contact.id = loan.contactId WHERE imported.source = ? AND imported.evidenceId = ? AND event.loanId <> ?`)
+      .get(source, record.evidenceId, loan.id);
     return { ...receipt, evidenceId: record.evidenceId, fundingReference: record.fundingReference, kind: record.kind,
       amountCents: evidenceAmount(record),
+      ...(imported ? { destination: { id: String(imported.loanId), cycle: Number(imported.cycle), date: String(imported.date), borrower: String(imported.borrower) } } : {}),
       ...(receipt.status === "Needs review" && checkedFundingDate === loan.date && isUnmatchedWire(record, loan) ? { canMatch: true } : {}) };
   }) };
 }

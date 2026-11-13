@@ -1,5 +1,5 @@
 import { canManageFinance, financeInput, financeMoney, financeUnavailable, type FinanceEntry, type FinanceInput,
-  type FinanceLoan, type FinanceMutation, type FinanceResult, type FinanceTotals } from "./brokerage-finance-model";
+  type FinanceLoan, type FinanceMutation, type FinanceResult, type FinanceTotals, type SettlementDestination } from "./brokerage-finance-model";
 import { easternDate } from "./client-retention";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -158,9 +158,18 @@ export function brokerageFinanceWork(db: Store, input: unknown, staff: Workspace
   if (data.type === "list" || data.type === "export") return financePage(db, data, staff, at);
   if (data.type === "detail") return financeDetail(db, data, today);
   if (data.type === "settlementQueue") return readSettlementQueue(db, data);
+  if (data.type === "findSettlementDestination") {
+    if (!financeRecord(db, data.loanId, data.cycle)) return { error: "Open a current funding cycle before searching." };
+    const rows = db.prepare(`SELECT loan.id, progress.fundingDate AS date, progress.fundingCycle AS cycle, contact.name AS borrower
+      FROM closing_progress progress JOIN loans loan ON loan.id = progress.loanId JOIN contacts contact ON contact.id = loan.contactId
+      WHERE progress.fundingDate IS NOT NULL AND loan.id <> ? AND (loan.id = ? OR instr(lower(contact.name), lower(?)) > 0)
+      ORDER BY progress.fundingDate DESC, loan.id LIMIT 11`).all(data.loanId, data.search, data.search) as unknown as SettlementDestination[];
+    return { kind: "settlementDestinations", rows: rows.slice(0, 10).map(row => ({ ...row })), more: rows.length > 10 };
+  }
   if (data.type === "settlementFeed" || data.type === "pullSettlementFeed" || data.type === "reviewSettlementFeed" || data.type === "matchSettlementFeed") {
     return db.transaction(() => settlementFeedWork(db, data, financeRecord(db, data.loanId, data.cycle) ??
-      (data.type === "settlementFeed" ? financeRecord(db, data.loanId, data.cycle, true) : undefined), staff, at, today));
+      (data.type === "settlementFeed" ? financeRecord(db, data.loanId, data.cycle, true) : undefined), staff, at, today,
+      (id, cycle) => financeRecord(db, id, cycle) ?? financeRecord(db, id, cycle, true)));
   }
   if (data.type === "settlementEvidencePreview" || data.type === "settlementEvidenceImport") {
     return db.transaction(() => importSettlementEvidence(db, data, financeRecord(db, data.loanId, data.cycle), staff, at, today));

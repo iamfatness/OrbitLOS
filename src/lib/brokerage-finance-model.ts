@@ -16,6 +16,7 @@ const revision = z.number().int().nonnegative();
 const entryId = z.uuid();
 const cents = z.number().int().min(0).max(1_000_000_000);
 const cursor = z.object({ id: loanId, date, cycle });
+export type SettlementDestination = z.infer<typeof cursor> & { borrower: string };
 const filters = { from: date, through: date, view: z.enum(["Funded", "Reversed"]), owner: z.string().max(306).regex(/^(?:|email:.+|name:.*)$/) };
 const record = { loanId, cycle };
 const write = { ...record, entryId, revision, fundingDate: date };
@@ -58,7 +59,8 @@ export const financeInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("settlementFeed"), ...record }),
   z.object({ type: z.literal("pullSettlementFeed"), ...record, fundingDate: date }),
   z.object({ type: z.literal("reviewSettlementFeed"), ...record, evidenceId: evidenceIdentity, note: note.min(5) }),
-  z.object({ type: z.literal("matchSettlementFeed"), ...record, fundingDate: date, evidenceId: evidenceIdentity, note: note.min(5) }),
+  z.object({ type: z.literal("matchSettlementFeed"), ...record, fundingDate: date, evidenceId: evidenceIdentity, note: note.min(5), destination: cursor.optional() }),
+  z.object({ type: z.literal("findSettlementDestination"), ...record, search: z.string().trim().min(2).max(160) }),
   z.object({ type: z.literal("estimate"), ...write, expectedCents: cents.nullable(), commissionCents: cents.nullable(), expenseReviewed: z.boolean() }),
   z.object({ type: z.literal("post"), ...write, kind: z.enum(["Receipt", "Expense"]), amountCents: cents.min(1), occurredOn: date,
     reference: z.string().trim().min(1).max(120), note }),
@@ -74,6 +76,7 @@ export type SettlementFeedRow = {
   evidenceId: string; fundingReference: string; kind: SettlementEvidence["kind"];
   amountCents: number; status: "Imported" | "Already recorded" | "Needs review" | "Reviewed" | "Matched by owner";
   canMatch?: boolean;
+  destination?: SettlementDestination;
   detail: string; reviewNote: string | null; reviewedBy: string | null; reviewedAt: string | null;
 };
 export type SettlementFeed = { kind: "settlementFeed"; checkedFundingDate: string | null; rows: SettlementFeedRow[] };
@@ -114,7 +117,8 @@ export type FinanceEntry = { sequence: number; id: string; kind: "Estimate" | "R
   at: string; actorName: string };
 export type FinanceResult = { kind: "list"; loans: FinanceLoan[]; totals: FinanceTotals; next: z.infer<typeof cursor> | null } |
   { kind: "detail"; loan: FinanceLoan; entries: FinanceEntry[]; before: number | null; today: string; settlement: SettlementWork; settlementFees?: SettlementFeeWork } |
-  { kind: "export"; csv: string; count: number } | { kind: "saved"; message: string } | SettlementQueuePage | SettlementEvidencePreview | SettlementFeed | { error: string };
+  { kind: "export"; csv: string; count: number } | { kind: "saved"; message: string } | SettlementQueuePage | SettlementEvidencePreview | SettlementFeed |
+  { kind: "settlementDestinations"; rows: SettlementDestination[]; more: boolean } | { error: string };
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 export const financeMoney = (amount: number | null) => amount === null ? "Unknown" : usd.format(amount / 100);
