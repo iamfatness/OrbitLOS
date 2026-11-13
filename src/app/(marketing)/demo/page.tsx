@@ -45,6 +45,7 @@ export default function DemoPage() {
           <li>Find a New York application by office or file number, correct its evidence, and export the selected company’s log.</li>
           <li>Record a New York branch report receipt against the documented deadline and reopen the original evidence after a correction.</li>
           <li>Export Illinois examination logs by loan type and reopen the evidence behind a borrower-file correction.</li>
+          <li>Resolve Illinois borrower-file gaps from disposition review and retrieve the evidence and counsel reference in the audit.</li>
           <li>In fictional pilots, review Midwest brokerage agreement timing and record refinance benefit evidence for Minnesota and Nebraska.</li>
           <li>Compare itemized charges on the original Loan Estimate and Closing Disclosure, and see which differences need review.</li>
           <li>Review the affected charges and timing on a revised Loan Estimate while keeping the original comparison available.</li>

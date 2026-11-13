@@ -1,3 +1,4 @@
+import { illinoisDispositionEvidence, illinoisRetentionLocalDate, type IllinoisDispositionEvidence } from "./illinois-recordkeeping";
 import { texasDispositionEvidence, texasRetentionLocalDate, type TexasDispositionEvidence } from "./texas-recordkeeping";
 import { floridaDispositionEvidence, type FloridaDispositionEvidence } from "./florida-recordkeeping";
 import { coloradoDispositionEvidence, type ColoradoDispositionEvidence } from "./colorado-recordkeeping";
@@ -37,9 +38,10 @@ export type CaliforniaDispositionReview = {
 export type ColoradoDispositionReview = { evidence:ColoradoDispositionEvidence; counsel:z.infer<typeof counselReview>|null };
 export type FloridaDispositionReview = { evidence:FloridaDispositionEvidence; counsel:z.infer<typeof counselReview>|null };
 export type TexasDispositionReview = { evidence:TexasDispositionEvidence; counsel:z.infer<typeof counselReview>|null };
-type StateDispositionReview = MichiganDispositionReview | CaliforniaDispositionReview | ColoradoDispositionReview | FloridaDispositionReview | TexasDispositionReview;
+export type IllinoisDispositionReview = { evidence:IllinoisDispositionEvidence; counsel:z.infer<typeof counselReview>|null };
+type StateDispositionReview = MichiganDispositionReview | CaliforniaDispositionReview | ColoradoDispositionReview | FloridaDispositionReview | TexasDispositionReview | IllinoisDispositionReview;
 type Candidate = {id:string; borrower:string; category:string; eventDate:string; reviewOn:string; basis:string;
-  decision:Decision|null; michigan:MichiganDispositionEvidence|null; retainMichiganThroughToday:boolean; california:CaliforniaDispositionReview["evidence"]; retainCaliforniaThroughToday:boolean; colorado:ColoradoDispositionEvidence|null; retainColoradoThroughToday:boolean; florida:FloridaDispositionEvidence|null; retainFloridaThroughToday:boolean; texas:TexasDispositionEvidence|null; retainTexasThroughToday:boolean };
+  decision:Decision|null; michigan:MichiganDispositionEvidence|null; retainMichiganThroughToday:boolean; california:CaliforniaDispositionReview["evidence"]; retainCaliforniaThroughToday:boolean; colorado:ColoradoDispositionEvidence|null; retainColoradoThroughToday:boolean; florida:FloridaDispositionEvidence|null; retainFloridaThroughToday:boolean; texas:TexasDispositionEvidence|null; retainTexasThroughToday:boolean; illinois:IllinoisDispositionEvidence|null; retainIllinoisThroughToday:boolean };
 export type DispositionQueue = {kind:"disposition"; policy:Policy|null; rows:Candidate[]; offset:number; next:number|null; message?:string};
 
 export function initializeRetentionDisposition(db:Store) {
@@ -51,13 +53,13 @@ export function initializeRetentionDisposition(db:Store) {
   );
   CREATE TABLE IF NOT EXISTS loan_retention_reviews (
     id TEXT PRIMARY KEY, loanId TEXT NOT NULL, policyVersion INTEGER NOT NULL, basis TEXT NOT NULL, previous TEXT,
-    outcome TEXT NOT NULL, reference TEXT NOT NULL, at TEXT NOT NULL, actor TEXT NOT NULL, actorEmail TEXT NOT NULL, michiganReview TEXT, californiaReview TEXT, coloradoReview TEXT, floridaReview TEXT, texasReview TEXT
+    outcome TEXT NOT NULL, reference TEXT NOT NULL, at TEXT NOT NULL, actor TEXT NOT NULL, actorEmail TEXT NOT NULL, michiganReview TEXT, californiaReview TEXT, coloradoReview TEXT, floridaReview TEXT, texasReview TEXT, illinoisReview TEXT
   );
   CREATE INDEX IF NOT EXISTS retention_reviews_by_loan ON loan_retention_reviews(loanId,policyVersion,basis);
   CREATE INDEX IF NOT EXISTS retention_closed_loans ON loans(disposition,dispositionDate,id)
     WHERE disposition IN ('Withdrawn','Lost') AND dispositionDate IS NOT NULL;`);
   const columns = db.prepare("PRAGMA table_info(loan_retention_reviews)").all();
-  for (const name of ["michiganReview", "californiaReview", "coloradoReview", "floridaReview", "texasReview"]) {
+  for (const name of ["michiganReview", "californiaReview", "coloradoReview", "floridaReview", "texasReview", "illinoisReview"]) {
     if (!columns.some(row=>row.name===name)) db.exec(`ALTER TABLE loan_retention_reviews ADD COLUMN ${name} TEXT`);
   }
 }
@@ -90,7 +92,7 @@ function candidates(db:Store, policy:Policy, today:string, pacificToday:string, 
     .all(policy.fundedDays,policy.closedDays,loanId,loanId,today,offset) as
     (Pick<Candidate,"id"|"borrower"|"category"|"eventDate"|"reviewOn"|"basis"> & {propertyState:string|null; reportState:string|null; stage:string;
       disposition:string; dispositionDate:string|null; fundingDate:string|null; closingDate:string|null})[];
-  const readDecision = db.prepare(`SELECT id,outcome,reference,at,actor,michiganReview,californiaReview,coloradoReview,floridaReview,texasReview FROM loan_retention_reviews
+  const readDecision = db.prepare(`SELECT id,outcome,reference,at,actor,michiganReview,californiaReview,coloradoReview,floridaReview,texasReview,illinoisReview FROM loan_retention_reviews
     WHERE loanId=? AND policyVersion=? AND basis=? ORDER BY rowid DESC LIMIT 1`);
   return rows.map(({propertyState,reportState,stage,disposition,dispositionDate,fundingDate,closingDate,...row})=>{
     const michigan = michiganDispositionEvidence(db,row.id,propertyState,row.category);
@@ -111,16 +113,20 @@ function candidates(db:Store, policy:Policy, today:string, pacificToday:string, 
       closed:stage==="Closed" || stage==="Funded" || Boolean(fundingDate || closingDate),
       closingOn:closingDate,dispositionOn:disposition==="Withdrawn" || disposition==="Lost" ? dispositionDate : null});
     const floridaBasis = florida ? `${coloradoBasis}/FL/${createHash("sha256").update(JSON.stringify(florida)).digest("hex")}` : coloradoBasis;
-    const basis = texas ? `${row.basis}/TX/${createHash("sha256").update(JSON.stringify([floridaBasis,texas])).digest("hex")}` : floridaBasis;
-    const saved = readDecision.get(row.id,policy.version,basis) as (Decision & {michiganReview:string|null;californiaReview:string|null;coloradoReview:string|null;floridaReview:string|null;texasReview:string|null})|undefined;
+    const illinois = illinoisDispositionEvidence(db,brokerageId,{id:row.id,propertyState,reportState,
+      closingDate,stage,disposition,dispositionDate,fundingDate});
+    const texasBasis = texas ? `${row.basis}/TX/${createHash("sha256").update(JSON.stringify([floridaBasis,texas])).digest("hex")}` : floridaBasis;
+    const basis = illinois ? `${row.basis}/IL/${createHash("sha256").update(JSON.stringify([texasBasis,illinois])).digest("hex")}` : texasBasis;
+    const saved = readDecision.get(row.id,policy.version,basis) as (Decision & {michiganReview:string|null;californiaReview:string|null;coloradoReview:string|null;floridaReview:string|null;texasReview:string|null;illinoisReview:string|null})|undefined;
     let decision:Decision|null = null;
     if (saved) {
-      const {michiganReview,californiaReview,coloradoReview,floridaReview,texasReview,...review} = saved;
-      const snapshot = michiganReview ?? californiaReview ?? coloradoReview ?? floridaReview ?? texasReview;
+      const {michiganReview,californiaReview,coloradoReview,floridaReview,texasReview,illinoisReview,...review} = saved;
+      const snapshot = michiganReview ?? californiaReview ?? coloradoReview ?? floridaReview ?? texasReview ?? illinoisReview;
       const counsel = snapshot ? (JSON.parse(snapshot) as StateDispositionReview).counsel : null;
       decision = counsel ? {...review,counsel} : review;
     }
-    return {...row,basis,michigan,decision,california,colorado,florida,texas,
+    return {...row,basis,michigan,decision,california,colorado,florida,texas,illinois,
+      retainIllinoisThroughToday:!!illinois?.stateReviewDate && illinois.stateReviewDate>=illinoisRetentionLocalDate(now),
       retainTexasThroughToday:!!texas?.stateReviewDate && texas.stateReviewDate>=texasRetentionLocalDate(now,texas.facts?.zone ?? "America/Chicago"),
       retainFloridaThroughToday:!!florida?.stateReviewDate && florida.stateReviewDate>=floridaToday(now,florida),
       retainColoradoThroughToday:!!colorado?.stateReviewDate && colorado.stateReviewDate>=mountainToday,
@@ -163,7 +169,7 @@ export function retentionDispositionWork(db:Store, data:Command, staff:Workspace
   }
   const prior = db.prepare("SELECT * FROM loan_retention_reviews WHERE id=?").get(data.id);
   if (prior) {
-    const snapshot = prior.michiganReview ?? prior.californiaReview ?? prior.coloradoReview ?? prior.floridaReview ?? prior.texasReview;
+    const snapshot = prior.michiganReview ?? prior.californiaReview ?? prior.coloradoReview ?? prior.floridaReview ?? prior.texasReview ?? prior.illinoisReview;
     const priorReview = snapshot ? JSON.parse(String(snapshot)) as StateDispositionReview : null;
     if (prior.actorEmail!==staff.email || prior.loanId!==data.loanId || prior.policyVersion!==data.policyVersion ||
       prior.basis!==data.basis || prior.previous!==data.previous || prior.outcome!==data.outcome || prior.reference!==data.reference ||
@@ -176,7 +182,7 @@ export function retentionDispositionWork(db:Store, data:Command, staff:Workspace
   if (!row || row.basis!==data.basis || (row.decision?.id??null)!==data.previous)
     return {error:"This loan changed or is no longer due for review. Refresh the queue."};
   const recommending = data.outcome==="Recommend disposition";
-  if (data.counsel && ((!row.michigan && !row.california.length && !row.colorado && !row.florida && !row.texas) || !recommending))
+  if (data.counsel && ((!row.michigan && !row.california.length && !row.colorado && !row.florida && !row.texas && !row.illinois) || !recommending))
     return {error:"Counsel evidence belongs with a state disposition recommendation."};
   if (row.michigan && recommending) {
     if (row.michigan.gap || !row.michigan.stateReviewDate)
@@ -223,6 +229,17 @@ export function retentionDispositionWork(db:Store, data:Command, staff:Workspace
     if (data.counsel.retainThrough>=texasRetentionLocalDate(now,row.texas.facts?.zone ?? "America/Chicago"))
       return {error:`Retain the record through the counsel-reviewed date of ${data.counsel.retainThrough}.`};
   }
+  if (recommending && row.illinois) {
+    const date = row.illinois.stateReviewDate;
+    if (row.illinois.gap || !date) return {error:row.illinois.gap ?? "Resolve Illinois evidence before recommending disposition."};
+    if (row.retainIllinoisThroughToday) return {error:`Retain the record through the Illinois review date of ${date}.`};
+    if (!data.counsel) return {error:"Record counsel’s review reference and retain-through date before recommending disposition."};
+    if (data.counsel.retainThrough<date) return {error:"The counsel-reviewed date is earlier than the latest Illinois date. Reconcile the evidence."};
+    if (data.counsel.retainThrough>=illinoisRetentionLocalDate(now))
+      return {error:`Retain the record through the counsel-reviewed date of ${data.counsel.retainThrough}.`};
+  }
+  const illinoisReview = row.illinois ?
+    JSON.stringify({evidence:row.illinois,counsel:data.counsel??null} satisfies IllinoisDispositionReview) : null;
   const texasReview = row.texas ?
     JSON.stringify({evidence:row.texas,counsel:data.counsel??null} satisfies TexasDispositionReview) : null;
   const floridaReview = row.florida ?
@@ -233,8 +250,8 @@ export function retentionDispositionWork(db:Store, data:Command, staff:Workspace
     JSON.stringify({evidence:row.california,counsel:data.counsel??null} satisfies CaliforniaDispositionReview) : null;
   const michiganReview = row.michigan ? JSON.stringify({evidence:row.michigan,counsel:data.counsel??null} satisfies MichiganDispositionReview) : null;
   db.prepare(`INSERT INTO loan_retention_reviews
-    (id,loanId,policyVersion,basis,previous,outcome,reference,at,actor,actorEmail,michiganReview,californiaReview,coloradoReview,floridaReview,texasReview) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(data.id,data.loanId,current.version,data.basis,data.previous,data.outcome,data.reference,now,staff.name,staff.email,michiganReview,californiaReview,coloradoReview,floridaReview,texasReview);
+    (id,loanId,policyVersion,basis,previous,outcome,reference,at,actor,actorEmail,michiganReview,californiaReview,coloradoReview,floridaReview,texasReview,illinoisReview) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(data.id,data.loanId,current.version,data.basis,data.previous,data.outcome,data.reference,now,staff.name,staff.email,michiganReview,californiaReview,coloradoReview,floridaReview,texasReview,illinoisReview);
   accessEvent(db,staff,"Recorded retention disposition review",data.loanId,now);
   return queue(current,data.offset,"Disposition review recorded.");
 }

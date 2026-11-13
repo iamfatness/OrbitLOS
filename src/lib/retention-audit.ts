@@ -7,7 +7,7 @@ import { readCaliforniaDreRecordkeepingExport } from "./california-dre-recordkee
 import { z } from "zod";
 import { readMichiganRetentionExport } from "./michigan-retention";
 import { shiftReportDate } from "./report-date-range";
-import type { CaliforniaDispositionReview, ColoradoDispositionReview, FloridaDispositionReview, MichiganDispositionReview, TexasDispositionReview } from "./retention-disposition";
+import type { CaliforniaDispositionReview, ColoradoDispositionReview, FloridaDispositionReview, IllinoisDispositionReview, MichiganDispositionReview, TexasDispositionReview } from "./retention-disposition";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -23,7 +23,7 @@ type Command = z.infer<typeof retentionAuditRequest>;
 export type AuditPolicy = {version:number;fundedDays:number|null;closedDays:number|null;reference:string;at:string;actor:string};
 export type AuditDecision = {id:string;loanId:string;currentBorrower:string|null;policyVersion:number;previous:string|null;
   outcome:string;reference:string;at:string;actor:string;eventDate:string|null;reviewOn:string|null;category:string|null;
-  michiganReview?:MichiganDispositionReview; californiaReview?:CaliforniaDispositionReview; coloradoReview?:ColoradoDispositionReview; floridaReview?:FloridaDispositionReview; texasReview?:TexasDispositionReview};
+  michiganReview?:MichiganDispositionReview; californiaReview?:CaliforniaDispositionReview; coloradoReview?:ColoradoDispositionReview; floridaReview?:FloridaDispositionReview; texasReview?:TexasDispositionReview; illinoisReview?:IllinoisDispositionReview};
 export type RetentionAudit = {kind:"retentionAudit";section:z.infer<typeof section>;latestVersion:number|null;
   policies:AuditPolicy[];decisions:AuditDecision[];next:number|null};
 export type RetentionAuditResult = RetentionAudit | {kind:"retentionAuditExport";json:string} | {error:string};
@@ -39,12 +39,12 @@ function readPolicies(db:Store, version:number|null, before:number|null, limit:n
 
 function readDecisions(db:Store, version:number|null, before:number|null, limit:number) {
   const rows = db.prepare(`SELECT r.rowid AS cursor,r.id,r.loanId,c.name AS currentBorrower,r.policyVersion,r.previous,r.outcome,
-    r.reference,r.at,r.actor,r.basis,r.michiganReview,r.californiaReview,r.coloradoReview,r.floridaReview,r.texasReview,p.fundedDays,p.closedDays FROM loan_retention_reviews r
+    r.reference,r.at,r.actor,r.basis,r.michiganReview,r.californiaReview,r.coloradoReview,r.floridaReview,r.texasReview,r.illinoisReview,p.fundedDays,p.closedDays FROM loan_retention_reviews r
     LEFT JOIN loans l ON l.id=r.loanId LEFT JOIN contacts c ON c.id=l.contactId
     LEFT JOIN loan_retention_policies p ON p.version=r.policyVersion
     WHERE (? IS NULL OR r.policyVersion=?) AND (? IS NULL OR r.rowid<?)
     ORDER BY r.rowid DESC LIMIT ?`).all(version,version,before,before,limit);
-  return rows.map(({cursor,basis,fundedDays,closedDays,michiganReview,californiaReview,coloradoReview,floridaReview,texasReview,...row})=>{
+  return rows.map(({cursor,basis,fundedDays,closedDays,michiganReview,californiaReview,coloradoReview,floridaReview,texasReview,illinoisReview,...row})=>{
     const [outcome,date]=String(basis).split("/");
     const category=outcome==="Active"?"Funded":["Withdrawn","Lost"].includes(outcome)?outcome:null;
     const eventDate=z.iso.date().safeParse(date);
@@ -55,6 +55,7 @@ function readDecisions(db:Store, version:number|null, before:number|null, limit:
       ...(coloradoReview ? {coloradoReview:JSON.parse(String(coloradoReview))} : {}),
       ...(floridaReview ? {floridaReview:JSON.parse(String(floridaReview))} : {}),
       ...(texasReview ? {texasReview:JSON.parse(String(texasReview))} : {}),
+      ...(illinoisReview ? {illinoisReview:JSON.parse(String(illinoisReview))} : {}),
       reviewOn:category && eventDate.success && typeof period==="number"?shiftReportDate(eventDate.data,period):null} as AuditDecision};
   });
 }

@@ -1454,3 +1454,95 @@ test("Illinois loan log keeps the product-specific fields, rolling high-risk pop
  assert.equal(work(request).incomplete,1);
  assert.match(restoreBlockers(before,capture()).join(" "),/Loan retention evidence changed/);
 });
+
+test("Illinois disposition requires the exact closed or terminated borrower file, state period and counsel date", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {db,staff}=ownerFixture(t);
+ const scope=staff.brokerage.id, now="2026-11-12T16:00:00.000Z";
+ initializeStore(db,false);
+ db.exec("ALTER TABLE loan_retention_reviews DROP COLUMN illinoisReview");
+ initializeStore(db,false);
+ db.exec("INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Borrower','','','Borrower')");
+ const addLoan=db.prepare("INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince) VALUES (?,'borrower','LO','',1,'Purchase',?,'2022-11-04')");
+ const addApp=db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES (?,?, '2027-01-01',?, '2026-11-12')");
+ for(const [id,state,stage] of [["closed","IL","Funded"],["ended","IL","Processing"],["historical","IL","Processing"],["report-only","WI","Processing"],["other","WI","Processing"]]){
+  addLoan.run(id,stage);
+  addApp.run(id,id,JSON.stringify({propertyLocation:{state}}));
+ }
+ db.exec(`INSERT INTO closing_progress (loanId,fundingDate) VALUES ('closed','2022-11-04');
+   INSERT INTO past_client_profiles (loanId,closingDate) VALUES ('closed','2022-11-02');
+   UPDATE loans SET disposition='Withdrawn',dispositionDate='2020-03-02' WHERE id='ended';
+   UPDATE loans SET disposition='Lost',dispositionDate='2017-10-01' WHERE id='historical';
+   UPDATE loans SET disposition='Lost',dispositionDate='2022-11-02' WHERE id IN ('report-only','other');`);
+ db.prepare("INSERT INTO call_report_facts VALUES ('report-only',?,1)").run(JSON.stringify({state:"IL"}));
+ const work=(input,at=now)=>loanRetentionWork(db,input,staff,scope,at);
+ assert.equal(work({type:"saveDispositionPolicy",id:crypto.randomUUID(),expected:0,fundedDays:30,closedDays:30,
+   reference:"Fictional policy"}).kind,"disposition");
+ const queue={type:"dispositionQueue",offset:0};
+ const row=(id="closed",at=now)=>work(queue,at).rows.find(item=>item.id===id);
+ const decide=(item,options={})=>({type:"saveDispositionReview",id:crypto.randomUUID(),loanId:item.id,
+  policyVersion:1,basis:item.basis,previous:item.decision?.id??null,outcome:"Recommend disposition",
+  reference:"Fictional recommendation",offset:0,...options});
+ const save=(loanId,facts,expected=0)=>work({type:"saveIllinoisRecordkeeping",loanId,facts,expected,requestId:crypto.randomUUID(),
+  ...(expected?{correction:"Fictional corrected classification"}:{})});
+ const retained={status:"On file",reference:"Fictional retained file"};
+ const absent={status:"No document generated",reference:"Fictional documented absence"};
+ const facts={activity:"Brokerage services used",activityReference:"Fictional brokerage scope",
+  risk:"Standard",riskReference:"Fictional signed risk analysis",outcome:{status:"Closed",on:"2022-11-02",reference:"Fictional closing record"},
+  documents:{agreement:retained,brokerageDisclosure:retained,borrowerInformation:retained,signedDocuments:retained,
+    appraisal:absent,creditReport:retained,otherThirdParty:absent,otherFileDocuments:retained},
+  archive:{format:"Paper",location:"Fictional branch archive"}};
+ const missing=row();
+ const legacy=decide(missing,{basis:missing.basis.split("/IL/")[0]});
+ db.prepare(`INSERT INTO loan_retention_reviews
+   (id,loanId,policyVersion,basis,previous,outcome,reference,at,actor,actorEmail) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+   .run(legacy.id,legacy.loanId,1,legacy.basis,null,legacy.outcome,legacy.reference,now,staff.name,staff.email);
+ assert.equal(row().decision,null);
+ assert.match(work(decide(missing)).error,/Illinois borrower-file evidence/);
+ assert.match(row("report-only").illinois.gap,/Illinois borrower-file evidence/);
+ assert.equal(row("other").illinois,null);
+ const retainedDecision=decide(missing,{outcome:"Continue retaining"});
+ assert.equal(work(retainedDecision).kind,"disposition");
+ const digital={format:"Digital",location:"Fictional archive",conversion:{status:"No paper conversion",reference:"Fictional original digital records"}};
+ assert.equal(save("closed",{...facts,archive:digital}).versions[0].version,1);
+ assert.equal(row().illinois.stateReviewDate,"2025-11-02");
+ assert.match(work(decide(row())).error,/hard-copy reproduction check/);
+ assert.equal(save("closed",facts,1).versions[0].version,2);
+ assert.match(work(decide(row())).error,/counsel’s review reference/);
+ const counsel={retainThrough:"2025-11-02",reference:"Fictional counsel reviewed applicable Illinois and federal dates"};
+ const boundary="2025-11-03T05:30:00.000Z";
+ assert.equal(row("closed",boundary).retainIllinoisThroughToday,true);
+ assert.match(work(decide(row("closed",boundary),{counsel}),boundary).error,/through the Illinois review date/);
+ const centralNextDay="2025-11-03T06:00:00.000Z";
+ assert.equal(row("closed",centralNextDay).retainIllinoisThroughToday,false);
+ assert.match(work(decide(row(),{counsel:{...counsel,retainThrough:"2025-11-01"}})).error,/earlier than the latest Illinois date/);
+ assert.match(work(decide(row(),{counsel:{...counsel,retainThrough:"2026-11-12"}})).error,/through the counsel-reviewed date/);
+ const recommendation=decide(row(),{counsel});
+ assert.equal(work(recommendation).kind,"disposition");
+ assert.deepEqual(row().decision.counsel,counsel);
+ assert.equal(work(recommendation).kind,"disposition");
+ assert.match(work({...recommendation,counsel:{...counsel,reference:"Changed counsel reference"}}).error,/different disposition review/);
+ assert.equal(save("closed",{...facts,risk:"High-risk home loan"},2).versions[0].version,3);
+ assert.equal(row().decision,null);
+ assert.equal(row().illinois.stateReviewDate,"2027-11-02");
+ assert.equal(row().illinois.stateMonths,60);
+ assert.match(work(decide(row(),{counsel})).error,/through the Illinois review date/);
+ const terminated={...facts,activity:"Origination only",outcome:{status:"Terminated",on:"2020-02-29",reference:"Fictional applicant withdrawal"}};
+ assert.equal(save("ended",terminated).versions[0].version,1);
+ assert.equal(row("ended").illinois.stateReviewDate,"2023-02-28");
+ assert.equal(work(decide(row("ended"),{counsel:{...counsel,retainThrough:"2023-03-01"}})).kind,"disposition");
+ assert.equal(save("historical",{...terminated,outcome:{...terminated.outcome,on:"2017-10-01"}}).versions[0].version,1);
+ assert.match(row("historical").illinois.gap,/historical Illinois/);
+ assert.equal(save("report-only",{...terminated,outcome:{...terminated.outcome,on:"2022-10-01"}}).versions[0].version,1);
+ assert.match(row("report-only").illinois.gap,/property and reporting state/);
+ assert.equal(work({type:"hold",id:crypto.randomUUID(),loanId:"closed",reference:"Fictional examination hold"}).kind,"saved");
+ assert.equal(row(),undefined);
+ const audit=JSON.parse(work({type:"exportRetentionAudit",policyVersion:null}).json);
+ const historical=audit.decisions.find(decision=>decision.id===recommendation.id);
+ assert.equal(historical.illinoisReview.evidence.version,2);
+ assert.equal(historical.illinoisReview.evidence.recordedFundingOn,"2022-11-04");
+ assert.equal(historical.illinoisReview.evidence.recordedClosingOn,"2022-11-02");
+ assert.deepEqual(historical.illinoisReview.counsel,counsel);
+ assert.equal(audit.decisions.find(decision=>decision.id===legacy.id).illinoisReview,undefined);
+});
