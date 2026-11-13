@@ -13,7 +13,7 @@ import { coloradoRenewalReportingPeriods, reviewColoradoCompanyRenewal, type Col
 import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
-import { michiganFilingComponent, reviewMichiganFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
+import { michiganFilingAmendments, michiganFilingComponent, reviewMichiganFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
 
 type StateBasis = ObligationStateSource & { snapshot: string };
 type StoredDraft = ObligationDraft & { stateBasis?: StateBasis };
@@ -261,7 +261,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const versions = rows.slice(0, 20).map(row => ({ ...row, evidence: JSON.parse(String(row.evidence)) as MichiganFilingEvidence,
         finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewMichiganFiling> }));
       return { kind: "michiganFilingHistory", component, nominalDueOn, scopeChanged, bounds: snapshot.period, versions,
-        currentFinding: before === null && versions[0] ? reviewMichiganFiling(versions[0].evidence, nominalDueOn, asOf, component) : null,
+        currentFinding: before === null && versions[0] ? reviewMichiganFiling(versions[0].evidence, nominalDueOn, asOf, component, snapshot.period.through) : null,
         next: rows.length > 20 ? rows[19].version : null };
     }
     const request = JSON.stringify(data);
@@ -272,15 +272,18 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     if (Number(current?.version ?? 0) !== data.expected) return changed;
     if (data.expected && !data.correction) return { error: "Record a reason for updating the filing evidence." };
     const { evidence } = data;
-    const { deadline, reconciliation, submission, amendment } = evidence;
+    const { deadline, reconciliation, submission } = evidence;
+    const amendments = michiganFilingAmendments(evidence);
     if (reconciliation?.activity && component !== "Residential Mortgage Loan Activity")
       return { error: "Record the activity determination on the Residential Mortgage Loan Activity period." };
     if ((deadline && deadline.on <= snapshot.period.through) ||
-      [submission?.on, amendment?.on].some(on => on && (on <= snapshot.period.through || on > asOf)) ||
-      (amendment && (!submission || amendment.on < submission.on)))
+      [submission?.on, ...amendments.map(item => item.on)].some(on => on && (on <= snapshot.period.through || on > asOf)) ||
+      amendments.some((item, index) => !submission || item.on < (amendments[index - 1]?.on ?? submission.on)))
       return { error: "Check the deadline and the dates and order of the filing receipts." };
+    if (new Set(amendments.map(item => JSON.stringify([item.on, item.reference.toLowerCase()]))).size !== amendments.length)
+      return { error: "Record each amendment receipt once." };
     const version = data.expected + 1;
-    const finding = reviewMichiganFiling(evidence, nominalDueOn, asOf, component);
+    const finding = reviewMichiganFiling(evidence, nominalDueOn, asOf, component, snapshot.period.through);
     db.prepare("INSERT INTO michigan_filing_versions VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(...target, version, JSON.stringify(evidence), JSON.stringify(finding), staff.email, now, data.correction ?? null);
     const result = { kind: "michiganFilingSaved", version, finding, scopeChanged };

@@ -968,6 +968,20 @@ test("Michigan reporting receipts remain scoped to the filing component and peri
  const amendment = {on:"2026-11-11",reference:"Fictional amendment receipt",reason:"Fictional workpaper correction"};
  assert.equal(f.run(save(activity,{...evidence,amendment},1)).version,2);
  assert.equal(history(activity).versions[1].evidence.submission.on,"2026-11-10");
+ const earlierAmendment = {...amendment,on:"2026-11-10",reference:"Fictional same-day amendment"};
+ assert.match(f.run(save(activity,{...evidence,amendments:[amendment,earlierAmendment]},2)).error,/dates and order/);
+ assert.match(f.run(save(activity,{...evidence,amendments:[amendment,amendment]},2)).error,/each amendment receipt once/);
+ assert.equal(f.run(save(activity,{...evidence,amendments:[earlierAmendment,amendment]},2)).version,3);
+ assert.equal(history(activity).versions[0].evidence.amendments.length,2);
+ assert.deepEqual(history(activity).versions[1].evidence.amendment,amendment);
+ const oldActivity = record("RMLA","Quarterly","2024-07");
+ const oldReceipt = {on:"2024-10-15",reference:"Fictional original filing receipt"};
+ const cutoffAmendment = {...amendment,on:"2026-09-30"};
+ const lateAmendment = {...amendment,on:"2026-10-01"};
+ const cutoff = f.run(save(oldActivity,{submission:oldReceipt,amendments:[cutoffAmendment]}));
+ assert.ok(!cutoff.finding.gaps.some(gap=>gap.includes("two-year")));
+ const late = f.run(save(oldActivity,{submission:oldReceipt,amendments:[cutoffAmendment,lateAmendment]},1));
+ assert.ok(late.finding.gaps.some(gap=>gap.includes("two-year")));
  assert.ok(history({...activity,entityId:crypto.randomUUID()}).error);
  assert.ok(f.run({operation:"michiganFilingHistory",...activity},f.staff,[]).error);
  assert.equal(f.run(save(fiscalStatement,{submission:{on:"2026-10-01",reference:"Fictional statement receipt"}})).finding.summary,

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { accessComplianceCases } from "@/app/actions";
 import type { ObligationRequest } from "@/lib/compliance-obligations-model";
-import { michiganFilingEvidence } from "@/lib/michigan-filing-evidence-model";
+import { michiganFilingAmendments, michiganFilingEvidence } from "@/lib/michigan-filing-evidence-model";
 import { Button } from "./ui/button";
 
 const finding = z.object({ asOf: z.iso.date(), dueOn: z.iso.date().nullable(), summary: z.string(), gaps: z.array(z.string()) });
@@ -25,10 +25,10 @@ async function filingAction(input: ObligationRequest, brokerageId: string) {
   return response.result;
 }
 
-function Field({ name, label, value, type = "text" }: {
-  name: string; label: string; value?: string; type?: "text" | "date";
+function Field({ name, label, value, type = "text", id }: {
+  name: string; label: string; value?: string; type?: "text" | "date"; id?: string;
 }) {
-  return <label className="field min-w-0">{label}<input name={name} type={type} required defaultValue={value}
+  return <label className="field min-w-0">{label}<input id={id} name={name} type={type} required defaultValue={value}
     minLength={type === "text" ? 5 : undefined} maxLength={type === "text" ? 1500 : undefined} /></label>;
 }
 function Select({ name, label, value, options }: { name: string; label: string; value?: string; options: readonly string[] }) {
@@ -51,6 +51,10 @@ function FilingForm({ latest, component, nominal, busy, conflict, submit, cancel
   submit: (form: FormData) => void; cancel: () => void;
 }) {
   const facts = latest?.evidence;
+  const initialAmendments = facts ? michiganFilingAmendments(facts) : [];
+  const [amendmentKeys, setAmendmentKeys] = useState(() => initialAmendments.map((_, index) => index));
+  const nextAmendment = useRef(initialAmendments.length);
+  const addAmendment = useRef<HTMLButtonElement>(null);
   return <form className="record-form" onSubmit={event => { event.preventDefault(); submit(new FormData(event.currentTarget)); }}>
     <fieldset className="record-form min-w-0" disabled={busy}>
       <EvidenceGroup name="deadline" label="Record reviewed deadline" recorded={Boolean(facts?.deadline)}>
@@ -67,11 +71,28 @@ function FilingForm({ latest, component, nominal, busy, conflict, submit, cancel
         <Field name="submissionOn" label="Original submission date" type="date" value={facts?.submission?.on} />
         <Field name="submissionReference" label="Original NMLS receipt reference" value={facts?.submission?.reference} />
       </EvidenceGroup>
-      <EvidenceGroup name="amendment" label="Record amended submission" recorded={Boolean(facts?.amendment)}>
-        <Field name="amendmentOn" label="Amendment submission date" type="date" value={facts?.amendment?.on} />
-        <Field name="amendmentReference" label="Amendment receipt reference" value={facts?.amendment?.reference} />
-        <Field name="amendmentReason" label="Reason for amendment" value={facts?.amendment?.reason} />
-      </EvidenceGroup>
+      {amendmentKeys.map((key, index) => {
+        const prefix = "mi-filing-amendment-" + key;
+        const prior = initialAmendments[key];
+        return <fieldset key={key} className="record-form min-w-0">
+          <legend className="font-semibold">Amendment {index + 1}</legend>
+          <input type="hidden" name="amendmentKey" value={key} />
+          <div className="form-grid">
+            <Field id={prefix + "-on"} name={prefix + "-on"} label="Amendment submission date" type="date" value={prior?.on} />
+            <Field name={prefix + "-reference"} label="Amendment receipt reference" value={prior?.reference} />
+            <Field name={prefix + "-reason"} label="Reason for amendment" value={prior?.reason} />
+          </div>
+          <div><Button className="min-h-11" variant="outline" onClick={() => {
+            setAmendmentKeys(keys => keys.filter(item => item !== key));
+            requestAnimationFrame(() => addAmendment.current?.focus());
+          }}>Remove amendment {index + 1}</Button></div>
+        </fieldset>;
+      })}
+      {amendmentKeys.length < 30 && <div><Button ref={addAmendment} className="min-h-11" variant="outline" onClick={() => {
+        const key = nextAmendment.current++;
+        setAmendmentKeys(keys => [...keys, key]);
+        requestAnimationFrame(() => document.getElementById("mi-filing-amendment-" + key + "-on")?.focus());
+      }}>Add amendment</Button></div>}
       {latest && <Field name="correction" label="Reason for update" />}
       <div className="flex flex-wrap gap-2">
         <Button className="min-h-11" type="submit" disabled={conflict}>{busy ? "Saving…" : "Save filing evidence"}</Button>
@@ -90,7 +111,6 @@ function FilingSummary({ entry, review = entry.finding }: { entry: Version; revi
     ["Report activity", evidence.reconciliation?.activity],
     ["Reconciliation evidence", evidence.reconciliation?.reference],
     ["Original submission", evidence.submission?.on, evidence.submission?.reference],
-    ["Amended submission", evidence.amendment?.on, evidence.amendment?.reference, evidence.amendment?.reason],
     ["Recorded by", entry.actor],
     ["Reason for update", entry.correction],
   ];
@@ -100,6 +120,11 @@ function FilingSummary({ entry, review = entry.finding }: { entry: Version; revi
       <ul className="list-disc pl-5">{review.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul></div>}
     <dl className="form-grid">{lines.filter(([, value]) => value).map(([label, ...values]) =>
       <div key={label}><dt className="font-semibold">{label}</dt><dd>{values.filter(Boolean).join(" · ")}</dd></div>)}</dl>
+    {michiganFilingAmendments(evidence).length > 0 && <div>
+      <h3 className="font-semibold">Amended submissions</h3>
+      <ol className="list-decimal pl-5">{michiganFilingAmendments(evidence).map((item, index) =>
+        <li key={index}>{item.on} · {item.reference} · {item.reason}</li>)}</ol>
+    </div>}
   </div>;
 }
 
@@ -151,11 +176,15 @@ export function MichiganFilingEvidence({ brokerageId, entityId, obligationId, pe
   async function submit(form: FormData) {
     if (busy || conflict) return;
     const get = (key: string) => String(form.get(key) ?? "").trim();
+    const amendments = form.getAll("amendmentKey").map(key => {
+      const prefix = "mi-filing-amendment-" + key;
+      return { on: get(prefix + "-on"), reference: get(prefix + "-reference"), reason: get(prefix + "-reason") };
+    });
     const evidence = michiganFilingEvidence.safeParse({
       deadline: form.has("deadline") ? { on: get("dueOn"), reference: get("deadlineReference") } : undefined,
       reconciliation: form.has("reconciliation") ? { activity: get("activity") || undefined, reference: get("reconciliationReference") } : undefined,
       submission: form.has("submission") ? { on: get("submissionOn"), reference: get("submissionReference") } : undefined,
-      amendment: form.has("amendment") ? { on: get("amendmentOn"), reference: get("amendmentReference"), reason: get("amendmentReason") } : undefined,
+      amendments: amendments.length ? amendments : undefined,
     });
     if (!evidence.success) {
       const issue = evidence.error.issues[0];
@@ -181,7 +210,8 @@ export function MichiganFilingEvidence({ brokerageId, entityId, obligationId, pe
         setConflict(true);
         setFeedback({ text: detail, error: true });
       } else {
-        setFeedback({ text: /^Check the deadline|^Record the activity determination/.test(detail) ? detail : "Could not confirm the save. Retry with the same evidence.", error: true });
+        setFeedback({ text: /^(Check the deadline|Record the activity determination|Record each amendment receipt)/.test(detail)
+          ? detail : "Could not confirm the save. Retry with the same evidence.", error: true });
       }
     } finally { setBusy(false); }
   }

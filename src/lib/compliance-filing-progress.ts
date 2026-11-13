@@ -40,7 +40,7 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   const revision = String(row.version);
   const evidence: unknown = JSON.parse(String(row.evidence));
   if (table === "michigan_filing_versions") {
-    const finding = reviewMichiganFiling(evidence as MichiganFilingEvidence, nominalDueOn, asOf, michiganComponent);
+    const finding = reviewMichiganFiling(evidence as MichiganFilingEvidence, nominalDueOn, asOf, michiganComponent, bounds.through);
     return { revision, summary: finding.summary, gaps: finding.gaps };
   }
   if (table === "new_york_voor_versions") {
