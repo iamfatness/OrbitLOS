@@ -368,6 +368,10 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS loan_stage_edit_versions (
       revision INTEGER PRIMARY KEY, rules TEXT NOT NULL, reason TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS closing_review_routing_blocks (
+      loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, version INTEGER NOT NULL,
+      revision INTEGER NOT NULL, dueOn TEXT NOT NULL, reason TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS closing_gate_versions (
       revision INTEGER PRIMARY KEY, rules TEXT NOT NULL, reason TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL
     );

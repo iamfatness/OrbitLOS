@@ -44,7 +44,8 @@ function ClosingGatePolicyForm({ brokerageId, policy, published, reload }: { bro
     try {
       const result = await accessClosingGates({ type: "publish", revision: policy.revision, reason: values.get("reason"),
         rules: { closing: values.getAll("closing"), funding: values.getAll("funding"),
-          ...(policy.canRequireChangedPackageReview ? { changedPackageReview: values.has("changedPackageReview") } : {}) } }, brokerageId);
+          ...(policy.canRequireChangedPackageReview ? { changedPackageReview: values.has("changedPackageReview"),
+            changedPackageReviewer: values.get("changedPackageReviewer") || null } : {}) } }, brokerageId);
       if ("error" in result) setNotice(result.error);
       else if (result.kind === "settings") { form.reset(); published(result); }
     } catch { setNotice("Could not publish the policy. Refresh to try again."); }
@@ -61,6 +62,13 @@ function ClosingGatePolicyForm({ brokerageId, policy, published, reload }: { bro
       <label className="demo-confirm"><input type="checkbox" name="changedPackageReview"
         defaultChecked={policy.rules.changedPackageReview} disabled={busy} />Require independent approval when the terms or fees change</label>
       <p className="muted">After the first confirmed package, a different staff member approves a changed replacement before staff can confirm it, record closing or record funding.</p>
+      <label className="field">Default reviewer<select name="changedPackageReviewer" defaultValue={policy.rules.changedPackageReviewer ?? ""} disabled={busy}>
+        <option value="">Assign a reviewer on each loan</option>
+        {policy.rules.changedPackageReviewer && !policy.changedPackageReviewers?.some(member => member.email === policy.rules.changedPackageReviewer) &&
+          <option value={policy.rules.changedPackageReviewer}>{policy.rules.changedPackageReviewer} · Unavailable</option>}
+        {policy.changedPackageReviewers?.map(member => <option key={member.email} value={member.email}>{member.name}</option>)}
+      </select></label>
+      <p className="muted">Orbit assigns an eligible default reviewer when the replacement is signed. If they can’t review it, the owner can assign someone from Exceptions.</p>
     </fieldset>}
     <label className="field">Reason for policy change<textarea name="reason" rows={2} minLength={8} maxLength={300} required disabled={busy} /></label>
     <div className="loan-application-actions"><Button type="submit" size="sm" disabled={busy}>Publish closing and funding policy</Button>

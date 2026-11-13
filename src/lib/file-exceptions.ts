@@ -2,7 +2,7 @@ import type { BrokerageRole, VersionedBrokerageMember } from "./brokerage-model"
 import { closingGateLabels, closingGateRules, type ClosingGateRule } from "./closing-gate-model";
 import { closingGateFileJoins, closingGateSources, closingGateTarget, currentClosingGatePolicy } from "./closing-gates";
 import { easternDate } from "./client-retention";
-import { closingPackageReviewCategory, disclosureClosingReviewPrefix, disclosureIssuePrefix, disclosureReviewPrefix, disclosureTarget } from "./disclosure-model";
+import { closingPackageReviewCategory, disclosureClosingReviewPrefix, disclosureIssuePrefix, disclosureReviewPrefix, disclosureTarget, requestClosingPackageReviewTarget } from "./disclosure-model";
 import { canUseSampleDisclosures, currentSignedClosingPackageSql } from "./disclosures";
 import { creditAusAttemptTarget, unconfirmedMockOrder } from "./credit-aus-model";
 import { fictionalUwmWorkspace } from "./uwm-live";
@@ -128,6 +128,14 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
       WHERE ${activePipeline} AND review.category = '${closingPackageReviewCategory}' AND review.status IN ('Requested', 'Changes requested')
         AND (review.dueOn < ? OR review.escalatedAt IS NOT NULL OR ${packageRequesterActs})`,
     "review.dueOn", "loan.id", "review.id", [today, today]);
+    if (currentClosingGatePolicy(db).rules.changedPackageReviewer) {
+      add(closingPackageException, `${loanColumns}, 'Sample closing review' AS title, 'Reviewer needed' AS status,
+        route.dueOn, NULL AS reopenedAt, 'Brokerage owner' AS nextParty, NULL AS ownerName, NULL AS ownerEmail,
+        NULL AS reviewerRole, NULL AS reviewerAccessRevision, 0 AS escalated, route.version, 0 AS changed, route.reason AS requestStatus
+        FROM closing_review_routing_blocks route JOIN loans loan ON loan.id = route.loanId ${loanJoins}
+        JOIN disclosure_packages package ON package.loanId = loan.id AND package.version = route.version AND package.revision = route.revision
+        WHERE ${activePipeline} AND ${currentSignedClosingPackageSql}`, "route.dueOn", "loan.id", "loan.id");
+    }
     add("Disclosure reviews", `${loanColumns}, 'Sample disclosure v' || package.version AS title, coalesce(package.reviewReason,task.title) AS status,
       NULL AS dueOn, NULL AS reopenedAt, NULL AS nextParty, loan.officer AS ownerName, loan.officerEmail AS ownerEmail,
       NULL AS reviewerRole, NULL AS reviewerAccessRevision, 0 AS escalated, NULL AS version, 0 AS changed, NULL AS requestStatus
@@ -138,7 +146,9 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
           '${disclosureIssuePrefix}' || loan.id || ':' || package.version, '${disclosureClosingReviewPrefix}' || loan.id || ':' || package.version)
       WHERE ${activePipeline} AND task.completedAt IS NULL AND package.supersededAt IS NULL
       ${filter === "All file exceptions" ? `AND NOT EXISTS (SELECT 1 FROM loan_reviews assigned
-        WHERE assigned.loanId = loan.id AND assigned.category = '${closingPackageReviewCategory}' AND assigned.status IN ('Requested', 'Changes requested'))` : ""}`,
+        WHERE assigned.loanId = loan.id AND assigned.category = '${closingPackageReviewCategory}' AND assigned.status IN ('Requested', 'Changes requested'))
+        ${currentClosingGatePolicy(db).rules.changedPackageReviewer ? `AND NOT EXISTS (SELECT 1 FROM closing_review_routing_blocks route
+          WHERE route.loanId = loan.id AND route.version = package.version AND route.revision = package.revision AND ${currentSignedClosingPackageSql})` : ""}` : ""}`,
     "task.dueAt", "loan.id", "task.id");
   }
 
@@ -258,11 +268,13 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const underwriting = kind === "Underwriting conflicts";
     const dueAt = handoff || disclosure ? sortOn : undefined;
     const target = underwriting ? creditAusAttemptTarget(id) : handoff ? "processing-handoff" : disclosure ?
-      id.startsWith(disclosureClosingReviewPrefix) ? closingDisclosureReviewTarget : disclosureTarget : closingReview ? reviewTarget(id) : gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
+      id.startsWith(disclosureClosingReviewPrefix) ? closingDisclosureReviewTarget : disclosureTarget : closingReview ?
+      (status === "Reviewer needed" ? requestClosingPackageReviewTarget : reviewTarget(id)) : gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
       (status === "Reviewer needed" ? loanReviewsTarget : reviewTarget(id)) : conditionTarget(parentId, id);
     const action = underwriting ? "Review the unmatched response on the original order" : handoff ? "Reviewed 1003 is ready for a processor" : disclosure ?
       id.startsWith(disclosureReviewPrefix) ? "Review the change and prepare an updated sample package" : status :
-      closingReview ? (!available ? "Check staff availability" : status === "Returned for corrections" ? "Correct and resubmit the signed replacement" :
+      closingReview ? (status === "Reviewer needed" ? requestStatus ?? "Assign an eligible reviewer" :
+        !available ? "Check staff availability" : status === "Returned for corrections" ? "Correct and resubmit the signed replacement" :
         changed ? "Resubmit with the current signed package" : "Review the signed package") :
       gate ? closingGateLabels[gate] : manual ? manual.action : kind === "Missing evidence" ? (status === "Needs replacement" ? "Follow up on replacement evidence" : "Follow up on requested evidence") :
       internalReview ? (status === "Reviewer needed" ? requestStatus ?? "Assign a second reviewer for the current 1003" :

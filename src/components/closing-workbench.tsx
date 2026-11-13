@@ -299,6 +299,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
     {approval && <div className="work-queue" role="group" aria-label="Independent package approval">
       <strong>Independent package approval</strong>
       <p>Package v{approval.version} · {approval.status}{approval.reviewerName && ` · ${approval.reviewerName}`}</p>
+      {approval.routingReason && <p>{approval.routingReason}</p>}
       {approval.approvedAt && <p className="muted">Approved {dateTime(approval.approvedAt)} ET</p>}
       {approvalBlocked && <div>
         {approval.reviewId && canOpenReviews ? <Button size="sm" variant="outline" className="min-h-11" onClick={() => openCondition(reviewTarget(approval.reviewId!))}>Open required review</Button> :

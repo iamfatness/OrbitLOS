@@ -129,7 +129,7 @@ import { jointLinkCommand } from "./joint-application-model";
 import { closingReviewReady, mockClearanceClosingStages, reopenedMockClosingMessage } from "./loan-workflow";
 import { closingGateOverride } from "./closing-gate-model";
 import { checkClosingGate, fundingStageGate } from "./closing-gates";
-import { routeSecondApplicationReview } from "./loan-reviews";
+import { routeChangedClosingReview, routeSecondApplicationReview } from "./loan-reviews";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -590,10 +590,11 @@ function scopedLoanId(data: z.infer<typeof command>) {
 export async function executeCommand(db: Store, input: unknown, staff: WorkspaceStaff | null = null, referralOwner?: StaffIdentity,
   leadMembers: CampaignRehearsalMember[] = [], { scopedLeadUpdates = false, scopedLoanUpdates = false, scopedContactUpdates = false,
     scopedInboxUpdates = false, scopedTaskUpdates = false, scopedTemplateUpdates = false, scopedRealtorUpdates = false, scopedMigrationUpdates = false,
-    protectPilotLinks, reviewRouting, campaignRefillRoster, campaignOptOutRoster, recoveryEdit, uwmEnvironment = process.env }:
+    protectPilotLinks, reviewRouting, closingReviewer, campaignRefillRoster, campaignOptOutRoster, recoveryEdit, uwmEnvironment = process.env }:
   { scopedLeadUpdates?: boolean; scopedLoanUpdates?: boolean; scopedContactUpdates?: boolean; scopedInboxUpdates?: boolean; scopedTaskUpdates?: boolean;
     recoveryEdit?: RecoveryEdit; scopedTemplateUpdates?: boolean; scopedRealtorUpdates?: boolean; scopedMigrationUpdates?: boolean; protectPilotLinks?: ProtectPilotLinks;
-    reviewRouting?: { reviewerEmail: string; reviewer: VersionedBrokerageMember | null }; campaignRefillRoster?: CampaignRefillRoster; campaignOptOutRoster?: CampaignOptOutRoster; uwmEnvironment?: UwmEnvironment } = {}):
+    reviewRouting?: { reviewerEmail: string; reviewer: VersionedBrokerageMember | null }; closingReviewer?: VersionedBrokerageMember | null;
+    campaignRefillRoster?: CampaignRefillRoster; campaignOptOutRoster?: CampaignOptOutRoster; uwmEnvironment?: UwmEnvironment } = {}):
   Promise<WorkspaceMutationSuccess | LeadMutationResult | CampaignMutationResult | CampaignNavigationResult | CampaignQueueResult | LoanMutationResult |
     ContactMutationResult | LeadInboxMutation | TaskMutationResult | TemplateMutationResult | RealtorMutationResult | PlaybookSettingsMutation |
     MigrationMutationResult | { error: string; claimConflict?: true }> {
@@ -1822,6 +1823,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "reviewDisclosureDecline": {
           const result = updateDisclosurePackage(db, staff, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
+          if (staff && data.type === "respondToDisclosurePackage" && data.response === "Signed") {
+            routeChangedClosingReview(db, data.loanId, staff.brokerage.id, closingReviewer ?? null, now);
+          }
           message = result.message;
           break;
         }

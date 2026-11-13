@@ -11,6 +11,7 @@ import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { conditionTarget } from "./uwm-alert-model";
 import { accessEvent, loanAccess } from "./workspace-access";
+import type { VersionedBrokerageMember } from "./brokerage-model";
 
 const visibleLimit = 20;
 const missingChecklist = "missing-checklist";
@@ -65,7 +66,7 @@ function closingGateCheck(db: Store, loanId: string, phase: ClosingGatePhase, po
 }
 
 export function closingGateWork(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
-  now = new Date().toISOString()): ClosingGateResult {
+  now = new Date().toISOString(), roster: readonly VersionedBrokerageMember[] = []): ClosingGateResult {
   if (!staff || staff.brokerage.id !== brokerageId) return { error: closingGateUnavailable };
   const parsed = closingGateInput.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the closing and funding policy." };
@@ -80,14 +81,20 @@ export function closingGateWork(db: Store, input: unknown, staff: WorkspaceStaff
   }
   if (!isAdmin) return { error: closingGateUnavailable };
   const sample = canUseSampleDisclosures(staff);
-  const settings = (policy: ClosingGateSettings) => sample ? { ...policy, canRequireChangedPackageReview: true } : policy;
+  const reviewers = roster.filter(member => member.status === "Active" && member.role === "Admin").map(({ email, name }) => ({ email, name }));
+  const settings = (policy: ClosingGateSettings) => sample ? { ...policy, canRequireChangedPackageReview: true, changedPackageReviewers: reviewers } : policy;
   if (data.type === "settings") return settings(currentClosingGatePolicy(db));
-  if (!sample && data.rules.changedPackageReview) return { error: "This approval setting is available for sample closing packages." };
+  if (!sample && (data.rules.changedPackageReview || data.rules.changedPackageReviewer)) return { error: "This approval setting is available for sample closing packages." };
   return db.transaction(() => {
     const current = currentClosingGatePolicy(db);
     const requireReview = sample && (data.rules.changedPackageReview ?? current.rules.changedPackageReview);
+    const reviewer = requireReview ? data.rules.changedPackageReviewer === undefined ? current.rules.changedPackageReviewer : data.rules.changedPackageReviewer : null;
+    if (reviewer && reviewer !== current.rules.changedPackageReviewer && !reviewers.some(member => member.email === reviewer)) {
+      return { error: "Choose an active brokerage admin as the default reviewer." };
+    }
     const rules = { closing: closingGateRules.filter((rule) => data.rules.closing.includes(rule)),
-      funding: closingGateRules.filter((rule) => data.rules.funding.includes(rule)), ...(requireReview ? { changedPackageReview: true } : {}) };
+      funding: closingGateRules.filter((rule) => data.rules.funding.includes(rule)), ...(requireReview ? { changedPackageReview: true } : {}),
+      ...(reviewer ? { changedPackageReviewer: reviewer } : {}) };
     const serialized = JSON.stringify(rules);
     if (serialized === JSON.stringify(current.rules) &&
       (data.revision === current.revision || (data.revision + 1 === current.revision && data.reason === current.reason))) return settings(current);

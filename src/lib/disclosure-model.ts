@@ -35,7 +35,7 @@ export type ClosingPackageAssignment = ClosingPackageReviewRef & {
 };
 export type ChangedClosingApproval = {
   status: "Needs signed replacement" | "Needs reviewer" | "Awaiting approval" | "Needs resubmission" | "Returned for corrections" | "Approved";
-  version: number; reviewId?: string; reviewerName?: string; approvedAt?: string;
+  version: number; reviewId?: string; reviewerName?: string; approvedAt?: string; routingReason?: string;
 };
 export const disclosureTemplateChoice = z.object({ id: z.uuid(), revision: version });
 export const confirmClosingDisclosure = z.object({ type: z.literal("confirmClosingDisclosure"), ...current });

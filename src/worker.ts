@@ -157,7 +157,8 @@ import { complianceCaseWork } from "./lib/compliance-cases";
 import { complianceWorkUnavailable } from "./lib/compliance-case-model";
 import { borrowerQuestionSetWork } from "./lib/borrower-question-sets";
 import { loanStageEditWork } from "./lib/loan-stage-edits";
-import { closingGateWork } from "./lib/closing-gates";
+import { closingGateWork, currentClosingGatePolicy } from "./lib/closing-gates";
+import { closingGateInput } from "./lib/closing-gate-model";
 import { changeConversation, readConversations } from "./lib/conversations";
 import { contactMergeWork } from "./lib/contact-merge";
 import { conversationInput } from "./lib/conversation-model";
@@ -165,7 +166,7 @@ import { changeInboundReply, readInboundReplies } from "./lib/inbound-replies";
 import { coverageParticipants, coverageWork, coveredCampaignRouting } from "./lib/coverage";
 import { coverageInput, coverageUnavailable, type CoverageResult } from "./lib/coverage-model";
 import { readWorkspaceSearch } from "./lib/workspace-search";
-import { loanReviewWork, reviewParticipants } from "./lib/loan-reviews";
+import { loanReviewWork, reviewParticipants, routeChangedClosingReview } from "./lib/loan-reviews";
 import { playbookRunWork } from "./lib/playbook-runs";
 import { nextDocumentReminderCheck, runScheduledDocumentReminders } from "./lib/document-reminder-runs";
 import { brokerageFinanceWork } from "./lib/brokerage-finance";
@@ -1081,7 +1082,15 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return loanStageEditWork(this.#store, input, staff, this.#id);
   }
 
-  closingGates(input: unknown, staff: WorkspaceStaff) {
+  async closingGates(input: unknown, staff: WorkspaceStaff): Promise<ReturnType<typeof closingGateWork>> {
+    const parsed = closingGateInput.safeParse(input);
+    if (parsed.success && parsed.data.type !== "loan" && staff.brokerage.role === "Admin" && this.#accepts(staff) &&
+        (staff.brokerage.pilot || this.#id === demoBrokerageId)) {
+      const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+      const roster = await directory.loanReviewRoster(staff, [...(googleSettings(this.env)?.allowedEmails ?? [])], [], true);
+      if (!roster) return { error: "Could not verify the brokerage roster. Reload the policy." };
+      return closingGateWork(this.#store, input, staff, this.#id, undefined, roster);
+    }
     return closingGateWork(this.#store, input, staff, this.#id);
   }
 
@@ -1312,10 +1321,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       try {recoveryEdit=await this.env.WORKSPACE.getByName(demoBrokerageId).beginWorkspaceRecoveryEdit(staff,intent);}
       catch {return {error:"The recovery receipt could not be prepared. Try saving the change again."};}
     }
+    const closingReviewer = await this.#reviewerForSampleSignature(input, "respondToDisclosurePackage", !!staff && (staff.brokerage.pilot || this.#id === demoBrokerageId));
     const result = await executeCommand(this.#store, input, staff, referralOwner, leadMembers,
       { scopedLeadUpdates: true, scopedLoanUpdates: true, scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks",
         scopedTemplateUpdates: true, scopedRealtorUpdates: scope === "realtors", scopedMigrationUpdates: scope === "migration",
-        reviewRouting, campaignRefillRoster, campaignOptOutRoster, recoveryEdit,
+        reviewRouting, closingReviewer, campaignRefillRoster, campaignOptOutRoster, recoveryEdit,
         uwmEnvironment: Object.fromEntries(["UWM_BROKERAGE_ID", "UWM_INSIGHTS_CLIENT_ID", "UWM_INSIGHTS_CLIENT_SECRET",
           "UWM_CLIENT_ID", "UWM_CLIENT_SECRET", "UWM_ENVIRONMENT", "ORBIT_PRICING_MODE", "UWM_EQ_CLIENT_ID",
           "UWM_EQ_CLIENT_SECRET", "UWM_EQ_BROKER_ALIAS", "UWM_EQ_LO_EMAIL"].map((key) => [key, runtimeSetting(this.env, key)])),
@@ -1557,6 +1567,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const membership = activeBrokerages(this.#store, staff.email, bootstrapEmails).find(({ id }) => id === staff.brokerage.id);
     return membership?.role === staff.brokerage.role ? selectedActiveMembers(this.#store, membership.id, selected, bootstrapEmails, includeAdmins) : null;
   }
+  sampleClosingReviewer(id: string, email: string, bootstrapEmails: string[]): VersionedBrokerageMember | null {
+    if (this.#id !== demoBrokerageId) return null;
+    return selectedActiveMembers(this.#store, id, [email], bootstrapEmails).find(member => member.role === "Admin") ?? null;
+  }
   campaignRoutingRoster(staff: WorkspaceStaff, bootstrapEmails: string[], selected: string[]): StaffIdentity[] | null {
     if (this.#id !== demoBrokerageId || selected.length > campaignRoutingOfficerLimit) return null;
     const membership = activeBrokerages(this.#store, staff.email, bootstrapEmails).find(({ id }) => id === staff.brokerage.id);
@@ -1746,13 +1760,27 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return recordPilotMeasurement(this.#store, staff, input);
   }
-  borrower(input: unknown, pilot = false) {
-    const fictional = pilot || this.#id === demoBrokerageId;
-    return borrowerCommandResult(this.#store, input,
-      fictional || runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS") !== "enabled", pilot, fictional);
+  async #reviewerForSampleSignature(input: unknown, type: string, fictional: boolean): Promise<VersionedBrokerageMember | null> {
+    if (!fictional || !input || typeof input !== "object" || !("type" in input) || input.type !== type ||
+      !("response" in input) || input.response !== "Signed") return null;
+    const reviewer = currentClosingGatePolicy(this.#store).rules.changedPackageReviewer;
+    if (!reviewer) return null;
+    const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+    try { return await directory.sampleClosingReviewer(this.#id, reviewer, [...(googleSettings(this.env)?.allowedEmails ?? [])]); }
+    catch { return null; }
   }
-  coBorrower(input: unknown, pilot = this.#id !== demoBrokerageId) {
-    return coBorrowerCommandResult(this.#store, input, pilot, undefined, pilot || this.#id === demoBrokerageId);
+  async borrower(input: unknown, pilot = false) {
+    const fictional = pilot || this.#id === demoBrokerageId;
+    const reviewer = await this.#reviewerForSampleSignature(input, "respondToSampleDisclosure", fictional);
+    return borrowerCommandResult(this.#store, input,
+      fictional || runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS") !== "enabled", pilot, fictional,
+      (loanId, at) => routeChangedClosingReview(this.#store, loanId, this.#id, reviewer, at));
+  }
+  async coBorrower(input: unknown, pilot = this.#id !== demoBrokerageId) {
+    const fictional = pilot || this.#id === demoBrokerageId;
+    const reviewer = await this.#reviewerForSampleSignature(input, "respondToSampleDisclosure", fictional);
+    return coBorrowerCommandResult(this.#store, input, pilot, undefined, fictional,
+      (loanId, at) => routeChangedClosingReview(this.#store, loanId, this.#id, reviewer, at));
   }
   async #resolveLeadOwner(email: string | null, emails: string[], adminEmail?: string) {
     if (!email) return null;

@@ -191,7 +191,8 @@ export function closingPackageAuthor(db: Store, loanId: string, version: number)
   const row = db.prepare(`SELECT package.preparedByEmail, package.changeReview, loan.officerEmail FROM disclosure_packages package JOIN loans loan ON loan.id = package.loanId
     WHERE package.loanId = ? AND package.version = ?`).get(loanId, version);
   const change: DisclosurePackage["changeReview"] = row?.changeReview ? JSON.parse(String(row.changeReview)) : null;
-  return { email: (row?.preparedByEmail ?? row?.officerEmail ?? null) as string | null, legacyName: row?.preparedByEmail ? null : change?.actor ?? null };
+  return { email: (row?.preparedByEmail ?? row?.officerEmail ?? null) as string | null,
+    name: change?.actor ?? null, legacyName: row?.preparedByEmail ? null : change?.actor ?? null };
 }
 
 export function isIndependentClosingReviewer(author: ReturnType<typeof closingPackageAuthor>, reviewer: { email: string; name: string }) {
@@ -242,7 +243,9 @@ export function readChangedClosingApproval(db: Store, loanId: string, policy = c
     return { status: !independent ? "Needs reviewer" : sameClosingPackage(assignment, current) ? "Awaiting approval" : "Needs resubmission",
       version, ...assigned };
   }
-  return { status: "Needs reviewer", version };
+  const blocked = policy.rules.changedPackageReviewer && db.prepare(`SELECT reason FROM closing_review_routing_blocks
+    WHERE loanId = ? AND version = ? AND revision = ?`).get(loanId, version, revision);
+  return { status: "Needs reviewer", version, ...(blocked ? { routingReason: String(blocked.reason) } : {}) };
 }
 
 export function updateAssignedClosingTask(db: Store, loanId: string, reference: ClosingPackageReviewRef, at: string, waiting: boolean) {

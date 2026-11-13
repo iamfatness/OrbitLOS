@@ -397,7 +397,8 @@ function attachBorrowerSample(db: Store, row: Pick<BorrowerStatusRow, "loanId" |
   return null;
 }
 
-export function borrowerCommandResult(db: Store, input: unknown, allowSample = true, pilot = false, sampleSigning = true): BorrowerResult {
+export function borrowerCommandResult(db: Store, input: unknown, allowSample = true, pilot = false, sampleSigning = true,
+  onSampleSigned?: (loanId: string, at: string) => void): BorrowerResult {
   const parsed = borrowerCommand.safeParse(input);
   if (!parsed.success) return { status: 400, error: "Check the length of your answers and use valid amounts, then try again." };
   const data = parsed.data;
@@ -412,6 +413,7 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
         if (!sampleSigning || !row.submittedAt) return { status: 404, error: "This sample package is unavailable." };
         const failure = respondToBorrowerDisclosure(db, row.loanId, "Borrower", data, now);
         if (failure) return failure;
+        if (data.response === "Signed") onSampleSigned?.(row.loanId, now);
       }
       if (data.type === "answerBorrowerQuestion") {
         if (!sampleSigning || !row.submittedAt) return { status: 404, error: "This question is unavailable." };
@@ -489,7 +491,8 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
   });
 }
 
-export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false, now = new Date().toISOString(), sampleSigning = true):
+export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false, now = new Date().toISOString(), sampleSigning = true,
+  onSampleSigned?: (loanId: string, at: string) => void):
   { value: CoBorrowerApplication } | { status: number; error: string } {
   const parsed = coBorrowerCommand.safeParse(input);
   if (!parsed.success) return { status: 400, error: "Check the length and format of your answers." };
@@ -518,7 +521,10 @@ export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false
     if (data.type === "read") return view();
     if (data.type === "respondToSampleDisclosure") {
       if (!sampleSigning || !row.submittedAt || !application.submittedAt) return { status: 404, error: "This sample package is unavailable." };
-      return respondToBorrowerDisclosure(db, row.loanId, "Co-borrower", data, now) ?? view();
+      const failure = respondToBorrowerDisclosure(db, row.loanId, "Co-borrower", data, now);
+      if (failure) return failure;
+      if (data.response === "Signed") onSampleSigned?.(row.loanId, now);
+      return view();
     }
     if (data.type === "answerBorrowerQuestion") {
       if (!sampleSigning || !row.submittedAt || !application.submittedAt) return { status: 404, error: "This question is unavailable." };

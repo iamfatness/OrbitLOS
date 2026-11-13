@@ -74,14 +74,14 @@ import { complianceWorkUnavailable } from "./compliance-case-model";
 import type { ComplianceCaseResult } from "./compliance-cases";
 import { borrowerQuestionSetWork } from "./borrower-question-sets";
 import { loanStageEditWork } from "./loan-stage-edits";
-import { closingGateWork } from "./closing-gates";
+import { closingGateWork, currentClosingGatePolicy } from "./closing-gates";
 import { changeConversation, readConversations } from "./conversations";
 import { changeInboundReply, readInboundReplies } from "./inbound-replies";
 import { workOnAppointment } from "./appointments";
 import { coverageWork } from "./coverage";
 import { coverageInput, type CoverageResult } from "./coverage-model";
 import { readWorkspaceSearch } from "./workspace-search";
-import { loanReviewWork } from "./loan-reviews";
+import { loanReviewWork, routeChangedClosingReview } from "./loan-reviews";
 import { reviewInput, type ReviewResult } from "./loan-review-model";
 import { playbookRunWork } from "./playbook-runs";
 import { brokerageFinanceWork } from "./brokerage-finance";
@@ -185,7 +185,9 @@ export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | nu
       input.type === "prepareClosingHandoff" || input.type === "saveClosingTarget" || input.type === "saveClosingItem" || input.type === "completeClosingItem" ||
       confirmClosingDisclosure.safeParse(input).success || disclosureCommand.safeParse(input).success || prepareClosingPacketInput.safeParse(input).success);
   const actor = localScopedLoan ? localPilotAdmin : staff;
-  return executeCommand(database(), input, actor, undefined, [], { scopedLeadUpdates: true, scopedLoanUpdates: true,
+  const db = database();
+  return executeCommand(db, input, actor, undefined, [], { scopedLeadUpdates: true, scopedLoanUpdates: true,
+    closingReviewer: disclosureCommand.safeParse(input).success ? localClosingReviewer(db) : undefined,
     scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks", scopedTemplateUpdates: true,
     scopedRealtorUpdates: scope === "realtors", scopedMigrationUpdates: scope === "migration" });
 }
@@ -251,6 +253,11 @@ const localReviewMembers: VersionedBrokerageMember[] = [
   { ...localCampaignOfficers[1], role: "LO", status: "Active" },
   { name: "Fictional Processor", email: "processor@example.test", role: "Processor", status: "Active" },
 ];
+
+function localClosingReviewer(db: Store) {
+  const email = currentClosingGatePolicy(db).rules.changedPackageReviewer;
+  return localReviewMembers.find(member => member.email === email && member.role === "Admin") ?? null;
+}
 
 export async function loadFileExceptions(input: unknown, staff: WorkspaceStaff | null) {
   const page = readFileExceptions(database(), input, staff ?? localAdmin, demoBrokerageId);
@@ -436,7 +443,7 @@ export async function workOnLoanStageEdits(input: unknown, staff: WorkspaceStaff
 }
 
 export async function workOnClosingGates(input: unknown, staff: WorkspaceStaff | null) {
-  return closingGateWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
+  return closingGateWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId, undefined, localReviewMembers);
 }
 
 export async function updateSalesSettings(input: unknown, staff: WorkspaceStaff | null) {
@@ -509,7 +516,9 @@ export async function updateMigrationCutover(staff: WorkspaceStaff, input: unkno
 }
 
 export async function updateBorrowerApplication(input: unknown) {
-  return borrowerCommandResult(database(), input);
+  const db = database();
+  return borrowerCommandResult(db, input, undefined, undefined, undefined,
+    (loanId, at) => routeChangedClosingReview(db, loanId, demoBrokerageId, localClosingReviewer(db), at));
 }
 
 export function reserveBorrowerAddressLookup(token: string) {
@@ -517,7 +526,9 @@ export function reserveBorrowerAddressLookup(token: string) {
 }
 
 export async function updateCoBorrowerApplication(input: unknown) {
-  return coBorrowerCommandResult(database(), input);
+  const db = database();
+  return coBorrowerCommandResult(db, input, undefined, undefined, undefined,
+    (loanId, at) => routeChangedClosingReview(db, loanId, demoBrokerageId, localClosingReviewer(db), at));
 }
 
 export async function loadRealtorReferrals(input: unknown) {

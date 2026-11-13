@@ -930,8 +930,11 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
         const underwriting = item.kind === "Underwriting conflicts";
         const closingReview = item.kind === closingPackageException;
         const assignment = result.disclosureWork?.closingAssignment;
+        const approval = result.disclosureWork?.changedClosingApproval;
         const current = underwriting ? result.mockCreditAusRuns.some((run) =>
           run.id === item.id && run.result.status === unconfirmedMockOrder && run.conflict?.detectedAt === item.sortOn && !run.conflict.reviewedAt) :
+          closingReview && item.status === "Reviewer needed" ? approval?.status === "Needs reviewer" &&
+            approval.version === item.closingPackageVersion && approval.routingReason === item.action :
           closingReview ? assignment?.id === item.id && assignment.version === item.closingPackageVersion && assignment.dueOn === item.dueOn &&
             (item.status === "Returned for corrections" ? assignment.status === "Changes requested" :
               assignment.status === "Requested" && assignment.current === (item.status !== "Package outdated") &&

@@ -15,6 +15,7 @@ import { filePreflightCategory, preflightBlocked, type FilePreflight } from "./f
 import { closingPackageReviewCategory, type ClosingPackageReviewRef } from "./disclosure-model";
 import { canUseSampleDisclosures, closingPackageAuthor, closingPackageEvidence, currentClosingPackage, flagDisclosureReview, hasClosingConfirmation,
   isIndependentClosingReviewer, readChangedClosingApproval, readClosingPackageAssignment, sameClosingPackage, updateAssignedClosingTask } from "./disclosures";
+import { currentClosingGatePolicy } from "./closing-gate-policy-store";
 
 const pageSize = 20;
 const active = "review.status IN ('Requested', 'Changes requested')";
@@ -164,6 +165,35 @@ export function routeSecondApplicationReview(db: Store, staff: WorkspaceStaff, t
   return "blocked";
 }
 
+export function routeChangedClosingReview(db: Store, loanId: string, brokerageId: string, reviewer: VersionedBrokerageMember | null, at: string) {
+  const policy = currentClosingGatePolicy(db);
+  const configured = policy.rules.changedPackageReviewer;
+  if (!configured) return;
+  const approval = readChangedClosingApproval(db, loanId, policy);
+  const closing = currentClosingPackage(db, loanId);
+  if (!closing || approval?.status !== "Needs reviewer" || approval.reviewId) return;
+  const author = closingPackageAuthor(db, loanId, closing.version);
+  const loan = db.prepare("SELECT officer, officerEmail FROM loans WHERE id = ?").get(loanId);
+  const email = author.email ?? (typeof loan?.officerEmail === "string" ? loan.officerEmail : null);
+  const today = easternDate(new Date(at));
+  const dueOn = shiftReportDate(today, 1);
+  const independent = reviewer && isIndependentClosingReviewer(author, reviewer);
+  if (email && reviewer?.email === configured && reviewer.role === "Admin" && reviewer.status === "Active" && independent) {
+    const staff: WorkspaceStaff = { email, name: author.name ?? (email === loan?.officerEmail ? String(loan.officer) : email),
+      brokerage: { id: brokerageId, name: "Sample workspace", role: "Admin", pilot: true } };
+    const result = mutate(db, { type: "create", id: crypto.randomUUID(), loanId, title: "Review sample closing package",
+      category: closingPackageReviewCategory, reviewerEmail: reviewer.email, dueOn, closingPackage: closing,
+      note: `Assigned after the replacement was signed. Closing policy version ${policy.revision}.` }, staff, [reviewer], today, at, true);
+    if ("kind" in result) return;
+  }
+  const reason = configured === email || (reviewer?.email === configured && !independent)
+    ? "The default reviewer prepared this package. Assign another eligible reviewer."
+    : "The default reviewer is unavailable. Assign another eligible reviewer.";
+  db.prepare(`INSERT INTO closing_review_routing_blocks (loanId, version, revision, dueOn, reason) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(loanId) DO UPDATE SET version=excluded.version, revision=excluded.revision, dueOn=excluded.dueOn, reason=excluded.reason
+    WHERE version<>excluded.version OR revision<>excluded.revision`).run(loanId, closing.version, closing.revision, dueOn, reason);
+}
+
 export function loanReviewWork(db: Store, input: ReviewInput | ReviewOffboarding, staff: WorkspaceStaff, brokerageId: string, members: VersionedBrokerageMember[], now = new Date()): ReviewResult {
   if (staff.brokerage.id !== brokerageId) return { error: reviewsUnavailable };
   const today = easternDate(now);
@@ -244,7 +274,8 @@ export function loanReviewWork(db: Store, input: ReviewInput | ReviewOffboarding
     mentionOptions: options(members, loan, staff.email) }, ...history(db, row.id, input.before), today };
 }
 
-function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: WorkspaceStaff, members: VersionedBrokerageMember[], today: string, at: string): ReviewResult {
+function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: WorkspaceStaff, members: VersionedBrokerageMember[], today: string, at: string,
+  automaticClosingAssignment = false): ReviewResult {
   const loan = scopeLoan(db, staff, input.loanId);
   if (!loan) return { error: reviewsUnavailable };
   const row = scopedReview(db, input.loanId, input.id);
@@ -261,7 +292,8 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
   const log = (action: ReviewHistoryEvent["action"], context = "", preflight?: FilePreflight, closing?: ClosingPackageReviewRef) => {
     db.prepare(`INSERT INTO loan_review_events
       (id, reviewId, actorEmail, actorName, action, note, at, request, context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(eventId, input.id, staff.email, staff.name, action, input.note, at, receipt, context);
+      .run(eventId, input.id, automaticClosingAssignment ? "system" : staff.email, automaticClosingAssignment ? "Orbit closing policy" : staff.name,
+        action, input.note, at, receipt, context);
     if (preflight) db.prepare("INSERT INTO loan_review_preflight (eventId, snapshot) VALUES (?, ?)").run(eventId, JSON.stringify(preflight));
     if (closing) db.prepare("INSERT INTO loan_review_closing_packages (eventId, version, revision) VALUES (?, ?, ?)")
       .run(eventId, closing.version, closing.revision);
@@ -308,7 +340,11 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
       .run(input.id, input.loanId, input.title, input.category, staff.email, staff.name, reviewer.email, reviewer.name,
         reviewer.role, reviewer.accessRevision ?? 0, input.dueOn, input.category === "1003 second review" ? loan.applicationRevision : null, at, at);
     log("Requested", assigned(reviewer.name, input.dueOn, input.category === "1003 second review" ? loan.applicationRevision : null), preflight, closing);
-    if (closing) updateAssignedClosingTask(db, input.loanId, closing, at, true);
+    if (closing) {
+      updateAssignedClosingTask(db, input.loanId, closing, at, true);
+      db.prepare("DELETE FROM closing_review_routing_blocks WHERE loanId = ? AND version = ? AND revision = ?")
+        .run(input.loanId, closing.version, closing.revision);
+    }
     notify(reviewer.email, "Review assigned");
     if (input.category === "1003 second review") {
       db.prepare("DELETE FROM application_review_routing_blocks WHERE loanId = ? AND applicationRevision = ?").run(input.loanId, loan.applicationRevision);
