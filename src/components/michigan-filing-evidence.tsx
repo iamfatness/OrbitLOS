@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { accessComplianceCases } from "@/app/actions";
 import type { ObligationRequest } from "@/lib/compliance-obligations-model";
-import { michiganFilingAmendments, michiganFilingEvidence } from "@/lib/michigan-filing-evidence-model";
+import { michiganFilingAmendments, michiganFilingEvidence, michiganStatementFormats } from "@/lib/michigan-filing-evidence-model";
 import { Button } from "./ui/button";
 
 const finding = z.object({ asOf: z.iso.date(), dueOn: z.iso.date().nullable(), summary: z.string(), gaps: z.array(z.string()),
@@ -60,6 +60,10 @@ function FilingForm({ latest, component, nominal, reviewableScopeRevision, busy,
   const addAmendment = useRef<HTMLButtonElement>(null);
   return <form className="record-form" onSubmit={event => { event.preventDefault(); submit(new FormData(event.currentTarget)); }}>
     <fieldset className="record-form min-w-0" disabled={busy}>
+      {component === "Fiscal-year financial statement" && <EvidenceGroup name="michiganStatement" label="Record annual financial statement" recorded={Boolean(facts?.michiganStatement)}>
+        <Select name="miStatementFormat" label="Financial statement format" options={michiganStatementFormats} value={facts?.michiganStatement?.format} />
+        <Field name="miStatementReference" label="Filed financial statement reference" value={facts?.michiganStatement?.reference} />
+      </EvidenceGroup>}
       <EvidenceGroup name="deadline" label="Record reviewed deadline" recorded={Boolean(facts?.deadline)}>
         <Field name="dueOn" label="Reviewed filing deadline" type="date" value={facts?.deadline?.on ?? nominal ?? undefined} />
         <Field name="deadlineReference" label="Deadline evidence reference" value={facts?.deadline?.reference} />
@@ -116,6 +120,7 @@ function FilingSummary({ entry, review = entry.finding }: { entry: Version; revi
     ["Original filing timing", review.summary],
     ["Deadline evidence", evidence.deadline?.reference],
     ["Report activity", evidence.reconciliation?.activity],
+    ["Financial statement format", evidence.michiganStatement?.format, evidence.michiganStatement?.reference],
     ["Reconciliation evidence", evidence.reconciliation?.reference],
     ["Original submission", evidence.submission?.on, evidence.submission?.reference],
     ["Recorded by", entry.actor],
@@ -190,6 +195,7 @@ export function NmlsFilingEvidence({ brokerageId, entityId, obligationId, period
       return { on: get(prefix + "-on"), reference: get(prefix + "-reference"), reason: get(prefix + "-reason") };
     });
     const evidence = michiganFilingEvidence.safeParse({
+      michiganStatement: form.has("michiganStatement") ? { format: get("miStatementFormat"), reference: get("miStatementReference") } : undefined,
       deadline: form.has("deadline") ? { on: get("dueOn"), reference: get("deadlineReference") } : undefined,
       reconciliation: form.has("reconciliation") ? { activity: get("activity") || undefined, reference: get("reconciliationReference") } : undefined,
       submission: form.has("submission") ? { on: get("submissionOn"), reference: get("submissionReference") } : undefined,

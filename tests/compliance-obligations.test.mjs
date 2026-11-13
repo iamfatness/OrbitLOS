@@ -1270,6 +1270,16 @@ test("Michigan reporting receipts remain scoped to the filing component and peri
  assert.ok(late.finding.gaps.some(gap=>gap.includes("two-year")));
  assert.ok(history({...activity,entityId:crypto.randomUUID()}).error);
  assert.ok(f.run({operation:"michiganFilingHistory",...activity},f.staff,[]).error);
- assert.equal(f.run(save(fiscalStatement,{submission:{on:"2026-10-01",reference:"Fictional statement receipt"}})).finding.summary,
-   "Receipt after recorded date");
+ const statementReceipt = {on:"2026-10-01",reference:"Fictional statement receipt"};
+ const withoutStatement = f.run(save(fiscalStatement,{submission:statementReceipt}));
+ const missingFormat = "Record the annual financial statement format and supporting reference.";
+ assert.equal(withoutStatement.finding.summary,"Receipt after recorded date");
+ assert.ok(withoutStatement.finding.gaps.includes(missingFormat));
+ const michiganStatement = {format:"Independent CPA-certified statement",reference:"Fictional filed statement reference"};
+ assert.ok(f.run(save(activity,{submission:statementReceipt,michiganStatement},2)).error);
+ const complete = f.run(save(fiscalStatement,{submission:statementReceipt,michiganStatement},1));
+ assert.equal(complete.version,2);
+ assert.ok(!complete.finding.gaps.includes(missingFormat));
+ assert.deepEqual(history(fiscalStatement).versions[0].evidence.michiganStatement,michiganStatement);
+ assert.equal(history(fiscalStatement).versions[1].evidence.michiganStatement,undefined);
 });

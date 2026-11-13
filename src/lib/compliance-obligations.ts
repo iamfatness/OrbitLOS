@@ -284,6 +284,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     if (data.expected && !data.correction) return { error: "Record a reason for updating the filing evidence." };
     const { evidence } = data;
     const { deadline, reconciliation, submission } = evidence;
+    if (evidence.michiganStatement && basis.sourceKey !== "REQ-MI-REPORTING-GAAP") return unavailable;
     if (data.reviewedScopeRevision !== undefined && data.reviewedScopeRevision !== reviewable?.revision) return changed;
     if (data.reviewedScopeRevision !== undefined && (!deadline || !data.correction))
       return { error: "Record a reviewed deadline and reason for the scope review." };

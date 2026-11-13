@@ -45,7 +45,12 @@ export function filingEvidenceComponent(source: string, draft: Pick<ObligationDr
   return nmlsFilingComponent(source, draft, periodStart);
 }
 
+export const michiganStatementFormats = [
+  "DIFS-prescribed form", "Substantially similar report", "Independent CPA-certified statement",
+] as const;
+
 export const michiganFilingEvidence = z.strictObject({
+  michiganStatement: z.strictObject({ format: z.enum(michiganStatementFormats), reference }).optional(),
   deadline: receipt.optional(),
   reconciliation: z.strictObject({ reference, activity: z.enum(["Activity recorded", "No reportable activity"]).optional() }).optional(),
   submission: receipt.optional(),
@@ -62,6 +67,8 @@ export function reviewNmlsFiling(evidence: MichiganFilingEvidence, nominalDueOn:
   const hmda = component === "HMDA annual filing" || component === "HMDA quarterly filing";
   const dueOn = basisChanged ? null : evidence.deadline?.on ?? nominalDueOn;
   const gaps: string[] = [];
+  if (component === "Fiscal-year financial statement" && !evidence.michiganStatement)
+    gaps.push("Record the annual financial statement format and supporting reference.");
   if (!evidence.deadline || basisChanged) gaps.push("Verify the component and deadline against the current filing instructions.");
   if (!evidence.reconciliation) gaps.push("Record the reconciliation to the filed report or financial statement.");
   if (component === "Residential Mortgage Loan Activity" && !evidence.reconciliation?.activity)
