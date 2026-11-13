@@ -115,6 +115,9 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
       <p><strong>Question</strong> · {selected.instructions}</p>
       {selected.stateReview.source && <p><a className="name-link break-words" href={selected.stateReview.source.sourceUrl} target="_blank" rel="noreferrer">
         {selected.stateReview.source.title}</a></p>}
+      {selected.stateReview.latestNote && <dl className="state-scope-facts">
+        <div><dt>Last recorded decision or next action</dt><dd>{selected.stateReview.latestNote}</dd></div>
+      </dl>}
       <details className="details-section">
         <summary className="min-h-11 content-center">Saved business facts and evidence references</summary>
         <dl className="state-scope-facts">
@@ -195,7 +198,7 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
               aria-describedby="compliance-review-evidence-help" /></label>
             <p className="muted" id="compliance-review-evidence-help">{selected?.stateReview ? "For an outside answer, use a reference your team can retrieve. " : ""}
               Keep borrower data and privileged material out of these notes. Completion requires Awaiting review and an evidence reference.</p>
-            <label className="field">{selected?.stateReview ? "Decision or next action" : "Reason or progress note"}
+            <label className="field">{selected?.stateReview ? "Decision or next action (required)" : "Reason or progress note"}
               <textarea name="note" required minLength={5} maxLength={1500} /></label></>}
         </>}
         <div className="loan-application-actions"><Button type="submit">{busy ? "Saving…" : "Save review work"}</Button><Button type="button" variant="outline" onClick={() => { navigate("list"); reload(); }}>Back to monthly review</Button></div>

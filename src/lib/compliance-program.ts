@@ -246,7 +246,10 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
       ON o.brokerageId=w.brokerageId AND o.entityId=w.entityId AND o.obligationId=w.obligationId AND o.period=w.period
     WHERE w.brokerageId=? AND w.entityId=? AND w.month=?`).all(staff.brokerage.id, entity.id, period);
   const byItem = new Map(items.map(item => [item.id, item]));
-  const stateReviews = db.prepare(`SELECT r.workId,r.jurisdiction,r.scopeRevision,r.source,s.facts,s.entitySnapshot
+  const stateReviews = db.prepare(`SELECT r.workId,r.jurisdiction,r.scopeRevision,r.source,s.facts,s.entitySnapshot,
+    (SELECT e.note FROM compliance_program_events e WHERE e.brokerageId=i.brokerageId AND e.entityId=i.entityId
+      AND e.month=i.month AND e.id=i.id AND e.action IN ('Updated internal work','Reviewed internal work')
+      ORDER BY e.at DESC,e.rowid DESC LIMIT 1) AS latestNote
     FROM compliance_scope_reviews r
     JOIN compliance_program_items i ON i.brokerageId=r.brokerageId AND i.id=r.workId
     JOIN compliance_state_scope_versions s ON s.brokerageId=r.brokerageId AND s.entityId=r.entityId
@@ -258,6 +261,7 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
       jurisdiction: String(row.jurisdiction), revision: Number(row.scopeRevision),
       entityName: JSON.parse(String(row.entitySnapshot)).name,
       facts: JSON.parse(String(row.facts)), source: JSON.parse(String(row.source)),
+      latestNote: typeof row.latestNote === "string" ? row.latestNote : undefined,
     };
   }
   for (const row of bases) {
