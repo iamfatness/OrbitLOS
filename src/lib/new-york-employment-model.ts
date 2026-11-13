@@ -79,5 +79,5 @@ export function prepareNewYorkEmploymentWorkpaper(evidence: NewYorkEmploymentEvi
   }
   for (const [key, item] of departures)
     if (!reconciled.has(key)) gaps.push("Review the filing treatment of the recorded departure for NMLS " + item.originatorNmls + ".");
-  return { period, rows, gaps: [...new Set(gaps)] };
+  return { period: { from: period.from, through: period.through }, rows, gaps: [...new Set(gaps)] };
 }

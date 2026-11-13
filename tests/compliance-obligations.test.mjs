@@ -742,6 +742,16 @@ test("New York employment reporting preserves separate prompt notices and quarte
   assert.equal(exported.dueOn, "2026-10-30");
   assert.deepEqual(exported.rows, [hire, departure, temporary]);
   assert.deepEqual(exported.gaps, ["Verify the originating entity's legal name and NMLS ID."]);
+  assert.deepEqual(exported.period, { from: "2026-07-01", through: "2026-09-30" });
+  assert.deepEqual(exported.obligation, { id: f.id, scopeRevision: scope.revision, sourceKey: "REQ-NY-REPORTING-QRES" });
+  assert.equal(exported.recorded.actor, f.staff.email);
+  assert.equal(exported.recorded.correction, request.correction);
+  assert.deepEqual(exported.filingEvidence.mailed, mailed);
+  assert.deepEqual(exported.filingEvidence.notarizedReport, complete.notarizedReport);
+  assert.deepEqual(exported.filingEvidence.separations, complete.separations);
+  assert.equal(exported.recordedFinding.individualNoticesMissing, 1);
+  assert.equal(workpaper(1).filingEvidence.mailed, undefined);
+  assert.equal(workpaper(1).recordedFinding.entityNoticesMissing, 1);
   assert.equal(workpaper(2).rows.length, 0);
   assert.ok(workpaper(4).error);
   assert.ok(f.run({ ...target, operation: "newYorkEmploymentWorkpaper", version: 3 }, f.staff, []).error);

@@ -282,7 +282,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
     const scopeChanged = !currentStateBasis(snapshot.stateBasis);
     if (data.operation === "newYorkEmploymentWorkpaper") {
-      const row = db.prepare(`SELECT evidence FROM new_york_employment_versions
+      const row = db.prepare(`SELECT evidence,finding,actor,at,correction FROM new_york_employment_versions
         WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND version=?`).get(...target, data.version);
       if (!row) return unavailable;
       const evidence = JSON.parse(String(row.evidence)) as NewYorkEmploymentEvidence;
@@ -294,8 +294,18 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const recordedEntity = scope ? JSON.parse(String(scope.entitySnapshot)) as { id: string; name: string; nmls: string } : null;
       if (!recordedEntity?.name || !recordedEntity.nmls) gaps.push("Verify the originating entity's legal name and NMLS ID.");
       if (scopeChanged) gaps.push("Review the changed source or entity scope.");
-      return { kind: "newYorkEmploymentWorkpaper", version: data.version, entity: recordedEntity && { id: recordedEntity.id, name: recordedEntity.name, nmls: recordedEntity.nmls }, dueOn, ...workpaper, gaps,
-        source: "https://www.dfs.ny.gov/system/files/documents/2025/05/quarterly-report-employment-status-2025-fill.pdf" };
+      const { activity, rosterReference, temporaryAuthorityReference, separations, notarizedReport, mailed } = evidence;
+      const filingEvidence = { activity, rosterReference, temporaryAuthorityReference, separations, notarizedReport, mailed };
+      return {
+        kind: "newYorkEmploymentWorkpaper",
+        version: data.version,
+        entity: recordedEntity && { id: recordedEntity.id, name: recordedEntity.name, nmls: recordedEntity.nmls },
+        obligation: { id: data.id, scopeRevision: snapshot.stateBasis.revision, sourceKey: snapshot.stateBasis.sourceKey },
+        recorded: { actor: String(row.actor), at: String(row.at), correction: row.correction === null ? null : String(row.correction) },
+        dueOn, ...workpaper, gaps, filingEvidence,
+        recordedFinding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewNewYorkEmployment>,
+        source: snapshot.stateBasis.sourceUrl,
+      };
     }
     if (data.operation === "newYorkEmploymentHistory") {
       const before = data.before ?? null;
