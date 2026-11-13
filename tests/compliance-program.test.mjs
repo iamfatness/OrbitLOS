@@ -68,6 +68,9 @@ test("internal targets, review state and evidence do not claim regulatory comple
  assert.equal(corrected.items[0].internalTarget,target.internalTarget);
  assert.equal(corrected.items[0].evidence,m.items[0].evidence);
  assert.equal(corrected.history[0].action,"Corrected internal target");
+ assert.deepEqual(corrected.history[0].targetCorrection,{
+  title:m.items[0].title,previousTarget:m.items[0].internalTarget,correctedTarget:target.internalTarget});
+ assert.equal(corrected.history[0].actor,f.owner.email);
  assert.equal(corrected.history[1].action,"Reviewed internal work");
 });
 test("save replay is exact and stale revisions cannot overwrite work",t=>{

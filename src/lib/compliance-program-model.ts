@@ -111,7 +111,8 @@ export type ProgramItem = { id: string; title: string; category: typeof programC
 export type ProgramMonth = { kind: "programMonth"; entity: ProgramEntity; month: string; items: ProgramItem[]; fingerprint: string;
   owners: { email: string; name: string }[]; counts: { total: number; open: number; overdue: number; unavailableOwners: number };
   reviews: { id: string; actor: string; at: string; note: string; current: boolean; snapshot: string }[];
-  history: { id: string; actor: string; at: string; action: string; note: string }[]; moreHistory: boolean;
+  history: { id: string; actor: string; at: string; action: string; note: string;
+    targetCorrection?: { title: string; previousTarget: string; correctedTarget: string } }[]; moreHistory: boolean;
   coverage: "Regulatory applicability not evaluated" };
 
 export type StateScopeTarget = { entityId: string; jurisdiction: string };

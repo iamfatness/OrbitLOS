@@ -241,7 +241,14 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
             }}>Download snapshot</Button>
           </article>)}
         </details>
-        <details><summary>Work history</summary>{current.history.map((h, index) => <article key={`${h.id}:${index}`}><p>{h.action} · {h.actor} · {h.at}</p><p>{h.note}</p></article>)}{current.moreHistory && <p>Showing the latest 50 events. Earlier events remain retained.</p>}</details>
+        <details><summary>Work history</summary>
+          {current.history.map((h, index) => <article key={`${h.id}:${index}`} className="[overflow-wrap:anywhere]">
+            <p>{h.action} · {h.actor} · {h.at}</p>
+            {h.targetCorrection && <p>{h.targetCorrection.title} · {dateLabel(h.targetCorrection.previousTarget)} to {dateLabel(h.targetCorrection.correctedTarget)}</p>}
+            <p>{h.note}</p>
+          </article>)}
+          {current.moreHistory && <p>Showing the latest 50 events. Earlier events remain retained.</p>}
+        </details>
       </>}
     </> : <form key={`${screen}:${selected?.id ?? ""}:${selected?.revision ?? ""}`} className="record-form" onSubmit={submit}>
       <fieldset disabled={busy} className="record-form">

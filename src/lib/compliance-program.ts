@@ -392,10 +392,14 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   const reviews = db.prepare("SELECT id,actor,at,note,snapshot,fingerprint FROM compliance_program_reviews WHERE brokerageId=? AND entityId=? AND month=? ORDER BY at DESC,rowid DESC LIMIT 20")
     .all(staff.brokerage.id, entity.id, period).map(row => ({ id: String(row.id), actor: String(row.actor), at: String(row.at), note: String(row.note),
       snapshot: String(row.snapshot), current: row.fingerprint === fingerprint }));
-  const events = db.prepare("SELECT id,actor,at,action,note FROM compliance_program_events WHERE brokerageId=? AND entityId=? AND month=? ORDER BY at DESC,rowid DESC LIMIT 51")
+  const events = db.prepare("SELECT id,actor,at,action,note,details FROM compliance_program_events WHERE brokerageId=? AND entityId=? AND month=? ORDER BY at DESC,rowid DESC LIMIT 51")
     .all(staff.brokerage.id, entity.id, period);
   return { kind: "programMonth", entity, month: period, items, fingerprint, counts, reviews,
-    history: events.slice(0, 50).map(row => ({ id: String(row.id), actor: String(row.actor), at: String(row.at), action: String(row.action), note: String(row.note) })),
+    history: events.slice(0, 50).map(row => ({
+      id: String(row.id), actor: String(row.actor), at: String(row.at), action: String(row.action), note: String(row.note),
+      ...(row.action === "Corrected internal target" && typeof row.details === "string" &&
+        { targetCorrection: JSON.parse(row.details) as NonNullable<ProgramMonth["history"][number]["targetCorrection"]> }),
+    })),
     moreHistory: events.length > 50, owners: owners.map(({ email, name }) => ({ email, name })), coverage: "Regulatory applicability not evaluated" };
 }
 function checkLicenseState(db: Store, tenant: string, data: Extract<ProgramRequest, { operation: "licenseStateCheck" }>,
@@ -585,6 +589,7 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   db.prepare("UPDATE compliance_program_items SET status=?,ownerEmail=?,ownerRevision=?,internalTarget=?,evidence=?,revision=revision+1,updatedAt=? WHERE brokerageId=? AND id=?")
     .run(data.status, owner.email, owner.accessRevision ?? 0, data.internalTarget, data.evidence, now, tenant, data.id);
   event(entity.id, data.month, data.id, targetCorrection ? "Corrected internal target" :
-    data.status === "Completed" ? "Reviewed internal work" : "Updated internal work", data.note);
+    data.status === "Completed" ? "Reviewed internal work" : "Updated internal work", data.note,
+    targetCorrection ? { title: item.title, previousTarget: item.internalTarget, correctedTarget: data.internalTarget } : undefined);
   return read();
 }
