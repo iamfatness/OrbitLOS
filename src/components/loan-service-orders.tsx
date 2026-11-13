@@ -5,7 +5,7 @@ import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { dateLabel, easternDate } from "@/lib/client-retention";
 import { documentRecipients } from "@/lib/document-model";
 import { shiftReportDate } from "@/lib/report-date-range";
-import { isVerificationOrder, serviceOrderKinds, serviceOrderLimit, serviceOrderSlug, serviceOrderTarget, serviceOrdersTarget, type ServiceOrder, type ServiceOrderCommand } from "@/lib/service-order-model";
+import { incomeVerificationKinds, isVerificationOrder, serviceOrderKinds, serviceOrderLimit, serviceOrderSlug, serviceOrderTarget, serviceOrdersTarget, type ServiceOrder, type ServiceOrderCommand } from "@/lib/service-order-model";
 import { serviceOrderPdf } from "@/lib/service-order-pdf";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
@@ -14,12 +14,13 @@ import { Button } from "./ui/button";
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 type OrderAction = Extract<ServiceOrderCommand, { type: "updateServiceOrder" }>["action"];
 
-function ServiceOrderCard({ item, today, busy, editable, save, openClosing }: {
-  item: ServiceOrder; today: string; busy: boolean; editable: boolean; save: Save; openClosing: () => void;
+function ServiceOrderCard({ item, today, submittedRevision, busy, editable, save, openClosing }: {
+  item: ServiceOrder; today: string; submittedRevision: number | null; busy: boolean; editable: boolean; save: Save; openClosing: () => void;
 }) {
   const [dueOn, setDueOn] = useState(item.dueOn);
   const [note, setNote] = useState("");
   const open = item.status === "Ordered" || item.status === "Received";
+  const forIncome = incomeVerificationKinds.some(kind => kind === item.kind);
   function update(action: OrderAction, date?: string) {
     void save({ type: "updateServiceOrder", loanId: item.loanId, orderId: item.id, revision: item.revision,
       action, dueOn: date, note: action === "Accept" || action === "Request replacement" || action === "Cancel" ? note : "" });
@@ -28,6 +29,11 @@ function ServiceOrderCard({ item, today, busy, editable, save, openClosing }: {
     <div className="document-item-head"><strong>{item.kind}{item.recipient && ` · ${item.recipient}`}</strong><span className="pill">{item.status}</span></div>
     <p className="muted">{item.owner} · {open && item.dueOn < today ? "Overdue since" : "Due"} {dateLabel(item.dueOn)} ET</p>
     <p className="muted">Recorded by {item.createdBy} · {dateTime(item.createdAt)} ET</p>
+    {forIncome && <p>
+      {item.applicationRevision == null ? "No submitted 1003 linked." : `Ordered for 1003 revision ${item.applicationRevision}.`}
+      {(item.applicationRevision == null || item.applicationRevision !== submittedRevision) && item.status !== "Cancelled" &&
+        (open ? " Cancel this order before starting fresh verification for the current 1003." : " Start a new order to use verification in the current income worksheet.")}
+    </p>}
     {item.note && <p>{item.note}</p>}
     {item.cancellation && <p>Cancelled · {item.cancellation}</p>}
     {item.returns.length > 0 && <ul className="loan-task-list" aria-label="Sample return history">{item.returns.map((receipt, index) => <li key={receipt.reference}>
@@ -68,8 +74,9 @@ function ServiceOrderCard({ item, today, busy, editable, save, openClosing }: {
   </article>;
 }
 
-export function LoanServiceOrders({ loanId, orders, owner, joint, busy, editable, save, openClosing }: {
-  loanId: string; orders: ServiceOrder[]; owner: string; joint: boolean; busy: boolean; editable: boolean; save: Save; openClosing: () => void;
+export function LoanServiceOrders({ loanId, orders, owner, joint, submittedRevision, busy, editable, save, openClosing }: {
+  loanId: string; orders: ServiceOrder[]; owner: string; joint: boolean; submittedRevision: number | null; busy: boolean;
+  editable: boolean; save: Save; openClosing: () => void;
 }) {
   const today = easternDate();
   const attempt = useRef<{ key: string; id: string } | null>(null);
@@ -80,6 +87,7 @@ export function LoanServiceOrders({ loanId, orders, owner, joint, busy, editable
     (joint ? documentRecipients : documentRecipients.slice(0, 1)).filter((recipient) => !hasOpen(kind, recipient));
   const allowed = serviceOrderKinds.filter((kind) => isVerificationOrder(kind) ? eligibleRecipients(kind).length > 0 : !hasOpen(kind, null));
   const selected = allowed.includes(choice) ? choice : allowed[0];
+  const forIncome = incomeVerificationKinds.some(kind => kind === selected);
   function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -108,12 +116,15 @@ export function LoanServiceOrders({ loanId, orders, owner, joint, busy, editable
           <label className="field">Expected return date (Eastern)<input name="dueOn" type="date" required defaultValue={shiftReportDate(today, 3)}
             min={shiftReportDate(today, -30)} max={shiftReportDate(today, 365)} disabled={busy} /></label>
         </div>
+        {forIncome && <p className="muted">{submittedRevision === null
+          ? "Submit the 1003 first if you want to use the return in an income worksheet."
+          : `This order will use submitted 1003 revision ${submittedRevision}.`}</p>}
         <p className="muted">Choose a past date to rehearse an overdue order.</p>
         <label className="field">Order instructions (optional)<textarea name="note" maxLength={500} rows={2} disabled={busy} /></label>
         <div><Button size="sm" type="submit" disabled={busy}>Record mock order</Button></div>
       </form>
     </details>}
     {orders.length ? orders.map((item) => <ServiceOrderCard key={`${item.id}:${item.revision}`} item={item} today={today}
-      editable={editable} busy={busy} save={save} openClosing={openClosing} />) : <p className="empty-inline">No service orders on this loan yet.</p>}
+      submittedRevision={submittedRevision} editable={editable} busy={busy} save={save} openClosing={openClosing} />) : <p className="empty-inline">No service orders on this loan yet.</p>}
   </section>;
 }

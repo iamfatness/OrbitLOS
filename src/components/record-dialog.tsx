@@ -821,6 +821,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         applicationReviewRevision={application?.reviewedAt && application.submittedAt ? application.revision : null}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
       {state.serviceOrders !== undefined && <LoanServiceOrders key={`orders:${loan.id}`} loanId={loan.id} joint={joint}
+        submittedRevision={application?.submittedAt && !application.correctionNote ? application.revision : null}
         orders={state.serviceOrders.filter((item) => item.loanId === loan.id)} busy={busy}
         owner={state.loanProcessing.find((item) => item.loanId === loan.id && item.processorEmail)?.processorName || loan.officer || "Unassigned"}
         editable={!pausedLoan(loan) && !pastClientLoan(loan)} save={save} openClosing={() => open(closingChecklistListTarget)} />}
