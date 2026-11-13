@@ -312,7 +312,10 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
         Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable";
       const audit = illinoisAudit && typeof auditEvidence === "string"
         ? reviewIllinoisAuditEvidence(JSON.parse(auditEvidence) as IllinoisAuditEvidence, asOf) : undefined;
-      return { ...row, reportingBasis, illinoisAudit, audit: audit && {
+      return { ...row, reportingBasis, illinoisAudit,
+        michiganMloRenewal: stateBasis?.sourceKey === "REQ-MI-LICENSING-MLO-RENEW" &&
+          Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable",
+        audit: audit && {
         dueOn: audit.dueOn, extensionStatus: audit.extensionStatus, filingStatus: audit.filingStatus,
       }, ownerEmail: draft.ownerEmail, from: period.from, through: period.through,
         filingStatus: row.filingStatus ?? (draft.preparation ? "No confirmation recorded" : undefined), review: typeof workId === "string" && typeof month === "string" ? { entityId: data.entityId, month, itemId: workId } : undefined,

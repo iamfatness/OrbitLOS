@@ -167,7 +167,7 @@ const filings: Partial<Record<string, FilingRule>> = {
   "REQ-MI-LICENSING-SECOND-RENEW": michiganRenewal,
   "REQ-MI-LICENSING-MLO-RENEW": { route: "NMLS individual MLO renewal", cadence: "Calendar annual",
     from: "2026-01-01", due: through => through,
-    review: "Use a separate obligation for each Michigan originator. The May 2026 DIFS FAQ lists December 31. Verify current-year instructions against the older checklist, education before the request or a documented exception, sponsor, bond, fee, receipt and renewed status." },
+    review: "Review Michigan originators individually by NMLS ID. The May 2026 DIFS FAQ lists December 31. Verify current-year instructions against the older checklist, education before the request or a documented exception, sponsor, bond, fee, receipt and renewed status." },
   "REQ-CA-REPORTING-DRE-MCR": quarter("NMLS Mortgage Call Report", "Confirm DRE company coverage and current NMLS quarterly instructions."),
   "REQ-CA-LICENSING-DRE-RENEW": { route: "NMLS DRE company endorsement renewal", cadence: "Calendar annual",
     from: "2026-01-01", due: through => through,
