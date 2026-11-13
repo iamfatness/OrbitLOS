@@ -35,7 +35,7 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
   if(before.activeLoanHolds || current.activeLoanHolds)
     result.push("A loan has an active retention hold. Keep the workspace paused and use the incident recovery review.");
   const programTables=["compliance_program_entities","compliance_program_licenses","compliance_program_items","compliance_program_events","compliance_program_reviews","compliance_state_scope_versions","compliance_state_readiness_versions",
-    "compliance_scope_reviews","compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts","compliance_filing_receipt_references","illinois_audit_evidence_versions","michigan_mlo_renewal_versions","florida_amendment_versions","new_york_employment_versions","colorado_company_renewal_versions",
+    "compliance_scope_reviews","compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts","compliance_filing_receipt_references","illinois_audit_evidence_versions","michigan_mlo_renewal_versions","florida_amendment_versions","new_york_employment_versions","new_york_voor_versions","colorado_company_renewal_versions",
     "compliance_learning_versions","compliance_learning_assignments","compliance_learning_events","compliance_trid_evidence",
     "compliance_broker_agreement_versions","compliance_refinance_benefit_versions","compliance_kansas_notice_versions",
     "compliance_michigan_loan_practices_versions","compliance_advertising_versions","compliance_california_mlds_versions"];

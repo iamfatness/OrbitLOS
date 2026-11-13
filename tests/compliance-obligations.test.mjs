@@ -847,3 +847,55 @@ test("Colorado company renewal preserves receipt gaps and the regulator outcome 
  assert.deepEqual(history.versions[3].finding,JSON.parse(JSON.stringify(first.finding)));
  assert.ok(f.run({...target,entityId:crypto.randomUUID(),operation:"coloradoCompanyRenewalHistory"}).error);
 });
+
+test("New York annual VOOR tracks deadlines and versioned filing evidence", t => {
+ const f = fixture(t);
+ const scope = complianceCaseWork(f.db, {type:"stateScope", input:{operation:"save", entityId:f.entityId,
+   jurisdiction:"NY", expectedRevision:0, requestId:crypto.randomUUID(),
+   facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional NY registration",
+     officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
+   f.staff, f.staff.brokerage.id, [f.actor], "2026-11-11T12:00:00Z");
+ assert.equal(scope.revision, 1);
+ const stateReference = {jurisdiction:"NY", revision:1, sourceKey:"REQ-NY-REPORTING-VOOR"};
+ const draft = {...f.draft, cadence:"Annual", annualStartMonth:1};
+ assert.equal(f.run(f.save({draft,stateReference})).revision, 1);
+ const period = "2025-01";
+ assert.equal(JSON.parse(f.run(f.generate({period})).occurrence.snapshot).reportingBasis.nominalDueOn, "2026-06-22");
+ const target = {entityId:f.entityId,id:f.id,period};
+ const history = {operation:"newYorkVoorHistory",...target};
+ const save = (evidence, expected = 0) => ({operation:"saveNewYorkVoor",...target,requestId:crypto.randomUUID(),
+   expected,evidence,...(expected ? {correction:"Fictional record updated"} : {})});
+ assert.equal(f.run(history).reportYear, 2025);
+ assert.ok(f.run({...history,period:"2024-01"}).error);
+ const reviewedInstructions = {url:"https://www.dfs.ny.gov/apps_and_licensing/mortgage_companies/volume_of_operations_report",
+   deadline:"2026-06-22",reference:"Reviewed 2025 broker instructions"};
+ const reconciliation = {activity:"No New York applications or closings",reference:"Fictional no-activity reconciliation"};
+ const attestation = {on:"2026-06-21",reference:"Fictional signed attestation",capacity:"Owner",
+   authorityReference:"Fictional officer appointment"};
+ const original = {on:"2026-06-22",route:"DFS Portal",reference:"Fictional DFS receipt"};
+ const evidence = {reviewedInstructions,reconciliation,attestation,original};
+ const amendment = {on:"2026-06-23",route:"DFS Portal",reference:"Fictional amendment receipt",reason:"Fictional correction",
+   attestationReference:"Fictional amended report attestation"};
+ assert.ok(f.run(save({...evidence,original:undefined,amendment})).error);
+ assert.ok(f.run(save({...evidence,attestation:{...attestation,on:"2026-06-23"}})).error);
+ const firstRequest = save(evidence);
+ const first = f.run(firstRequest);
+ assert.equal(first.finding.initialTiming,"On or before recorded deadline");
+ assert.match(first.finding.gaps[0],/Application Owner/);
+ assert.deepEqual(f.run(firstRequest),first);
+ assert.ok(f.run(save(evidence)).error);
+ const second = f.run(save({...evidence,attestation:{...attestation,dfsApplicationOwnerReference:"Fictional DFS role"},amendment},1));
+ assert.equal(second.version,2);
+ assert.deepEqual(second.finding.gaps,[]);
+ assert.equal(f.run({...history,before:2}).versions[0].evidence.original.on,"2026-06-22");
+ assert.equal(f.run(history).versions[0].evidence.amendment.on,"2026-06-23");
+ assert.ok(f.run({...history,entityId:crypto.randomUUID()}).error);
+ assert.ok(f.run(history,f.staff,[]).error);
+ const third = f.run(save({...evidence,original:{...original,route:"Mail",on:"2026-06-23"}},2));
+ assert.equal(third.finding.initialTiming,"After recorded deadline");
+ assert.match(third.finding.gaps[0],/notarized affidavit/);
+ const laterPeriod = "2026-01";
+ assert.equal(JSON.parse(f.run(f.generate({period:laterPeriod})).occurrence.snapshot).reportingBasis.nominalDueOn,null);
+ assert.equal(f.run({...history,period:laterPeriod}).nominalDueOn,null);
+ assert.equal(f.run({operation:"occurrences",entityId:f.entityId,id:f.id}).items[0].newYorkVoor,true);
+});

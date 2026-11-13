@@ -8,6 +8,7 @@ import { isObligationStateSource, obligationReportingBasis, filingArchiveRow, fi
   supportsFilingReceipts, type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
 import { prepareNewYorkEmploymentWorkpaper, reviewNewYorkEmployment, type NewYorkEmploymentEvidence } from "./new-york-employment-model";
+import { isNewYorkVoorSource, reviewNewYorkVoor, type NewYorkVoorEvidence } from "./new-york-voor-model";
 import { coloradoRenewalReportingPeriods, reviewColoradoCompanyRenewal, type ColoradoCompanyRenewalEvidence } from "./colorado-company-renewal-model";
 import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
@@ -24,10 +25,18 @@ type OccurrenceSnapshot = {
   stateBasis?: StateBasis;
   reportingBasis?: ReturnType<typeof obligationReportingBasis>;
 };
+function hasNewYorkVoorEvidence(snapshot: OccurrenceSnapshot) {
+  return isNewYorkVoorSource(snapshot.stateBasis?.sourceKey) && snapshot.draft.cadence === "Annual" &&
+    (snapshot.draft.annualStartMonth ?? 1) === 1 && snapshot.draft.applicability !== "Not applicable";
+}
 
 const illinoisDate = (now: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
 
 export function initializeComplianceObligations(db: Store) {
+  db.exec(`CREATE TABLE IF NOT EXISTS new_york_voor_versions (
+    brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL, version INTEGER NOT NULL,
+    evidence TEXT NOT NULL, finding TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, correction TEXT,
+    PRIMARY KEY(brokerageId,entityId,obligationId,period,version));`);
   db.exec(`CREATE TABLE IF NOT EXISTS michigan_mlo_renewal_versions (
     brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL,
     originatorNmls TEXT NOT NULL, version INTEGER NOT NULL, evidence TEXT NOT NULL, finding TEXT NOT NULL,
@@ -227,6 +236,51 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       (index === 0 || row.sourceSnapshots !== chain[index - 1].sourceSnapshots) &&
       (JSON.parse(String(row.sourceSnapshots)) as string[]).includes(saved.snapshot));
   };
+  if (data.operation === "newYorkVoorHistory" || data.operation === "saveNewYorkVoor") {
+    const target = [tenant, data.entityId, data.id, data.period] as const;
+    const occurrence = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...target);
+    const snapshot = occurrence ? JSON.parse(String(occurrence.snapshot)) as OccurrenceSnapshot : null;
+    const basis = snapshot?.stateBasis;
+    if (!snapshot || !basis || !hasNewYorkVoorEvidence(snapshot)) return unavailable;
+    const nominalDueOn = snapshot.reportingBasis?.nominalDueOn ?? null;
+    const reportYear = Number(snapshot.period.from.slice(0, 4));
+    const asOf = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+    const scopeChanged = !currentStateBasis(basis);
+    if (data.operation === "newYorkVoorHistory") {
+      const before = data.before ?? null;
+      const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM new_york_voor_versions
+        WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND (? IS NULL OR version<?) ORDER BY version DESC LIMIT 21`)
+        .all(...target, before, before);
+      const versions = rows.slice(0, 20).map(row => ({ ...row, evidence: JSON.parse(String(row.evidence)) as NewYorkVoorEvidence,
+        finding: JSON.parse(String(row.finding)) as ReturnType<typeof reviewNewYorkVoor> }));
+      return { kind: "newYorkVoorHistory", nominalDueOn, scopeChanged, reportYear, authority: basis.title, versions,
+        currentFinding: before === null && versions[0] ? reviewNewYorkVoor(versions[0].evidence, nominalDueOn, asOf) : null,
+        next: rows.length > 20 ? rows[19].version : null };
+    }
+    const request = JSON.stringify(data);
+    const replay = db.prepare("SELECT actor,request,result FROM compliance_obligation_events WHERE brokerageId=? AND requestId=?").get(tenant, data.requestId);
+    if (replay) return replay.actor === staff.email && replay.request === request ? JSON.parse(String(replay.result)) : changed;
+    const current = db.prepare(`SELECT MAX(version) version FROM new_york_voor_versions
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...target);
+    if (Number(current?.version ?? 0) !== data.expected) return changed;
+    if (data.expected && !data.correction) return { error: "Record a reason for updating the filing evidence." };
+    const { evidence } = data;
+    const { reviewedInstructions, attestation, original, amendment } = evidence;
+    if ((reviewedInstructions && reviewedInstructions.deadline <= snapshot.period.through) ||
+      [attestation?.on, original?.on, amendment?.on].some(on => on && (on <= snapshot.period.through || on > asOf)) ||
+      (attestation && original && attestation.on > original.on) ||
+      (amendment && (!original || amendment.on < original.on)))
+      return { error: "Check the report-year deadline and the dates and order of the attestation and submissions." };
+    const version = data.expected + 1;
+    const finding = reviewNewYorkVoor(evidence, nominalDueOn, asOf);
+    db.prepare("INSERT INTO new_york_voor_versions VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run(...target, version, JSON.stringify(evidence), JSON.stringify(finding), staff.email, now, data.correction ?? null);
+    const result = { kind: "newYorkVoorSaved", version, finding, scopeChanged };
+    db.prepare("INSERT INTO compliance_obligation_events VALUES (?,?,?,?,?,?,?)")
+      .run(tenant, data.requestId, data.entityId, staff.email, now, request, JSON.stringify(result));
+    return result;
+  }
   if (data.operation === "michiganMloRenewalHistory" || data.operation === "saveMichiganMloRenewal") {
     const periodKey = [tenant, data.entityId, data.id, data.period] as const;
     const target = [...periodKey, data.originatorNmls] as const;
@@ -472,7 +526,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
         Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable";
       const audit = illinoisAudit && typeof auditEvidence === "string"
         ? reviewIllinoisAuditEvidence(JSON.parse(auditEvidence) as IllinoisAuditEvidence, asOf) : undefined;
-      return { ...row, reportingBasis, illinoisAudit,
+      return { ...row, reportingBasis, illinoisAudit, newYorkVoor: hasNewYorkVoorEvidence({ draft, stateBasis, period, reportingBasis }),
         coloradoCompanyRenewal: stateBasis?.sourceKey === "REQ-CO-LICENSING-CO-RENEW" &&
           Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable",
         newYorkEmployment: stateBasis?.sourceKey === "REQ-NY-REPORTING-QRES" &&
