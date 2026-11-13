@@ -7,6 +7,7 @@ import { accessComplianceCases } from "@/app/actions";
 import { obligationDraft, reportingDateBasis, obligationStateSource, type ObligationDraft, type ObligationStateSource } from "@/lib/compliance-obligations-model";
 import type { ProgramReviewTarget } from "@/lib/compliance-program-model";
 import { Button } from "./ui/button";
+import { IllinoisAuditEvidence } from "./illinois-audit-evidence";
 
 const row = z.object({ id:z.string(),revision:z.number(),draft:obligationDraft,ownerAvailable:z.boolean(),
   stateBasis:obligationStateSource.optional(),stateBasisChanged:z.boolean().optional() });
@@ -15,7 +16,7 @@ const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.
 const plannedReview = z.object({ entityId: z.uuid(), month: z.string(), itemId: z.uuid() });
 const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
   reportingBasis: reportingDateBasis.optional(), period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(), ownerEmail: z.string(), from: z.string(), through: z.string(),
-  filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
+  illinoisAudit: z.boolean().optional(), filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
 })) });
 type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
@@ -42,6 +43,8 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
  const [selected,setSelected]=useState<Row|null>(),[history,setHistory]=useState<z.infer<typeof periods>>();
  const [planned,setPlanned]=useState<ProgramReviewTarget>();
  const [historyOffset,setHistoryOffset]=useState(0);
+ const [auditPeriod,setAuditPeriod]=useState<string>();
+ const auditReturn=useRef<HTMLButtonElement>(null);
  const [filter,setFilter]=useState("");
  const [sources,setSources]=useState<ObligationStateSource[]>();
  const [sourceError,setSourceError]=useState("");
@@ -188,7 +191,13 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
  const linkedSource=chosenSource??selected?.stateBasis;
  const selectedEntity=entities.find(entity=>entity.id===entityId);
  if(paused)return <p>Obligations are unavailable while the workspace is paused.</p>;
- return <section className="integration manager-panel record-form compliance-pilot-form" aria-label="Obligations">
+ return <>
+ {selected && auditPeriod && <IllinoisAuditEvidence brokerageId={brokerageId} entityId={entityId}
+   obligationId={selected.id} period={auditPeriod} onBack={() => {
+     setAuditPeriod(undefined);
+     requestAnimationFrame(() => auditReturn.current?.focus());
+   }} />}
+ <div hidden={Boolean(auditPeriod)}><section className="integration manager-panel record-form compliance-pilot-form" aria-label="Obligations">
    <h2 ref={heading} tabIndex={-1}>{selected===undefined?"Obligations":selected?selected.draft.title:"Add obligation"}</h2>
    <p className="muted">Internal planning. Applicability and statutory deadlines require legal review.</p>
    {(error||notice)&&<div ref={feedback} tabIndex={-1} className={error?"application-message banner-error":"application-message"} role={error?"alert":"status"}>{error||notice}{notice&&planned&&<div className="mt-2"><Button size="sm" onClick={()=>openReview(planned)}>Open review item</Button></div>}</div>}
@@ -278,6 +287,9 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
                onClick={()=>{if(period.review)openReview(period.review);}}>Open review item</Button> :
              <Button size="sm" variant="outline" aria-label={`Plan review work for ${period.period}`} disabled={busy}
                onClick={() => void mutate({operation:"planWork",entityId,id:selected.id,period:period.period},false)}>Plan review work</Button>}
+             {period.illinoisAudit && <Button className="min-h-11" variant="outline" disabled={busy}
+               onClick={event => { auditReturn.current = event.currentTarget; setAuditPeriod(period.period); }}>
+               Review Illinois audit evidence</Button>}
          </li>)}</ul>
          {!history.items.length && <p>No periods recorded.</p>}
          {(historyOffset > 0 || history.more) && <div className="loan-application-actions">
@@ -290,5 +302,5 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
        </details>
      </>}
    </>}
- </section>;
+ </section></div></>;
 }

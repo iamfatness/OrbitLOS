@@ -245,7 +245,9 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const { stateBasis, stateBasisChanged, draft, period, reportingBasis } = JSON.parse(String(row.snapshot)) as {
         stateBasis?: StateBasis; stateBasisChanged?: boolean; draft: ObligationDraft; period: { from: string; through: string }; reportingBasis?: ReturnType<typeof obligationReportingBasis>;
       };
-      return { ...row, reportingBasis, ownerEmail: draft.ownerEmail, from: period.from, through: period.through,
+      return { ...row, reportingBasis,
+        illinoisAudit: stateBasis?.sourceKey === "REQ-IL-REPORTING-ANNUAL-AUDIT" &&
+          Boolean(reportingBasis?.nominalDueOn) && draft.applicability !== "Not applicable", ownerEmail: draft.ownerEmail, from: period.from, through: period.through,
         filingStatus: row.filingStatus ?? (draft.preparation ? "No confirmation recorded" : undefined), review: typeof workId === "string" && typeof month === "string" ? { entityId: data.entityId, month, itemId: workId } : undefined,
         ...(stateBasis ? { stateBasis: describeStateBasis(stateBasis), stateBasisChanged } : {}) };
     }), more: rows.length > 50, notice: obligationPlanningNotice };
