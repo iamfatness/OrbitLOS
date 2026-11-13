@@ -1,10 +1,11 @@
+import { readFloridaRecordkeepingExport } from "./florida-recordkeeping";
 import { readColoradoRecordkeepingExport } from "./colorado-recordkeeping";
 import { readCaliforniaDfpiExport } from "./california-dfpi-recordkeeping";
 import { readCaliforniaDreRecordkeepingExport } from "./california-dre-recordkeeping";
 import { z } from "zod";
 import { readMichiganRetentionExport } from "./michigan-retention";
 import { shiftReportDate } from "./report-date-range";
-import type { CaliforniaDispositionReview, ColoradoDispositionReview, MichiganDispositionReview } from "./retention-disposition";
+import type { CaliforniaDispositionReview, ColoradoDispositionReview, FloridaDispositionReview, MichiganDispositionReview } from "./retention-disposition";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -20,7 +21,7 @@ type Command = z.infer<typeof retentionAuditRequest>;
 export type AuditPolicy = {version:number;fundedDays:number|null;closedDays:number|null;reference:string;at:string;actor:string};
 export type AuditDecision = {id:string;loanId:string;currentBorrower:string|null;policyVersion:number;previous:string|null;
   outcome:string;reference:string;at:string;actor:string;eventDate:string|null;reviewOn:string|null;category:string|null;
-  michiganReview?:MichiganDispositionReview; californiaReview?:CaliforniaDispositionReview; coloradoReview?:ColoradoDispositionReview};
+  michiganReview?:MichiganDispositionReview; californiaReview?:CaliforniaDispositionReview; coloradoReview?:ColoradoDispositionReview; floridaReview?:FloridaDispositionReview};
 export type RetentionAudit = {kind:"retentionAudit";section:z.infer<typeof section>;latestVersion:number|null;
   policies:AuditPolicy[];decisions:AuditDecision[];next:number|null};
 export type RetentionAuditResult = RetentionAudit | {kind:"retentionAuditExport";json:string} | {error:string};
@@ -36,12 +37,12 @@ function readPolicies(db:Store, version:number|null, before:number|null, limit:n
 
 function readDecisions(db:Store, version:number|null, before:number|null, limit:number) {
   const rows = db.prepare(`SELECT r.rowid AS cursor,r.id,r.loanId,c.name AS currentBorrower,r.policyVersion,r.previous,r.outcome,
-    r.reference,r.at,r.actor,r.basis,r.michiganReview,r.californiaReview,r.coloradoReview,p.fundedDays,p.closedDays FROM loan_retention_reviews r
+    r.reference,r.at,r.actor,r.basis,r.michiganReview,r.californiaReview,r.coloradoReview,r.floridaReview,p.fundedDays,p.closedDays FROM loan_retention_reviews r
     LEFT JOIN loans l ON l.id=r.loanId LEFT JOIN contacts c ON c.id=l.contactId
     LEFT JOIN loan_retention_policies p ON p.version=r.policyVersion
     WHERE (? IS NULL OR r.policyVersion=?) AND (? IS NULL OR r.rowid<?)
     ORDER BY r.rowid DESC LIMIT ?`).all(version,version,before,before,limit);
-  return rows.map(({cursor,basis,fundedDays,closedDays,michiganReview,californiaReview,coloradoReview,...row})=>{
+  return rows.map(({cursor,basis,fundedDays,closedDays,michiganReview,californiaReview,coloradoReview,floridaReview,...row})=>{
     const [outcome,date]=String(basis).split("/");
     const category=outcome==="Active"?"Funded":["Withdrawn","Lost"].includes(outcome)?outcome:null;
     const eventDate=z.iso.date().safeParse(date);
@@ -50,6 +51,7 @@ function readDecisions(db:Store, version:number|null, before:number|null, limit:
       ...(michiganReview ? {michiganReview:JSON.parse(String(michiganReview))} : {}),
       ...(californiaReview ? {californiaReview:JSON.parse(String(californiaReview))} : {}),
       ...(coloradoReview ? {coloradoReview:JSON.parse(String(coloradoReview))} : {}),
+      ...(floridaReview ? {floridaReview:JSON.parse(String(floridaReview))} : {}),
       reviewOn:category && eventDate.success && typeof period==="number"?shiftReportDate(eventDate.data,period):null} as AuditDecision};
   });
 }
@@ -73,13 +75,17 @@ export function retentionAuditWork(db:Store, command:Command, staff:WorkspaceSta
     const californiaDfpi=version===null?readCaliforniaDfpiExport(db,staff.brokerage.id,null,exportLimit+1):undefined;
     if ((californiaDreRecordkeeping?.length ?? 0)>exportLimit || (californiaDfpi?.length ?? 0)>exportLimit)
       return {error:"This export exceeds 1,000 California evidence versions. Choose a policy version or export the selected loan."};
+    const floridaRecordkeeping=version===null?readFloridaRecordkeepingExport(db,staff.brokerage.id,null,exportLimit+1):undefined;
+    if ((floridaRecordkeeping?.length ?? 0)>exportLimit)
+      return {error:"This export exceeds 1,000 Florida evidence versions. Choose a policy version or export the selected loan."};
     const coloradoRecordkeeping=version===null?readColoradoRecordkeepingExport(db,staff.brokerage.id,null,exportLimit+1):undefined;
     if ((coloradoRecordkeeping?.length ?? 0)>exportLimit)
       return {error:"This export exceeds 1,000 Colorado evidence versions. Choose a policy version or export the selected loan."};
     const json=JSON.stringify({format:1,exportedAt:now,brokerageId:staff.brokerage.id,policyVersion:version,
       latestVersion,policies,decisions:reviews.map(row=>row.decision),michiganRetention,
       ...(californiaDreRecordkeeping?.length ? {californiaDreRecordkeeping} : {}), ...(californiaDfpi?.length ? {californiaDfpi} : {}),
-      ...(coloradoRecordkeeping?.length ? {coloradoRecordkeeping} : {})},null,2);
+      ...(coloradoRecordkeeping?.length ? {coloradoRecordkeeping} : {}),
+      ...(floridaRecordkeeping?.length ? {floridaRecordkeeping} : {})},null,2);
     accessEvent(db,staff,"Prepared retention audit export",version===null?"All policies":`Policy version ${version}`,now);
     return {kind:"retentionAuditExport",json};
   }

@@ -127,6 +127,12 @@ export function RetentionAudit({ brokerageId, onBack, openLoan }:{
           <p className="muted">Policy version {decision.policyVersion} · {dateTime(decision.at)} ET · {decision.actor}</p>
           {decision.eventDate && <p className="muted">{decision.category} <time className="whitespace-nowrap" dateTime={decision.eventDate}>{decision.eventDate}</time>
             {decision.reviewOn && <>{" · "}<span className="whitespace-nowrap">Review due <time dateTime={decision.reviewOn}>{decision.reviewOn}</time></span></>}</p>}
+          {decision.floridaReview && <div>
+            <p><strong>Florida evidence</strong> · {decision.floridaReview.evidence.version === null ? "Evidence missing" : `Borrower-file version ${decision.floridaReview.evidence.version}`}
+              {decision.floridaReview.evidence.stateReviewDate && ` · State review date ${decision.floridaReview.evidence.stateReviewDate}`}</p>
+            {decision.floridaReview.evidence.gap && <p>{decision.floridaReview.evidence.gap}</p>}
+            {decision.floridaReview.counsel && <p className="break-words">Reviewed retain-through date {decision.floridaReview.counsel.retainThrough} · {decision.floridaReview.counsel.reference}</p>}
+          </div>}
           {decision.coloradoReview && <div>
             <p><strong>Colorado evidence</strong> · {decision.coloradoReview.evidence.gap ?? decision.coloradoReview.evidence.stateReviewDate}
               {decision.coloradoReview.evidence.responseStatus && <> · {decision.coloradoReview.evidence.responseStatus}</>}</p>

@@ -39,6 +39,7 @@ export default function DemoPage() {
           <li>Review a fictional Colorado borrower file, record a Board response and reopen the prior findings in the retention ZIP.</li>
           <li>Open the Colorado evidence blocking a disposition recommendation, then review the saved decision in Retention audit.</li>
           <li>Record a fictional Florida transaction, correct it with original journal evidence, and download the journal by company.</li>
+          <li>Review a fictional Florida borrower file, track an examination request, and reopen the evidence behind a disposition decision.</li>
           <li>In fictional pilots, review Midwest brokerage agreement timing and record refinance benefit evidence for Minnesota and Nebraska.</li>
           <li>Compare itemized charges on the original Loan Estimate and Closing Disclosure, and see which differences need review.</li>
           <li>Review the affected charges and timing on a revised Loan Estimate while keeping the original comparison available.</li>

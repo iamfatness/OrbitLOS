@@ -882,3 +882,139 @@ test("Florida journal preserves earlier entry evidence, outcomes and an entity-s
  assert.match(strFromU8(book["xl/worksheets/sheet2.xml"]),/Voided/);
  assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
 });
+
+test("Florida retention tracks original entries, custody and OFR production across evidence versions", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {reviewRetentionExport,auditRetentionExport,retentionExportResponse}=await import("../src/lib/loan-retention-export.ts");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {strFromU8,unzipSync}=await import("fflate");
+ const {db,staff,capture}=ownerFixture(t);
+ initializeStore(db,false);
+ db.exec("ALTER TABLE loan_retention_reviews DROP COLUMN floridaReview");
+ initializeStore(db,false);
+ const scope=staff.brokerage.id, now="2026-11-13T05:30:00Z", entityId=crypto.randomUUID();
+ db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'005678','Fictional scope',?)")
+   .run(scope,entityId,"Fictional Florida brokerage",now);
+ db.exec(`INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Borrower','','','Borrower');
+   INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince)
+   VALUES ('fl','borrower','LO','',1,'Purchase','Closed','2026-11-01'),
+     ('pending','borrower','LO','',1,'Purchase','Processing','2026-11-01'),
+     ('outside','borrower','LO','',1,'Purchase','Processing','2026-11-01');`);
+ const addApp=db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES (?,?, '2027-01-01',?, '2026-11-12')");
+ for(const [id,state] of [["fl","FL"],["pending","FL"],["outside","MI"]])
+   addApp.run(id,id,JSON.stringify({propertyLocation:{state}}));
+ db.prepare("INSERT INTO closing_progress (loanId,fundingDate) VALUES ('fl','2024-11-12')").run();
+ const before=capture();
+ const work=(command,actor=staff,at=now)=>loanRetentionWork(db,command,actor,scope,at);
+ const policy={type:"saveDispositionPolicy",id:crypto.randomUUID(),expected:0,fundedDays:30,closedDays:30,reference:"Fictional Florida policy"};
+ assert.equal(work(policy).kind,"disposition");
+ const candidate=(at=now)=>work({type:"dispositionQueue",offset:0},staff,at).rows.find(row=>row.id==="fl");
+ const recommend=(row,options={})=>({type:"saveDispositionReview",id:crypto.randomUUID(),loanId:"fl",policyVersion:1,
+  basis:row.basis,previous:row.decision?.id??null,outcome:"Recommend disposition",reference:"Fictional Florida decision",offset:0,...options});
+ const missing=candidate();
+ assert.match(work(recommend(missing)).error,/Florida borrower-file evidence/);
+ assert.equal(work(recommend(missing,{outcome:"Continue retaining"})).rows[0].decision.outcome,"Continue retaining");
+ const event=(on)=>({on,reference:"Fictional dated evidence"});
+ const onFile=(on)=>({status:"On file",latestOriginalEntry:event(on)});
+ const exempt={status:"Not applicable",reference:"Fictional inventory basis"};
+ const facts={entityId,authority:"Mortgage broker",authorityReference:"Fictional licensing record",
+  zone:"America/Chicago",inventory:"Fictional inventory",
+  records:{loanFile:onFile("2026-11-01"),accounts:onFile("2026-11-02"),expenseReceipts:onFile("2024-02-29"),
+    closingStatements:exempt,other:exempt},
+  custody:{method:"OFR-authorized location",location:"Fictional archive",authorization:"Fictional OFR authorization",
+    secureStorage:"Fictional stationary secured storage review",
+    locationChange:{status:"Location change",effectiveOn:"2026-10-01",filing:event("2026-09-01")}},
+  examination:{notice:event("2026-11-06"),floridaLocation:"Fictional Florida production site",
+    clock:{request:"Written OFR request",deadline:event("2026-11-12")}}};
+ const save=(facts,expected=0,loanId="fl")=>({type:"saveFloridaRecordkeeping",loanId,facts,expected,requestId:crypto.randomUUID(),
+   ...(expected?{correction:"Fictional inventory and production update"}:{})});
+ assert.match(work(save(facts,0,"outside")).error,/Florida loan/);
+ assert.match(work(save(facts),{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
+ assert.match(work(save({...facts,custody:{...facts.custody,retrieval:event("2026-11-13")}})).error,/occurred/);
+ assert.equal(work(save({...facts,records:{...facts.records,expenseReceipts:exempt}},0,"pending")).currentFinding.stateReviewDate,"2029-11-02");
+
+ const original=save(facts);
+ const first=work(original);
+ assert.equal(first.currentFinding.stateReviewDate,null);
+ assert.deepEqual(first.currentFinding.findings.map(finding=>finding.key),["retrieval","examination","expenseReceipts","closingStatements"]);
+ assert.equal(first.currentFinding.amendmentDueOn,"2026-09-01");
+ assert.equal(first.currentFinding.productionDueOn,"2026-11-12");
+ const history={type:"floridaRecordkeepingHistory",loanId:"fl"};
+ assert.ok(work(history,staff,"2026-11-13T06:30:00Z").currentFinding.findings.some(item=>item.key==="overdueProduction"));
+ assert.equal(work(original).versions.length,1);
+ assert.match(work(recommend(missing)).error,/changed/);
+ assert.match(work(recommend(candidate())).error,/retrieval/);
+ const updated={...facts,records:{...facts.records,closingStatements:onFile("2026-11-03"),expenseReceipts:onFile("2026-11-04")},
+  custody:{...facts.custody,retrieval:event("2026-11-05")},
+  examination:{...facts.examination,production:event("2026-11-07")}};
+ const correction=save(updated,1);
+ assert.match(work({...correction,correction:undefined}).error,/reason/);
+ const latest=work(correction);
+ assert.equal(latest.currentFinding.stateReviewDate,"2029-11-04");
+ assert.deepEqual(latest.currentFinding.findings,[]);
+ assert.equal(latest.versions[1].finding.stateReviewDate,null);
+ assert.match(work({...correction,requestId:crypto.randomUUID()}).error,/changed/);
+
+ assert.match(work(recommend(candidate())).error,/Retain the record through the Florida review date of 2029-11-04/);
+ const cutoff="2029-11-05T05:30:00Z";
+ assert.equal(candidate(cutoff).retainFloridaThroughToday,true);
+ const afterCutoff="2029-11-05T06:30:00Z";
+ const due=candidate(afterCutoff);
+ assert.equal(due.retainFloridaThroughToday,false);
+ assert.match(work(recommend(due),staff,afterCutoff).error,/counsel/);
+ const counsel={retainThrough:"2029-11-04",reference:"Fictional counsel retention assessment"};
+ assert.match(work(recommend(due,{counsel:{...counsel,retainThrough:"2029-11-03"}}),staff,afterCutoff).error,/earlier/);
+ assert.match(work(recommend(due,{counsel:{...counsel,retainThrough:"2029-11-05"}}),staff,afterCutoff).error,/counsel-reviewed date/);
+ const decision=recommend(due,{counsel});
+ assert.equal(work(decision,staff,afterCutoff).rows[0].decision.id,decision.id);
+ assert.equal(work(decision,staff,afterCutoff).rows[0].decision.id,decision.id);
+ const audit=JSON.parse(work({type:"exportRetentionAudit",policyVersion:null}).json);
+ assert.equal(audit.floridaRecordkeeping.length,3);
+ const decisionProof=audit.decisions.find(row=>row.id===decision.id).floridaReview;
+ assert.equal(decisionProof.evidence.version,2);
+ assert.equal(decisionProof.evidence.facts.examination.production.on,"2026-11-07");
+ assert.deepEqual(decisionProof.counsel,counsel);
+ assert.equal(audit.decisions.find(row=>row.outcome==="Continue retaining").floridaReview.evidence.version,null);
+ const reviewed=reviewRetentionExport(db,staff,scope,"fl");
+ const archive=await retentionExportResponse(undefined,scope,reviewed,async fingerprint=>auditRetentionExport(db,staff,scope,"fl",fingerprint));
+ const manifest=JSON.parse(strFromU8(unzipSync(new Uint8Array(await archive.arrayBuffer()))["manifest.json"]));
+ assert.equal(manifest.floridaRecordkeeping[0].entity.nmls,"005678");
+ assert.equal(manifest.floridaRecordkeeping[0].finding.stateReviewDate,"2029-11-04");
+ assert.equal(manifest.floridaRecordkeeping[1].finding.stateReviewDate,null);
+ assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
+});
+
+test("Florida alternate storage checks the advance filing date and the documented production deadline", async () => {
+ const {floridaRecordkeepingFacts,reviewFloridaRecordkeeping}=await import("../src/lib/florida-recordkeeping-model.ts");
+ const event=(on)=>({on,reference:"Fictional evidence"});
+ const item={status:"On file",latestOriginalEntry:event("2022-09-14")};
+ const facts={entityId:crypto.randomUUID(),authority:"Mortgage broker",authorityReference:"Fictional registration",
+  zone:"America/Chicago",inventory:"Fictional inventory",
+  records:{loanFile:item,accounts:item,expenseReceipts:item,closingStatements:item,other:item},
+  custody:{method:"OFR-authorized location",location:"Fictional Pensacola archive",authorization:"Fictional alternate storage notice",
+    secureStorage:"Fictional permanent secured premises",retrieval:event("2026-10-01"),
+    locationChange:{status:"Location change",effectiveOn:"2026-11-16",filing:event("2026-10-18")}},
+  examination:{notice:event("2026-11-06"),floridaLocation:"Fictional OFR site",
+    clock:{request:"Written OFR request",deadline:event("2026-11-12")},production:event("2026-11-13")}};
+ const assess=(facts,asOf="2026-11-13")=>reviewFloridaRecordkeeping(floridaRecordkeepingFacts.parse(facts),{closed:true},asOf);
+ const late=assess(facts);
+ assert.equal(late.amendmentDueOn,"2026-10-17");
+ assert.equal(late.productionDueOn,"2026-11-12");
+ assert.deepEqual(late.findings.map(item=>item.key),["lateAmendment","lateProduction"]);
+ const complete={...facts,custody:{...facts.custody,locationChange:{...facts.custody.locationChange,filing:event("2026-10-17")}},
+  examination:{...facts.examination,production:event("2026-11-12")}};
+ assert.deepEqual(assess(complete).findings,[]);
+ const legacy={...complete,custody:{...complete.custody,secureStorage:undefined,locationChange:undefined},
+  examination:{...complete.examination,clock:undefined}};
+ assert.deepEqual(assess(legacy).findings.map(item=>item.key),["secureStorage","locationChange","requestType"]);
+ assert.deepEqual(assess({...legacy,custody:{method:"Licensed principal place",location:legacy.custody.location,retrieval:legacy.custody.retrieval}}).findings,[]);
+ const missingFiling={...complete,custody:{...complete.custody,locationChange:{...complete.custody.locationChange,filing:undefined}}};
+ assert.match(assess(missingFiling).findings[0].message,/has passed/);
+ assert.doesNotMatch(assess(missingFiling,"2026-10-17").findings[0].message,/has passed/);
+ const missingDeadline={...complete,examination:{...complete.examination,clock:{request:"Written OFR request"}}};
+ assert.deepEqual(assess(missingDeadline).findings.map(item=>item.key),["productionCalendar"]);
+ assert.deepEqual(assess({...missingDeadline,examination:{...missingDeadline.examination,clock:{request:"Other request",reference:"Fictional telephone request"}}}).findings,[]);
+ assert.equal(floridaRecordkeepingFacts.safeParse({...complete,examination:{...complete.examination,
+  clock:{request:"Written OFR request",deadline:event("2026-11-08")}}}).success,false);
+});

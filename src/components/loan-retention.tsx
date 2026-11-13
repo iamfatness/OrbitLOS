@@ -8,6 +8,7 @@ import { downloadSampleFile } from "./sample-download";
 import { ColoradoRecordkeeping } from "./colorado-recordkeeping";
 import { CaliforniaDreRecordkeeping } from "./california-dre-recordkeeping";
 import { CaliforniaDfpiRecordkeeping } from "./california-dfpi-recordkeeping";
+import { FloridaRecordkeeping } from "./florida-recordkeeping";
 import { FloridaJournal } from "./florida-journal";
 import { CrmlaRegister } from "./crmla-register";
 import { MichiganBusinessRetention, MichiganRetention } from "./michigan-retention";
@@ -25,7 +26,7 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
 }) {
   const [disposition, setDisposition] = useState(false);
   const [michigan, setMichigan] = useState<LoanRow | "business">();
-  const [recordkeeping, setRecordkeeping] = useState<{loan: LoanRow; authority: "DRE" | "DFPI" | "Colorado"} | "register" | "floridaJournal">();
+  const [recordkeeping, setRecordkeeping] = useState<{loan: LoanRow; authority: "DRE" | "DFPI" | "Colorado" | "Florida"} | "register" | "floridaJournal">();
   const recordkeepingLinks = useRef(new Map<string, HTMLButtonElement>());
   const returnRecordkeeping = useRef<string>(null);
   const dispositionLink = useRef<HTMLButtonElement>(null);
@@ -164,7 +165,7 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
     };
     if (recordkeeping === "register") return <CrmlaRegister brokerageId={brokerageId} onBack={back} />;
     if (recordkeeping === "floridaJournal") return <FloridaJournal brokerageId={brokerageId} onBack={back} />;
-    const Review = { DRE: CaliforniaDreRecordkeeping, DFPI: CaliforniaDfpiRecordkeeping, Colorado: ColoradoRecordkeeping }[recordkeeping.authority];
+    const Review = { DRE: CaliforniaDreRecordkeeping, DFPI: CaliforniaDfpiRecordkeeping, Colorado: ColoradoRecordkeeping, Florida: FloridaRecordkeeping }[recordkeeping.authority];
     return <Review brokerageId={brokerageId} loan={{id: recordkeeping.loan.id, label: recordkeeping.loan.borrower}} onBack={back} />;
   }
   if (michigan && !paused) {
@@ -276,15 +277,15 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
             onClick={event => void inspect(loan, loan.holdId ? "release" : "hold", event.currentTarget)}>
             {loan.holdId ? "Release hold" : "Place hold"}
           </Button>
-          {(["DRE", "DFPI", "Colorado"] as const).map(authority =>
-            ({ DRE: loan.canReviewCaliforniaDre, DFPI: loan.canReviewCaliforniaDfpi, Colorado: loan.canReviewColorado }[authority]) &&
+          {(["DRE", "DFPI", "Colorado", "Florida"] as const).map(authority =>
+            ({ DRE: loan.canReviewCaliforniaDre, DFPI: loan.canReviewCaliforniaDfpi, Colorado: loan.canReviewColorado, Florida: loan.canReviewFlorida }[authority]) &&
             <Button key={authority} type="button" variant="outline" className="min-h-11"
               ref={node => {
                 const key = authority + "/" + loan.id;
                 if (node) recordkeepingLinks.current.set(key, node);
                 else recordkeepingLinks.current.delete(key);
               }} disabled={locked || !!review} onClick={() => setRecordkeeping({loan, authority})}>
-              {authority === "Colorado" ? "Colorado" : `California ${authority}`} borrower-file review
+              {{ DRE: "California DRE", DFPI: "California DFPI", Colorado: "Colorado", Florida: "Florida" }[authority]} borrower-file review
             </Button>)}
           {(!loan.propertyState || loan.propertyState === "MI") && <Button type="button" variant="outline"
             ref={node => { if (node) michiganLinks.current.set(loan.id, node); else michiganLinks.current.delete(loan.id); }}
