@@ -23,11 +23,12 @@ function WorkRow({ title, children, action, onOpen, id }: {
   </li>;
 }
 
-export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, returningTo, onSetup, openLicense, openReview, openFinding, openArea, openFilingArchive, openPolicyFollowUp,
+export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, returningTo, onSetup, openLicense, openReview, openFinding, openArea, openFilingArchive, openPolicyFollowUp, openRecurringWork,
   stateOffset, onStatePage, openState }: {
   brokerageId: string; paused: boolean; branchId: string; onBranch: (id: string) => void; returningTo?: string;
   onSetup: (step: ComplianceSetupAction, createCompany?: boolean) => void; openLicense: (target: LicenseRenewalTarget) => void;
   openReview: (target: ProgramReviewTarget) => void; openFinding: (loanId: string, caseId: string) => void; openArea: (area: WorkArea) => void; openFilingArchive?: () => void; openPolicyFollowUp?: () => void;
+  openRecurringWork: () => void;
   stateOffset: number; onStatePage: (offset: number) => void; openState: (target: StateScopeTarget, origin: string) => void;
 }) {
   const [response, setResponse] = useState<{ branch: string; stateOffset: number; data: Home | { error: string } }>();
@@ -191,9 +192,10 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
       </div>}
     </section>}
     {!showSetupFirst && setup}
-    {home && (openFilingArchive || openPolicyFollowUp) && <section className="compliance-home-shortcuts" aria-labelledby="compliance-records-heading">
+    {home && (home.savedStateCount > 0 || openFilingArchive || openPolicyFollowUp) && <section className="compliance-home-shortcuts" aria-labelledby="compliance-records-heading">
       <h2 id="compliance-records-heading">Follow-up and records</h2>
       <div className="loan-application-actions">
+        {home.savedStateCount > 0 && <Button id="compliance-recurring-work" size="sm" variant="outline" onClick={openRecurringWork}>Plan filings and renewals</Button>}
         {openPolicyFollowUp && <Button id="compliance-policy-follow-up" size="sm" variant="outline" onClick={openPolicyFollowUp}>Policy acknowledgments</Button>}
         {openFilingArchive && <Button id="compliance-filing-history" size="sm" variant="outline" onClick={openFilingArchive}>Filing history</Button>}
       </div>

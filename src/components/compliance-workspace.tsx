@@ -116,6 +116,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
         onSetup={openSetup} openArea={showArea} openFinding={openLoan}
         openFilingArchive={() => showArea("Filing history", "compliance-filing-history")}
         openPolicyFollowUp={() => showArea("Policy acknowledgments", "compliance-policy-follow-up")}
+        openRecurringWork={() => showArea("Obligations", "compliance-recurring-work")}
         openLicense={target => { setSetup(undefined); setLocalLicense(target); show("Licensing", `compliance-renewal-${target.licenseId}`); }}
         openReview={target => { setReview(target); show("Monthly review", `compliance-review-${target.itemId}`); }} />}
       {view === "Licensing" && <ComplianceLicensing key={brokerageId} brokerageId={brokerageId} paused={paused}
