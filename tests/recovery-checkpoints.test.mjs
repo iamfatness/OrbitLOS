@@ -1018,3 +1018,131 @@ test("Florida alternate storage checks the advance filing date and the documente
  assert.equal(floridaRecordkeepingFacts.safeParse({...complete,examination:{...complete.examination,
   clock:{request:"Written OFR request",deadline:event("2026-11-08")}}}).success,false);
 });
+
+test("Texas examination logs preserve timing, owner scope, correction history and sortable exports", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {strFromU8,unzipSync}=await import("fflate");
+ const {db,staff,capture}=ownerFixture(t);
+ initializeStore(db,false);
+ const tenant=staff.brokerage.id;
+ const entityId=crypto.randomUUID(), otherId=crypto.randomUUID();
+ const firstTime="2026-11-08T05:45:00Z", laterTime="2026-11-12T16:00:00Z";
+ const create=db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'000123','Fictional scope',?)");
+ create.run(tenant,entityId,"Fictional Texas company",firstTime);
+ create.run(tenant,otherId,"Fictional separate entity",firstTime);
+ const before=capture();
+ const request=(input,settings={})=>loanRetentionWork(db,{type:"texasLoanLog",entityId:settings.entityId??entityId,input},
+  settings.staff??staff,tenant,settings.now??laterTime);
+ const facts={log:"Origination",applicationOn:"2026-10-31",entryEventOn:"2026-10-31",
+  fileNumber:"00001",applicants:[{last:"Fictional Applicant",first:"=1+1"}],property:{street:"10 Example St",city:"El Paso",state:"TX",zip:"79901"},
+  occupancy:"Primary residence",disposition:"Denied",interestRate:6.125,purpose:"Purchase",product:"Conventional",
+  initialOriginator:{name:"Fictional Originator",nmls:"000777"},lien:"First lien",
+  evidence:"Fictional signed intake",zone:"America/Denver"};
+ const make=(facts,settings={})=>({operation:"save",entryId:crypto.randomUUID(),requestId:crypto.randomUUID(),
+  expected:0,authority:"Mortgage company",facts,...settings});
+ const initial=make(facts);
+ const save=request(initial,{now:firstTime});
+ assert.equal(save.versions[0].version,1);
+ assert.deepEqual(save.versions[0].timing,{due:"2026-11-07",late:false,initialDue:"2026-11-07",initialLate:false});
+ assert.deepEqual(save.versions[0].gaps,[]);
+ assert.equal(request(initial).versions.length,1);
+ assert.match(request(make({...facts,fileNumber:" 00001 "})).error,/already uses/);
+ assert.match(request(initial,{entityId:otherId}).error,/changed/);
+ assert.match(request(make({...facts,fileNumber:"future",entryEventOn:"2026-11-13"})).error,/have already occurred/);
+ assert.match(request(initial,{staff:{...staff,brokerage:{...staff.brokerage,role:"Processor"}}}).error,/pilot owners/);
+ const correction=make({...facts,entryEventOn:"2026-11-01",disposition:"Withdrawn"},{entryId:initial.entryId,expected:1,
+  correction:"Fictional withdrawal evidence located"});
+ assert.equal(request(correction).versions[0].timing.late,true);
+ assert.match(request({...correction,requestId:crypto.randomUUID()}).error,/changed/);
+ assert.equal(request({operation:"history",entryId:initial.entryId},{entityId:otherId}).versions.length,0);
+
+ const {applicationOn,interestRate,purpose,product,initialOriginator,lien,...base}=facts;
+ const service=make({...base,log:"Third-party processing or underwriting",serviceStartedOn:"2026-10-31",disposition:"In process",
+  client:{name:"Fictional client",nmls:"000222"},workers:[{name:"Fictional contractor",nmls:"000333",employment:"1099"}],
+  fees:{charged:0,reference:"Fictional no fee"},closingDisclosureFee:"No closing disclosure",
+  closingDisclosureReference:"Fictional in-process file"});
+ assert.deepEqual(request(service,{now:firstTime}).versions[0].gaps,[]);
+ const range={from:"2026-10-01",through:"2026-11-12"};
+ const list=request({operation:"list",...range,log:"Origination",search:"00001",offset:0});
+ assert.equal(list.items.length,1);
+ assert.equal(list.items[0].facts.disposition,"Withdrawn");
+ const voided=request({operation:"void",entryId:initial.entryId,expected:2,requestId:crypto.randomUUID(),correction:"Fictional duplicate entry"});
+ assert.equal(voided.versions[0].voided,true);
+ assert.match(request({...correction,expected:3,requestId:crypto.randomUUID()}).error,/voided/);
+ const result=request({operation:"export",...range});
+ assert.equal(result.origination,0);
+ assert.equal(result.processing,1);
+ assert.equal(result.late,1);
+ const book=unzipSync(Buffer.from(result.xlsx,"base64"));
+ const processing=strFromU8(book["xl/worksheets/sheet2.xml"]);
+ const history=strFromU8(book["xl/worksheets/sheet3.xml"]);
+ assert.match(processing,/000333/);
+ assert.match(processing,/<v>0<\/v>/);
+ assert.match(processing,/t="inlineStr"[^>]*><is><t xml:space="preserve">Fictional Applicant, =1\+1/);
+ assert.match(history,/Voided/);
+ assert.match(history,/Fictional withdrawal evidence located/);
+ assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
+});
+
+test("Texas borrower-file review retains lender retrieval, an unclosed file and examination history", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {reviewRetentionExport,auditRetentionExport,retentionExportResponse}=await import("../src/lib/loan-retention-export.ts");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {strFromU8,unzipSync}=await import("fflate");
+ const {db,staff,capture}=ownerFixture(t);
+ initializeStore(db,false);
+ const scope=staff.brokerage.id, now="2026-11-13T05:30:00Z", entityId=crypto.randomUUID();
+ db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'004456','Fictional scope',?)")
+   .run(scope,entityId,"Fictional Texas mortgage company",now);
+ db.exec(`INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Borrower','','','Borrower');
+   INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince)
+   VALUES ('tx','borrower','LO','',1,'Purchase','Funded','2026-11-02'),
+     ('withdrawn','borrower','LO','',1,'Purchase','Processing','2026-11-01'),
+     ('outside','borrower','LO','',1,'Purchase','Processing','2026-11-01');
+   UPDATE loans SET disposition='Withdrawn',dispositionDate='2026-11-03' WHERE id='withdrawn';
+   INSERT INTO past_client_profiles (loanId,closingDate) VALUES ('tx','2026-11-02');`);
+ const addApp=db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES (?,?, '2027-01-01',?, '2026-11-12')");
+ for(const [id,state] of [["tx","TX"],["withdrawn","TX"],["outside","MI"]])
+   addApp.run(id,id,JSON.stringify({propertyLocation:{state}}));
+ const before=capture();
+ const work=(command,actor=staff)=>loanRetentionWork(db,command,actor,scope,now);
+ const event=on=>({on,reference:"Fictional dated evidence"});
+ const item={status:"On file",reference:"Fictional indexed evidence"};
+ const exempt={status:"Not applicable",reference:"Fictional reviewed applicability"};
+ const facts={entityId,authority:"SML mortgage company",authorityReference:"Fictional SML registration",
+  zone:"America/Chicago",role:"Brokered",application:event("2026-10-01"),inventory:"Fictional indexed loan file",
+  records:{application:item,disclosures:item,communications:item,creditAndFees:item,settlement:item,
+    lender:exempt,adverseOutcome:exempt,homeEquity:exempt,other:exempt},
+  archive:{location:"NMLS MU1 designated location",reference:"Fictional MU1 location",retrieval:event("2026-11-05")},
+  retentionBasis:event("2026-11-02"),examination:{notice:event("2026-11-07")}};
+ const save=(facts,expected=0,loanId="tx")=>({type:"saveTexasRecordkeeping",loanId,facts,expected,requestId:crypto.randomUUID(),
+   ...(expected?{correction:"Fictional lender and SML evidence update"}:{})});
+ assert.match(work(save(facts,0,"outside")).error,/Texas loan/);
+ assert.match(work(save(facts),{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
+ assert.match(work(save({...facts,lenderCopies:event("2026-11-13")})).error,/occurred/);
+ const submitted=save(facts);
+ const initial=work(submitted);
+ assert.deepEqual(initial.currentFinding.findings.map(item=>item.key),["lenderCopies","examination"]);
+ assert.equal(work(submitted).versions.length,1);
+ const late=work(save({...facts,lenderCopies:event("2026-11-03"),examination:{...facts.examination,production:event("2026-11-09")}},1));
+ assert.deepEqual(late.currentFinding.findings.map(item=>item.key),["lenderCopiesTiming"]);
+ const corrected=save({...late.versions[0].facts,lenderCopies:event("2026-11-02")},2);
+ assert.deepEqual(work(corrected).currentFinding.findings,[]);
+ assert.match(work({...corrected,requestId:crypto.randomUUID()}).error,/changed/);
+ const withdrawn=work(save({...facts,application:event("2024-11-22"),retentionBasis:event("2026-11-03"),
+   records:{...facts.records,settlement:exempt,adverseOutcome:item},examination:undefined},0,"withdrawn"));
+ assert.equal(withdrawn.currentFinding.stateReviewDate,null);
+ assert.deepEqual(withdrawn.currentFinding.findings.map(item=>item.key),["ruleEdition"]);
+ const audit=JSON.parse(work({type:"exportRetentionAudit",policyVersion:null}).json);
+ assert.equal(audit.texasRecordkeeping.length,4);
+ const reviewed=reviewRetentionExport(db,staff,scope,"tx");
+ const archive=await retentionExportResponse(undefined,scope,reviewed,async fingerprint=>auditRetentionExport(db,staff,scope,"tx",fingerprint));
+ const manifest=JSON.parse(strFromU8(unzipSync(new Uint8Array(await archive.arrayBuffer()))["manifest.json"]));
+ assert.equal(manifest.texasRecordkeeping[0].entity.nmls,"004456");
+ assert.equal(manifest.texasRecordkeeping[0].finding.stateReviewDate,"2029-11-02");
+ assert.deepEqual(manifest.texasRecordkeeping[2].finding.findings,initial.currentFinding.findings);
+ assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
+});
