@@ -42,6 +42,7 @@ export type ServiceOrder = {
   id: string; loanId: string; kind: (typeof serviceOrderKinds)[number]; status: ServiceOrderStatus;
   dueOn: string; revision: number; createdAt: string; createdBy: string; note: string;
   owner: string; returns: ServiceOrderReturn[]; cancellation: string | null; recipient?: DocumentRecipient | null;
+  applicationRevision?: number | null;
 };
 export const serviceOrderQueueQuery = z.object({
   view: z.enum(serviceOrderViews),

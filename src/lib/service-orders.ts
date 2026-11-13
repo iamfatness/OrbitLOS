@@ -14,7 +14,7 @@ export const serviceOrderOwnerSql = "coalesce(nullif(processing.processorName, '
 const activeLoan = "loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')";
 const serviceLoan = `JOIN loans loan ON loan.id = service.loanId LEFT JOIN loan_processing processing ON processing.loanId = loan.id`;
 const publicColumns = "service.id, service.loanId, service.kind, service.status, service.dueOn, service.recipient";
-const orderColumns = `${publicColumns}, service.revision, service.createdAt, service.createdBy, service.note, service.returns, service.cancellation,
+const orderColumns = `${publicColumns}, service.revision, service.createdAt, service.createdBy, service.note, service.returns, service.cancellation, service.applicationRevision,
   ${serviceOrderOwnerSql} AS owner`;
 type StoredServiceOrder = Omit<ServiceOrder, "returns"> & { returns: string; lastCommand: string | null; originalDueOn: string };
 const orderView = ({ returns, ...order }: Omit<StoredServiceOrder, "lastCommand" | "originalDueOn">): ServiceOrder =>
