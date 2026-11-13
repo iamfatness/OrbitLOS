@@ -21,6 +21,16 @@ type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
 const months = Array.from({length:12}, (_, index) => new Intl.DateTimeFormat("en-US",{month:"long",timeZone:"UTC"})
   .format(new Date(Date.UTC(2026,index,1))));
+function periodInstructions(draft: ObligationDraft) {
+  const start = (draft.annualStartMonth ?? 1) - 1;
+  if (draft.cadence === "Annual") return `Choose ${months[start]} as the first month.`;
+  if (draft.cadence === "Fiscal quarterly") {
+    const starts = [0, 3, 6, 9].map(offset => months[(start + offset) % 12]);
+    return `Choose ${starts.slice(0, 3).join(", ")} or ${starts[3]} as the first month.`;
+  }
+  if (draft.cadence === "Quarterly") return "Choose January, April, July or October as the first month.";
+  return "Choose the month to review.";
+}
 
 export function ComplianceObligations({brokerageId,paused,openReview,returnToItem}:{
    brokerageId:string;paused:boolean;openReview:(target:ProgramReviewTarget)=>void;returnToItem?:string;
@@ -144,7 +154,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
    const parsed=obligationDraft.safeParse({...draft,
      ...(linkedSource?{sourceUrl:linkedSource.sourceUrl,authority:linkedSource.authority}:{}),
      preparation:text(form,"preparation") || undefined,
-     ...(cadence==="Annual" && text(form,"annualStartMonth") ? {annualStartMonth:Number(text(form,"annualStartMonth"))} : {}),
+     ...(text(form,"annualStartMonth") ? {annualStartMonth:Number(text(form,"annualStartMonth"))} : {}),
      internalTargetDay:Number(text(form,"internalTargetDay"))});
    if(!parsed.success){setError(parsed.error.issues.map(i=>`${i.path.join(".")}: ${i.message}`).join("; "));return;}
    const stateReference = chosenSource ? {
@@ -207,9 +217,9 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
        <label className="field">Active admin owner email<input type="email" name="ownerEmail" required defaultValue={draft.ownerEmail}/></label>
        <label className="field">Effective from<input name="effectiveFrom" type="date" required defaultValue={draft.effectiveFrom}/></label><label className="field">Effective through (optional)<input name="effectiveThrough" type="date" defaultValue={draft.effectiveThrough}/></label>
        <label className="field">Internal cadence<select name="cadence" value={cadence}
-         onChange={event=>setCadence(event.target.value as ObligationDraft["cadence"])}>{["Monthly","Quarterly","Annual"].map(s=><option key={s}>{s}</option>)}</select></label>
-       {cadence==="Annual"&&<label className="field">Annual period starts<select name="annualStartMonth" defaultValue={draft.annualStartMonth??""}>
-         <option value="">January assumed · confirm if needed</option>
+         onChange={event=>setCadence(event.target.value as ObligationDraft["cadence"])}>{obligationDraft.shape.cadence.options.map(s=><option key={s}>{s}</option>)}</select></label>
+       {(cadence==="Annual"||cadence==="Fiscal quarterly")&&<label className="field">{cadence==="Annual"?"Annual period starts":"Fiscal year starts"}<select name="annualStartMonth" required={cadence==="Fiscal quarterly"} defaultValue={draft.annualStartMonth??""}>
+         <option value="">{cadence==="Annual"?"January assumed · confirm if needed":"Choose a month"}</option>
          {months.map((month,index)=><option key={month} value={index+1}>{month}</option>)}
        </select></label>}
        <label className="field">Reporting workbench<select name="preparation" defaultValue={draft.preparation??""}>
@@ -246,8 +256,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
          </div>}
        </>}
        <details className="document-form"><summary>Add a reporting period</summary>
-         <form className="record-form" onSubmit={e=>{e.preventDefault();void mutate({operation:"generate",entityId,id:selected.id,expectedRevision:selected.revision,period:text(new FormData(e.currentTarget),"period")},false);}}><p>Uses saved version {selected.revision}. {selected.draft.cadence === "Annual" ? "Choose January." :
-       selected.draft.cadence === "Quarterly" ? "Choose January, April, July or October." : "Choose the review month."}</p><label className="field">Period first month<input type="month" name="period" required min="2000-01" max="2099-12"/></label><div><Button type="submit" disabled={busy}>Record period</Button></div></form>
+         <form className="record-form" onSubmit={e=>{e.preventDefault();void mutate({operation:"generate",entityId,id:selected.id,expectedRevision:selected.revision,period:text(new FormData(e.currentTarget),"period")},false);}}><p>Uses saved version {selected.revision}. {periodInstructions(selected.draft)}</p><label className="field">Period first month<input type="month" name="period" required min="2000-01" max="2099-12"/></label><div><Button type="submit" disabled={busy}>Record period</Button></div></form>
        </details>
      </>}
    </>}

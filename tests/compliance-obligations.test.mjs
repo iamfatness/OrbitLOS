@@ -35,6 +35,10 @@ test("UTC final-month targets clamp leap years and enforce cadence anchors",()=>
   assert.equal(obligationPeriod("2026-04","Quarterly",31).internalTarget,"2026-06-30");
   assert.equal(obligationPeriod("2026-01","Annual",31).internalTarget,"2026-12-31");
   assert.equal(obligationPeriod("2026-02","Quarterly",31),null);
+  assert.deepEqual(obligationPeriod("2025-11","Fiscal quarterly",31,2),{
+    from:"2025-11-01",through:"2026-01-31",internalTarget:"2026-01-31",
+  });
+  assert.equal(obligationPeriod("2026-01","Fiscal quarterly",31,2),null);
 });
 
 test("period history preserves original versions and remains entity scoped",t=>{
@@ -241,6 +245,16 @@ test("priority state reporting uses distinct periods and leaves unverified dates
  check("NY","QRES","Quarterly","2025-04","Mail to New York DFS Mortgage Banking",null);
  check("NY","VOOR","Annual","2025-01","New York DFS VOOR portal or mail","2026-06-22");
  check("NY","VOOR","Annual","2026-01","New York DFS VOOR portal or mail",null);
+ check("NY","BANKER-VOOR","Annual","2025-01","New York DFS VOOR portal or mail","2026-06-22");
+ check("NY","BANKER-VOOR","Annual","2026-01","New York DFS VOOR portal or mail",null);
+ check("NY","BANKER-QFS","Fiscal quarterly","2025-11","New York DFS quarterly financial report","2026-03-17",2);
+ check("NY","BANKER-QFS","Quarterly","2026-01","New York DFS quarterly financial report",null);
+ check("NY","BANKER-AUDIT","Annual","2025-02","New York DFS audited financial statement","2026-05-01",2);
+ check("NY","VOSR","Quarterly","2026-01","New York DFS VOSR portal","2026-04-30");
+ check("NY","VOSR","Fiscal quarterly","2026-02","New York DFS VOSR portal",null,2);
+ check("NY","SERVICER-QFS","Fiscal quarterly","2026-02","New York DFS quarterly financial report","2026-06-14",2);
+ check("NY","SERVICER-AUD","Annual","2025-02","New York DFS audited financial statement","2026-05-01",2);
+ assert.ok(f.run(f.save({draft:{...f.draft,cadence:"Fiscal quarterly"}})).error);
  check("CO","MCR","Quarterly","2026-04","NMLS Mortgage Call Report","2026-08-14");
  check("CO","STD-FC","Annual","2025-07","NMLS Financial Condition",null,7);
  check("IL","ACTIVITY","Quarterly","2026-01","NMLS Mortgage Call Report","2026-05-15");

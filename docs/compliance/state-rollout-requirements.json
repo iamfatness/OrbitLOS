@@ -1043,6 +1043,30 @@
   },
   {
     "jurisdiction": "NY",
+    "area": "LICENSING",
+    "id": "BANKER",
+    "title": "Mortgage banker license and branch authority",
+    "authority": "N.Y. Banking Law §590 and DFS mortgage industry guidance",
+    "sourceUrl": "https://www.nysenate.gov/legislation/laws/BNK/590",
+    "summary": "New York requires separate authority for covered mortgage banker activity.",
+    "evidence": "Company license, branch authority, product and activity evidence and any exemption.",
+    "counsel": "Confirm banker activity, authority and branch scope and the treatment of any affiliated broker or servicer.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "LICENSING",
+    "id": "SERVICER",
+    "title": "Mortgage servicer registration and exemption scope",
+    "authority": "N.Y. Banking Law §590(2)(b-1) and DFS Part 419 guidance",
+    "sourceUrl": "https://www.dfs.ny.gov/apps_and_licensing/mortgage_companies/mls_business_conduct_rules_faqs",
+    "summary": "Servicing business conduct coverage and registration or exemption status are distinct. Some exempt organizations regulated by DFS also have reporting duties.",
+    "evidence": "Servicing role, servicing rights or delegated functions, registration or exemption evidence and the regulating authority.",
+    "counsel": "Confirm registration, exemption or notice treatment, Part 419 reporting applicability and covered portfolios.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
     "area": "REPORTING",
     "id": "VOOR",
     "title": "Registered mortgage broker Volume of Operations Report",
@@ -1081,6 +1105,81 @@
     "summary": "DFS instructs originating entities to mail the notarized employment status report within 30 days after each calendar quarter.",
     "evidence": "Originating entity NMLS identifier, reportable MLO employment events, Temporary Authority roster, signed report and mailing evidence.",
     "counsel": "Reconcile the form and DFS website instructions for separations, confirm no-change and amendment treatment, and verify the current form.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "BANKER-VOOR",
+    "title": "Licensed mortgage banker Volume of Operations Report",
+    "authority": "N.Y. Banking Law §597 and DFS banker instructions",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2026/04/2025-Licensed-Mortgage-Banker-VOOR-Instructions.pdf",
+    "summary": "DFS published a distinct 2025 calendar-year banker return, due June 22, 2026, online or by mail with a notarized affidavit.",
+    "evidence": "Banker license, report-year banker schedules, application reconciliation, signed attestation or affidavit and submission receipt.",
+    "counsel": "Confirm applicable report-year deadline, current schedules, attestation and inactive or surrendered license treatment.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "BANKER-QFS",
+    "title": "Mortgage banker fiscal-quarter financial report",
+    "authority": "3 NYCRR §410.7(m) and DFS commitment-data guidance",
+    "sourceUrl": "https://www.dfs.ny.gov/industry_guidance/industry_letters/il20140916_elimination_manual_submission",
+    "summary": "DFS requires unaudited financial statements within 45 days after fiscal quarter-end. The NMLS MCR can replace manual submission of quarterly commitment data.",
+    "evidence": "Banker license, fiscal quarter, financial schedules, any MCR receipt used for commitment data and DFS submission evidence.",
+    "counsel": "Confirm the current form and submission channel, fiscal quarter dates and which data the MCR replaces.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "BANKER-AUDIT",
+    "title": "Mortgage banker annual audited financial statement",
+    "authority": "3 NYCRR §410.7(b)",
+    "sourceUrl": "https://govt.westlaw.com/nycrr/Document/I4e77f867cd1711dda432a117e6e0f345?transitionType=Default",
+    "summary": "A mortgage banker files an audited statement with the department within 90 days of fiscal year-end.",
+    "evidence": "Banker license, fiscal year-end, independent audit and DFS submission evidence.",
+    "counsel": "Confirm filing scope, current channel and applicable audit requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "VOSR",
+    "title": "Volume of Servicing Report",
+    "authority": "3 NYCRR §419.8 and DFS VOSR filing guidance",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2022/07/bf419_text.pdf",
+    "summary": "Part 419 provides for a servicing volume report within 30 days after each calendar quarter for covered servicers when required by the Superintendent.",
+    "evidence": "Servicing role and coverage, quarter and schedules, reconciliation, authorized attestation and VOSR receipt.",
+    "counsel": "Confirm the covered entity, current instructions, portfolio and zero-activity treatment.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      { "label": "DFS mortgage filings and VOSR portal", "url": "https://www.dfs.ny.gov/apps_and_licensing/mortgage_companies" }
+    ]
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "SERVICER-QFS",
+    "title": "Servicer fiscal-quarter financial report and net worth",
+    "authority": "3 NYCRR §419.9(e)",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2022/07/bf419_text.pdf",
+    "summary": "Covered servicers submit financial reporting and net worth certification within 45 days after fiscal quarter-end.",
+    "evidence": "Applicable registration or exemption, fiscal quarter, financial schedules, net worth certification and DFS submission evidence.",
+    "counsel": "Confirm applicable scope, quarter and current format and submission channel.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "SERVICER-AUD",
+    "title": "Servicer annual audited financial statement",
+    "authority": "3 NYCRR §419.9(f)",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2022/07/bf419_text.pdf",
+    "summary": "Covered servicers submit audited financial statements within 90 days after fiscal year-end unless the Superintendent approves substitute financial information.",
+    "evidence": "Servicing authority, fiscal year-end, independent audit or written approval of substitute information and DFS submission evidence.",
+    "counsel": "Confirm applicability, current channel and whether DFS approved any substitution.",
     "checkedOn": "2026-11-12"
   },
   {

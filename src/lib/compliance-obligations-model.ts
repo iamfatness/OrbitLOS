@@ -11,7 +11,7 @@ export const obligationDraft = z.strictObject({
   reviewerEvidence: z.string().trim().max(1500),
   effectiveFrom: z.iso.date(), effectiveThrough: z.union([z.iso.date(), z.literal("")]),
   preparation: z.literal("Mortgage Call Report").optional(),
-  cadence: z.enum(["Monthly", "Quarterly", "Annual"]), internalTargetDay: z.number().int().min(1).max(31),
+  cadence: z.enum(["Monthly", "Quarterly", "Fiscal quarterly", "Annual"]), internalTargetDay: z.number().int().min(1).max(31),
   annualStartMonth: z.int().min(1).max(12).optional(),
   ownerEmail: z.email(),
 }).superRefine((value, ctx) => {
@@ -21,8 +21,10 @@ export const obligationDraft = z.strictObject({
     ctx.addIssue({ code: "custom", path: ["effectiveThrough"], message: "End date precedes effective date." });
   if (value.applicability !== "Needs review" && value.reviewerEvidence.length < 5)
     ctx.addIssue({ code: "custom", path: ["reviewerEvidence"], message: "Record internal reviewer evidence; this is not lawyer approval." });
-  if (value.annualStartMonth !== undefined && value.cadence !== "Annual")
-    ctx.addIssue({ code: "custom", path: ["annualStartMonth"], message: "A fiscal start month applies to annual periods." });
+  if (value.annualStartMonth !== undefined && value.cadence !== "Annual" && value.cadence !== "Fiscal quarterly")
+    ctx.addIssue({ code: "custom", path: ["annualStartMonth"], message: "A fiscal start month applies to annual or fiscal quarterly periods." });
+  if (value.cadence === "Fiscal quarterly" && value.annualStartMonth === undefined)
+    ctx.addIssue({ code: "custom", path: ["annualStartMonth"], message: "Choose the fiscal year start month." });
 });
 const scope = { entityId: z.uuid() };
 const change = { requestId: z.uuid() };
@@ -101,8 +103,10 @@ export const reportingDateBasis = z.object({ route: z.string(), nominalDueOn: z.
 export function obligationPeriod(period: string, cadence: ObligationDraft["cadence"], targetDay: number, annualStartMonth = 1) {
   const [year, month] = period.split("-").map(Number);
   if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(period) || !Number.isInteger(targetDay) || targetDay < 1 || targetDay > 31) return null;
-  const months = cadence === "Annual" ? 12 : cadence === "Quarterly" ? 3 : 1;
-  if ((cadence === "Annual" && month !== annualStartMonth) || (cadence === "Quarterly" && (month - 1) % 3)) return null;
+  const quarterly = cadence === "Quarterly" || cadence === "Fiscal quarterly";
+  const months = cadence === "Annual" ? 12 : quarterly ? 3 : 1;
+  const quarterStart = cadence === "Fiscal quarterly" ? annualStartMonth : 1;
+  if ((cadence === "Annual" && month !== annualStartMonth) || (quarterly && (month - quarterStart) % 3)) return null;
   const end = new Date(Date.UTC(year, month - 1 + months, 0));
   const date = (value: Date) => value.toISOString().slice(0, 10);
   return { from: `${period}-01`, through: date(end), internalTarget: date(new Date(Date.UTC(year, month - 2 + months, Math.min(targetDay, end.getUTCDate())))) };
@@ -113,7 +117,7 @@ export type ObligationReviewBasis = {
   report?: { year: string; quarter: number }; stateBasis?: ObligationStateSource;
 };
 type FilingRule = {
-  route: string; review: string; cadence: "Quarterly" | "Calendar annual" | "Fiscal annual" | "Role-based";
+  route: string; review: string; cadence: "Quarterly" | "Fiscal quarterly" | "Calendar annual" | "Fiscal annual" | "Role-based";
   due: (through: string, cadence: ObligationDraft["cadence"]) => string | null;
   from?: string;
 };
@@ -174,6 +178,19 @@ const filings: Partial<Record<string, FilingRule>> = {
   "REQ-NY-REPORTING-VOOR": { route: "New York DFS VOOR portal or mail", cadence: "Calendar annual",
     due: through => through === "2025-12-31" ? "2026-06-22" : null,
     review: "The verified date covers the 2025 broker report. Confirm the report-year deadline, submission instructions and no-activity treatment." },
+  "REQ-NY-REPORTING-BANKER-VOOR": { route: "New York DFS VOOR portal or mail", cadence: "Calendar annual",
+    due: through => through === "2025-12-31" ? "2026-06-22" : null,
+    review: "The verified date covers the 2025 banker report. Confirm the current banker schedules, attestation and report-year deadline." },
+  "REQ-NY-REPORTING-BANKER-QFS": { route: "New York DFS quarterly financial report", cadence: "Fiscal quarterly", due: after(45),
+    review: "Confirm the DFS submission instructions. The NMLS substitution applies to quarterly commitment data only." },
+  "REQ-NY-REPORTING-BANKER-AUDIT": { route: "New York DFS audited financial statement", cadence: "Fiscal annual", due: after(90),
+    review: "Confirm the fiscal year end, audited statements and current DFS submission channel." },
+  "REQ-NY-REPORTING-VOSR": { route: "New York DFS VOSR portal", cadence: "Quarterly", due: after(30),
+    review: "Confirm covered servicing activity, the current VOSR instructions and attestation with counsel." },
+  "REQ-NY-REPORTING-SERVICER-QFS": { route: "New York DFS quarterly financial report", cadence: "Fiscal quarterly", due: after(45),
+    review: "Confirm the servicing scope, DFS submission instructions and quarterly net worth certification." },
+  "REQ-NY-REPORTING-SERVICER-AUD": { route: "New York DFS audited financial statement", cadence: "Fiscal annual", due: after(90),
+    review: "Confirm the fiscal year end, audited statements, submission channel and any DFS-approved substitution." },
   "REQ-NY-REPORTING-QRES": { route: "Mail to New York DFS Mortgage Banking", cadence: "Quarterly", due: after(30), from: "2025-07-01",
     review: "Confirm reportable hires, separations, Temporary Authority, notarization and no-change instructions with counsel." },
   "REQ-CO-REPORTING-MCR": quarter("NMLS Mortgage Call Report", "Confirm registration, current FV7 components and applicable periods."),
@@ -191,7 +208,8 @@ export function obligationReportingBasis(sourceKey: string | undefined, cadence:
   const annual = cadence === "Annual";
   const calendar = annual && (annualStartMonth ?? 1) === 1;
   const matches = rule.cadence === "Quarterly" ? quarterly : rule.cadence === "Calendar annual" ? calendar :
-    rule.cadence === "Fiscal annual" ? annual && annualStartMonth !== undefined : quarterly || calendar;
+    rule.cadence === "Fiscal annual" ? annual && annualStartMonth !== undefined :
+      rule.cadence === "Fiscal quarterly" ? cadence === "Fiscal quarterly" && annualStartMonth !== undefined : quarterly || calendar;
   return {
     route: rule.route,
     nominalDueOn: matches && (!rule.from || period.from >= rule.from) ? rule.due(period.through, cadence) : null,
