@@ -26,7 +26,12 @@ function NoticeForm({ current, onSave, busy, conflict }: {
   const timing = facts?.change.kind === "Control person" ? facts.change.timing : undefined;
   const [route, setRoute] = useState(timing?.route ?? "Advance filing");
   const notice = timing?.route === "First notice" ? timing : undefined;
-  const [calendar, setCalendar] = useState(Boolean(notice?.calendar));
+  const [authority, setAuthority] = useState(facts?.authority ?? "Mortgage broker");
+  const bankruptcy = kind === "Bankruptcy";
+  const calendarEvidence = facts?.change.kind === "Bankruptcy" ? facts.change.calendar : notice?.calendar;
+  const [calendar, setCalendar] = useState(Boolean(calendarEvidence));
+  const firstNotice = kind === "Control person" && route === "First notice";
+  const needsCalendar = firstNotice || (bankruptcy && authority === "Mortgage lender");
   const [filed, setFiled] = useState(Boolean(facts?.filed));
   const [status, setStatus] = useState(facts?.status?.outcome ?? "");
   return <form className="record-form" onSubmit={event => { event.preventDefault(); onSave(new FormData(event.currentTarget)); }}>
@@ -34,17 +39,17 @@ function NoticeForm({ current, onSave, busy, conflict }: {
       <div className={grid}>
         {current ? <p>{kind}</p> : <label className="field">Change type<select name="kind" value={kind}
           onChange={event => setKind(event.target.value as typeof kind)}>
-          <option>Principal loan originator</option><option>Application information</option><option>Control person</option>
+          <option>Principal loan originator</option><option>Application information</option><option>Control person</option><option>Bankruptcy</option>
         </select></label>}
-        <label className="field">Florida authority<select name="authority" defaultValue={facts?.authority}>
+        <label className="field">Florida authority<select name="authority" value={authority} onChange={event => setAuthority(event.target.value as typeof authority)}>
           <option>Mortgage broker</option><option>Mortgage lender</option>
         </select></label>
         <Field name="licenseReference" label="License evidence" value={facts?.licenseReference} required />
         <label className="field">Local time zone<select name="zone" defaultValue={facts?.zone}>
           <option value="America/New_York">Eastern time</option><option value="America/Chicago">Central time</option>
         </select></label>
-        <Field name="effectiveOn" label="Change effective date" value={facts?.effective.on} date required />
-        <Field name="effectiveReference" label="Effective date evidence" value={facts?.effective.reference} required />
+        <Field name="effectiveOn" label={bankruptcy ? "Date bankruptcy action was instituted" : "Change effective date"} value={facts?.effective.on} date required />
+        <Field name="effectiveReference" label={bankruptcy ? "Bankruptcy action reference" : "Effective date evidence"} value={facts?.effective.reference} required />
         {kind === "Principal loan originator" && <>
           <Field name="designation" label="Designation evidence" value={principal?.designationReference} required />
           <Field name="eligibility" label="Qualification evidence (optional)" value={principal?.eligibilityReference} />
@@ -53,25 +58,25 @@ function NoticeForm({ current, onSave, busy, conflict }: {
           onChange={event => setRoute(event.target.value as typeof route)}><option>Advance filing</option><option>First notice</option>
         </select></label>}
       </div>
-      {kind === "Control person" && route === "First notice" && <>
-        <div className={grid}>
+      {firstNotice && <div className={grid}>
           <Field name="firstNoticeOn" label="Date first notice was received" value={notice?.firstNotice.on} date required />
           <Field name="firstNoticeReference" label="First notice evidence" value={notice?.firstNotice.reference} required />
-        </div>
+      </div>}
+      {needsCalendar && <>
         <label className="flex min-h-11 items-center gap-2"><input name="calendar" type="checkbox" checked={calendar}
           onChange={event => setCalendar(event.target.checked)} />Record reviewed business-day calendar</label>
         {calendar && <div className={grid}>
-          <Field name="through" label="Calendar reviewed through" value={notice?.calendar?.through} date required />
-          <Field name="calendarReference" label="Calendar evidence" value={notice?.calendar?.reference} required />
-          <label className="field min-w-0">Holidays after first notice, one YYYY-MM-DD per line<textarea name="holidays" rows={3}
-            maxLength={400} defaultValue={notice?.calendar?.holidays.join("\n")} /></label>
+          <Field name="through" label="Calendar reviewed through" value={calendarEvidence?.through} date required />
+          <Field name="calendarReference" label="Calendar evidence" value={calendarEvidence?.reference} required />
+          <label className="field min-w-0">{bankruptcy ? "Holidays after the action was instituted, one YYYY-MM-DD per line" : "Holidays after first notice, one YYYY-MM-DD per line"}<textarea name="holidays" rows={3}
+            maxLength={400} defaultValue={calendarEvidence?.holidays.join("\n")} /></label>
         </div>}
       </>}
       <label className="flex min-h-11 items-center gap-2"><input name="filed" type="checkbox" checked={filed}
-        onChange={event => setFiled(event.target.checked)} />Record Registry filing</label>
+        onChange={event => setFiled(event.target.checked)} />{bankruptcy ? "Record notice to OFR" : "Record Registry filing"}</label>
       {filed && <div className={grid}>
-        <Field name="filedOn" label="Registry filing date" value={facts?.filed?.on} date required />
-        <Field name="filedReference" label="Registry receipt reference" value={facts?.filed?.reference} required />
+        <Field name="filedOn" label={bankruptcy ? "OFR notice date" : "Registry filing date"} value={facts?.filed?.on} date required />
+        <Field name="filedReference" label={bankruptcy ? "OFR notice receipt reference" : "Registry receipt reference"} value={facts?.filed?.reference} required />
       </div>}
       <label className="field">Recorded regulator status<select name="status" value={status} onChange={event => setStatus(event.target.value)}>
         <option value="">No regulator status recorded</option><option>Pending</option><option>Acknowledged</option>
@@ -176,6 +181,8 @@ function NoticeRegister({ brokerageId, entityId, lock }: { brokerageId: string; 
     const kind = current?.facts.change.kind ?? get("kind");
     const dated = (name: string) => ({ on: get(name + "On"), reference: get(name + "Reference") });
     const status = get("status");
+    const calendar = form.has("calendar") ? { through: get("through"), reference: get("calendarReference"),
+      holidays: get("holidays").split(/\s+/u).filter(Boolean) } : undefined;
     const parsed = floridaAmendmentFacts.safeParse({
       authority: get("authority"), zone: get("zone"), licenseReference: get("licenseReference"),
       effective: dated("effective"),
@@ -183,10 +190,9 @@ function NoticeRegister({ brokerageId, entityId, lock }: { brokerageId: string; 
         eligibilityReference: get("eligibility") || undefined } : kind === "Control person" ? {
         kind, timing: get("route") === "Advance filing" ? { route: "Advance filing" } : {
           route: "First notice", firstNotice: dated("firstNotice"),
-          calendar: form.has("calendar") ? { through: get("through"), reference: get("calendarReference"),
-            holidays: get("holidays").split(/\s+/u).filter(Boolean) } : undefined,
+          calendar,
         },
-      } : { kind },
+      } : kind === "Bankruptcy" ? { kind, calendar } : { kind },
       filed: form.has("filed") ? dated("filed") : undefined,
       status: status ? { ...dated("status"), outcome: status } : undefined,
     });
@@ -240,7 +246,7 @@ function NoticeRegister({ brokerageId, entityId, lock }: { brokerageId: string; 
   };
   return <div className="record-form min-w-0">
     <label className="field">Change type on this page<select value={filter} onChange={event => setFilter(event.target.value)}>
-      <option value="">All changes</option><option>Principal loan originator</option><option>Application information</option><option>Control person</option>
+      <option value="">All changes</option><option>Principal loan originator</option><option>Application information</option><option>Control person</option><option>Bankruptcy</option>
     </select></label>
     <div><Button className="min-h-11" ref={button => attach("new", button)} onClick={() => open()}>Record amendment</Button></div>
     {listError ? <div><p role="alert">{listError}</p><Button variant="outline" onClick={() => refresh()}>Reload amendments</Button></div> :
@@ -248,7 +254,7 @@ function NoticeRegister({ brokerageId, entityId, lock }: { brokerageId: string; 
         <ul className="grid gap-2">{page.items.filter(item => !filter || item.facts.change.kind === filter).map(item => <li key={item.noticeId}>
           <Button className="h-auto min-h-11 w-full justify-start whitespace-normal text-left" variant="outline"
             ref={button => attach(item.noticeId, button)} onClick={() => open(item.noticeId)}>
-            {item.facts.change.kind} · {item.facts.effective.on} · {item.currentFinding.timingStatus}
+            {item.facts.change.kind} · {item.facts.authority} · {item.facts.effective.on} · {item.currentFinding.timingStatus}
           </Button></li>)}</ul>}
     {(query.offset > 0 || page?.next != null) && <div className="flex flex-wrap gap-2">
       <Button className="min-h-11" variant="outline" disabled={!page || query.offset === 0} onClick={() => refresh(Math.max(0, query.offset - 20))}>Previous amendments</Button>
@@ -262,19 +268,22 @@ function NoticeEvidence({ version }: { version: Version }) {
   const { change } = facts;
   const timing = change.kind === "Control person" ? change.timing : undefined;
   const notice = timing?.route === "First notice" ? timing : undefined;
+  const bankruptcy = change.kind === "Bankruptcy";
+  const calendar = bankruptcy ? change.calendar : notice?.calendar;
   const dated = (event?: { on: string; reference: string }) => event && event.on + " · " + event.reference;
   const values = [
-    ["Authority", facts.authority + " · " + facts.licenseReference], ["Effective date", dated(facts.effective)],
+    ["Authority", facts.authority + " · " + facts.licenseReference], [bankruptcy ? "Action instituted" : "Effective date", dated(facts.effective)],
     ["Nominal deadline", finding.dueOn], ["Timing route", timing?.route],
-    ["First notice", dated(notice?.firstNotice)], ["Calendar evidence", notice?.calendar?.reference],
-    ["Calendar reviewed through", notice?.calendar?.through], ["Holidays", notice?.calendar?.holidays.join(", ")],
+    ["First notice", dated(notice?.firstNotice)], ["Calendar evidence", calendar?.reference],
+    ["Calendar reviewed through", calendar?.through], ["Holidays", calendar?.holidays.join(", ")],
     ["Designation", change.kind === "Principal loan originator" ? change.designationReference : undefined],
     ["Qualification", change.kind === "Principal loan originator" ? change.eligibilityReference ?? "Review qualification evidence" : undefined],
-    ["Registry filing", dated(facts.filed)], ["Regulator status", [finding.regulatorStatus, dated(facts.status)].filter(Boolean).join(" · ")],
+    [bankruptcy ? "OFR notice" : "Registry filing", dated(facts.filed)], ["Regulator status", [finding.regulatorStatus, dated(facts.status)].filter(Boolean).join(" · ")],
     ["Recorded by", version.actor], ["Reason for update", version.correction],
   ];
   return <div className="record-form min-w-0 [overflow-wrap:anywhere]">
     <p><strong>{finding.timingStatus}</strong> · Version {version.version} · Reviewed <time className="whitespace-nowrap" dateTime={finding.asOf}>{finding.asOf}</time></p>
+    {bankruptcy && <p><a className="underline" href={finding.source}>{finding.authority}</a></p>}
     <dl className={grid}>{values.filter(([, value]) => value).map(([label, value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd>{value}</dd></div>)}</dl>
   </div>;
 }
