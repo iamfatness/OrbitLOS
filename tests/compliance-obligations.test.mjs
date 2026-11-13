@@ -153,6 +153,22 @@ test("California reporting links DRE, CFL and CRMLA obligations with distinct fi
  const call=save("DRE-MCR",{cadence:"Quarterly"});
  assert.equal(JSON.parse(generate(call,"2025-01").occurrence.snapshot).reportingBasis.nominalDueOn,"2025-05-15");
  const annual={cadence:"Annual",applicability:"Required",reviewerEvidence:"Fictional review"};
+ const renewal=save("DRE-RENEW",annual,"LICENSING");
+ assert.equal(JSON.parse(generate(renewal,"2026-01").occurrence.snapshot).reportingBasis.nominalDueOn,"2026-12-31");
+ const fiscalQuarter={...annual,cadence:"Fiscal quarterly",annualStartMonth:7};
+ for (const suffix of ["DRE-TRUST-Q","DRE-MULTI-Q"]) {
+  const trust=save(suffix,fiscalQuarter);
+  assert.equal(JSON.parse(generate(trust,"2025-07").occurrence.snapshot).reportingBasis.nominalDueOn,"2025-10-30");
+  assert.equal(generate(trust,"2026-04").occurrence.status,"Applicability review gap");
+  assert.equal(JSON.parse(generate(trust,"2026-04").occurrence.snapshot).reportingBasis.nominalDueOn,null);
+ }
+ const noTrust=save("DRE-RE854",fiscalQuarter);
+ assert.equal(JSON.parse(generate(noTrust,"2026-04").occurrence.snapshot).reportingBasis.nominalDueOn,"2026-07-30");
+ for (const [month,date] of [[1,"2027-05-31"],[2,"2027-05-31"],[3,"2027-05-31"],[4,"2027-06-29"],[12,"2028-05-31"]]) {
+  const trust=save("DRE-TAR",{...annual,annualStartMonth:month});
+  const period=`2026-${String(month).padStart(2,"0")}`;
+  assert.equal(JSON.parse(generate(trust,period).occurrence.snapshot).reportingBasis.nominalDueOn,date);
+ }
  const bar=save("BAR",{...annual,annualStartMonth:7});
  assert.match(generate(bar,"2025-01").error,/first month/);
  const report=generate(bar,"2025-07").occurrence;

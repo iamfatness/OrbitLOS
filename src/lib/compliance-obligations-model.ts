@@ -31,7 +31,7 @@ const change = { requestId: z.uuid() };
 const licensingSources = [
   "REQ-MI-LICENSING-FIRST-RENEW", "REQ-MI-LICENSING-SECOND-RENEW",
   "REQ-TX-LICENSING-CO-RENEW", "REQ-TX-LICENSING-BANKER-RENEW",
-  "REQ-CA-LICENSING-CFL-ASSESS",
+  "REQ-CA-LICENSING-CFL-ASSESS", "REQ-CA-LICENSING-DRE-RENEW",
 ];
 export const isObligationStateSource = (key: string) =>
   /^REQ-[A-Z]{2}-REPORTING-[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(key) || licensingSources.includes(key);
@@ -128,7 +128,7 @@ export function supportsFilingReceipts(snapshot: {
 }
 type FilingRule = {
   route: string; review: string; cadence: "Quarterly" | "Fiscal quarterly" | "Calendar annual" | "Fiscal annual" | "Role-based";
-  due: (through: string, cadence: ObligationDraft["cadence"]) => string | null;
+  due: (through: string, cadence: ObligationDraft["cadence"], annualStartMonth?: number) => string | null;
   from?: string;
 };
 const after = (days: number) => (through: string) => shiftReportDate(through, days);
@@ -146,10 +146,31 @@ const texasRenewal: FilingRule = {
   route: "NMLS company renewal", cadence: "Calendar annual", from: "2026-01-01", due: through => through,
   review: "Verify the applicable Texas SML renewal instructions, receipt and current license or registration status.",
 };
+function firstThreeFiscalQuarters(through: string, _: ObligationDraft["cadence"], annualStartMonth = 1) {
+  return Number(through.slice(5, 7)) === ((annualStartMonth + 10) % 12) + 1 ? null : shiftReportDate(through, 30);
+}
 const filings: Partial<Record<string, FilingRule>> = {
   "REQ-MI-LICENSING-FIRST-RENEW": michiganRenewal,
   "REQ-MI-LICENSING-SECOND-RENEW": michiganRenewal,
   "REQ-CA-REPORTING-DRE-MCR": quarter("NMLS Mortgage Call Report", "Confirm DRE company coverage and current NMLS quarterly instructions."),
+  "REQ-CA-LICENSING-DRE-RENEW": { route: "NMLS DRE company endorsement renewal", cadence: "Calendar annual",
+    from: "2026-01-01", due: through => through,
+    review: "Verify the actual endorsement expiration, including the November 1 issuance exception, underlying DRE license, designated broker attestation, MCR receipts and branch renewal sequence." },
+  "REQ-CA-REPORTING-DRE-TRUST-Q": { route: "California DRE RE 855 and RE 856", cadence: "Fiscal quarterly",
+    due: firstThreeFiscalQuarters,
+    review: "Use for the first three fiscal quarters when covered trust funds were received. Confirm threshold status, bank and reconciliation records, signers and any written extension." },
+  "REQ-CA-REPORTING-DRE-RE854": { route: "California DRE RE 854", cadence: "Fiscal quarterly", due: after(30),
+    review: "Confirm threshold status and documented absence of covered trust funds for the entire quarter. Check the declaration, fourth-quarter treatment and any written extension." },
+  "REQ-CA-REPORTING-DRE-TAR": { route: "California DRE annual Trust Account Review", cadence: "Fiscal annual",
+    due: through => {
+      const year = Number(through.slice(0, 4));
+      const month = Number(through.slice(5, 7));
+      return month >= 11 || month <= 2 ? `${year + (month >= 11 ? 1 : 0)}-05-31` : after(90)(through);
+    },
+    review: "Verify threshold or multi-lender scope, accountant evidence, an applicable notarized RE 854 for no trust funds and any written extension." },
+  "REQ-CA-REPORTING-DRE-MULTI-Q": { route: "California DRE RE 852", cadence: "Fiscal quarterly",
+    due: firstThreeFiscalQuarters,
+    review: "Verify multi-lender servicing scope and the accountant report. For the fourth quarter confirm whether the 30-day filing applies or an annual trust review is filed instead." },
   "REQ-CA-REPORTING-BAR": { route: "DRE Business Activity Reporting System", cadence: "Fiscal annual", due: after(90),
     review: "Confirm the fiscal year end, applicable reporting parts and any calendar adjustment with counsel." },
   "REQ-CA-REPORTING-CFLANNUAL": { route: "DFPI self-service portal", cadence: "Calendar annual",
@@ -227,7 +248,7 @@ export function obligationReportingBasis(sourceKey: string | undefined, cadence:
       rule.cadence === "Fiscal quarterly" ? cadence === "Fiscal quarterly" && annualStartMonth !== undefined : quarterly || calendar;
   return {
     route: rule.route,
-    nominalDueOn: matches && (!rule.from || period.from >= rule.from) ? rule.due(period.through, cadence) : null,
+    nominalDueOn: matches && (!rule.from || period.from >= rule.from) ? rule.due(period.through, cadence, annualStartMonth) : null,
     review: rule.review,
   };
 }
