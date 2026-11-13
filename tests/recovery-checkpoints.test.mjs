@@ -1560,3 +1560,51 @@ test("Illinois disposition requires the exact closed or terminated borrower file
  assert.deepEqual(historical.illinoisReview.counsel,counsel);
  assert.equal(audit.decisions.find(decision=>decision.id===legacy.id).illinoisReview,undefined);
 });
+
+test("New York examination records keep complaint and DFS files separate with scoped history", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ const {db,staff,capture}=ownerFixture(t);
+ initializeStore(db,false);
+ const tenant=staff.brokerage.id, entityId=crypto.randomUUID(), otherId=crypto.randomUUID(), now="2026-11-13T04:00:00Z";
+ const addEntity=db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,'000123','Fictional New York scope',?)");
+ addEntity.run(tenant,entityId,"Fictional New York broker",now);
+ addEntity.run(tenant,otherId,"Fictional separate broker",now);
+ const before=capture();
+ const work=(input,entity=entityId,actor=staff)=>loanRetentionWork(db,{type:"newYorkExamRecords",entityId:entity,input},actor,tenant,now);
+ const complaint={category:"Written consumer complaint",fileNumber:"NY-001",on:"2026-10-01",original:"Fictional written complaint reference",
+  status:"Open",actions:[],related:{status:"Unreviewed"}};
+ const letter={category:"DFS correspondence",direction:"From DFS",fileNumber:"NY-001",on:"2026-10-03",original:"Fictional DFS letter copy"};
+ const save=(facts,options={})=>({operation:"save",recordId:crypto.randomUUID(),requestId:crypto.randomUUID(),expected:0,facts,...options});
+ const event=(on,reference)=>({on,reference});
+ const initial=save(complaint);
+ assert.match(work(initial,entityId,{...staff,brokerage:{...staff.brokerage,role:"Processor"}}).error,/pilot owners/);
+ assert.equal(work(initial).versions[0].finding.gaps.length,5);
+ assert.equal(work(initial).versions.length,1);
+ assert.match(work(initial,otherId).error,/changed/);
+ assert.match(work(save({...complaint,fileNumber:"ny-001"})).error,/already contains/);
+ assert.equal(work(save(letter)).versions[0].facts.direction,"From DFS");
+ const list={operation:"list",category:complaint.category,search:"NY-001",offset:0};
+ assert.equal(work(list).records.length,1);
+ assert.equal(work(list,otherId).records.length,0);
+ assert.equal(work({...list,category:letter.category}).records.length,1);
+ assert.equal(work({operation:"history",recordId:initial.recordId},otherId).versions.length,0);
+ const correction={recordId:initial.recordId,expected:1,correction:"Fictional resolved complaint"};
+ assert.match(work(save(letter,correction)).error,/matching/);
+ assert.match(work(save({...complaint,on:"2026-11-13"},correction)).error,/already occurred/);
+ const done={...complaint,status:"Resolved",location:"Fictional segregated complaint archive",
+  actions:[event("2026-10-04","Fictional action and resolution")],
+  related:{status:"On file",reference:"Fictional related correspondence index"},
+  retrieval:event("2026-10-05","Fictional retrieval check"),retentionBasis:event("2026-10-04","Fictional counsel-reviewed start")};
+ const saved=work(save(done,correction));
+ assert.deepEqual(saved.versions[0].finding,{gaps:[],reviewOn:"2029-10-04"});
+ assert.equal(saved.versions[1].facts.status,"Open");
+ assert.match(work(save(done,correction)).error,/changed/);
+ const period={operation:"export",category:complaint.category,from:"2026-10-01",through:"2026-10-31"};
+ const archive=JSON.parse(work(period).json);
+ assert.deepEqual(archive.versions.map(row=>row.version),[2,1]);
+ assert.ok(archive.versions.every(row=>row.facts.category===complaint.category));
+ assert.equal(JSON.parse(work({...period,category:letter.category}).json).versions[0].facts.direction,"From DFS");
+ assert.ok(restoreBlockers(before,capture()).some(reason=>reason.includes("retention evidence changed")));
+});
