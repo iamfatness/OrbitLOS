@@ -193,15 +193,16 @@ test("monthly filing work follows current decisions for the exact state report p
  assert.equal(f.run(f.generate({period:target.period,expectedRevision:7})).occurrence.snapshot,generated);
 });
 
-test("California annual filing evidence preserves a receipt and an amendment for each authority", t => {
+test("California and Texas annual filing evidence preserves original receipts and amendments", t => {
  const f = fixture(t);
- const jurisdiction = "CA";
+ for (const jurisdiction of ["CA","TX"]) {
  const scope = complianceCaseWork(f.db,{type:"stateScope",input:{operation:"save",entityId:f.entityId,
   jurisdiction,expectedRevision:0,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",
    companyEvidence:"Fictional authority",officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",
    reportingBasis:"",counselPacketReference:""}}},f.staff,f.staff.brokerage.id,[f.actor],"2026-11-11T12:00:00Z");
  assert.equal(scope.revision,1);
- for (const sourceKey of ["REQ-CA-REPORTING-CFLANNUAL","REQ-CA-REPORTING-CRMLA-ANNUAL"]) {
+ }
+ for (const [jurisdiction,sourceKey] of [["CA","REQ-CA-REPORTING-CFLANNUAL"],["CA","REQ-CA-REPORTING-CRMLA-ANNUAL"],["TX","REQ-TX-REPORTING-OCCC-ANNUAL"]]) {
   const id = crypto.randomUUID(), period = "2025-01";
   const draft = {...f.draft,cadence:"Annual",applicability:"Required",reviewerEvidence:"Fictional applicability review"};
   assert.equal(f.run(f.save({id,draft,stateReference:{jurisdiction,revision:1,sourceKey}})).revision,1);

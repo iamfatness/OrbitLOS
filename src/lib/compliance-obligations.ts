@@ -13,7 +13,7 @@ import { coloradoRenewalReportingPeriods, reviewColoradoCompanyRenewal, type Col
 import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illinois-audit-evidence-model";
 
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
-import { californiaAnnualFilingComponent, filingEvidenceComponent, michiganFilingAmendments, nmlsFilingComponent, nmlsFilingDate, reviewNmlsFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
+import { statePortalAnnualFilingComponent, filingEvidenceComponent, michiganFilingAmendments, nmlsFilingComponent, nmlsFilingDate, reviewNmlsFiling, statePortalFilingZone, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
 
 type StateBasis = ObligationStateSource & { snapshot: string };
 type StoredDraft = ObligationDraft & { stateBasis?: StateBasis };
@@ -260,7 +260,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const reviewedScopeIsCurrent = (reviewed?: StateBasis) => Boolean(reviewed && reviewable &&
       reviewed.sourceKey === reviewable.sourceKey && reviewed.jurisdiction === reviewable.jurisdiction && currentStateBasis(reviewed));
     const nominalDueOn = originalScopeChanged ? null : snapshot.reportingBasis?.nominalDueOn ?? null;
-    const asOf = nmlsFilingDate(now, californiaAnnualFilingComponent(basis.sourceKey, snapshot.draft, snapshot.period.from) ? "America/Los_Angeles" : undefined);
+    const asOf = nmlsFilingDate(now, statePortalAnnualFilingComponent(basis.sourceKey, snapshot.draft, snapshot.period.from) ? statePortalFilingZone(basis.sourceKey) : undefined);
     if (data.operation === "michiganFilingHistory") {
       const before = data.before ?? null;
       const rows = db.prepare(`SELECT version,evidence,finding,actor,at,correction FROM michigan_filing_versions
@@ -608,7 +608,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const hmdaFiling = stateBasis?.jurisdiction === "US" && draft.applicability !== "Not applicable" &&
         Boolean(filingEvidenceComponent(stateBasis.sourceKey, draft, period.from));
       const statePortalFiling = draft.applicability !== "Not applicable" &&
-        Boolean(californiaAnnualFilingComponent(stateBasis?.sourceKey ?? "", draft, period.from));
+        Boolean(statePortalAnnualFilingComponent(stateBasis?.sourceKey ?? "", draft, period.from));
       const priorFilingBasis = Boolean((nmlsFiling || hmdaFiling || statePortalFiling) && stateBasis && !currentStateBasis(stateBasis));
       return { ...row, ...((cadenceConflict || priorFilingBasis) && { status: "Applicability review gap" }), priorFilingBasis,
         reportingBasis: cadenceConflict ? { ...reportingBasis, nominalDueOn: null, review: financialConditionCadenceReview } : reportingBasis,

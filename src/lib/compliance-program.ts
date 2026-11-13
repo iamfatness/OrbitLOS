@@ -12,7 +12,7 @@ import { financialConditionCadenceReview, financialConditionScopeMatches, savedF
 import { stateScopePageSize, type StateScopeSummary } from "./compliance-program-model";
 import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth, type ComplianceOwnerHomeData } from "./compliance-program-model";
 import { currentFilingProgress } from "./compliance-filing-progress";
-import { californiaAnnualFilingComponent, filingEvidenceComponent, nmlsFilingComponent } from "./michigan-filing-evidence-model";
+import { statePortalAnnualFilingComponent, filingEvidenceComponent, nmlsFilingComponent } from "./michigan-filing-evidence-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -240,7 +240,7 @@ function recordedFilingBasis(db: Store, tenant: string, entityId: string, row: {
   const decision = applicabilityReview?.decision ??
     (report && basisChanged && draft.applicability === "Not applicable" ? "Needs review" : draft.applicability);
   const statePortalFiling = decision !== "Not applicable" &&
-    Boolean(bounds && californiaAnnualFilingComponent(stateBasis?.sourceKey ?? "", draft, bounds.from));
+    Boolean(bounds && statePortalAnnualFilingComponent(stateBasis?.sourceKey ?? "", draft, bounds.from));
   const basisReview = "Verify the filing evidence against the current scope and source.";
   const reportingBasis = (cadenceConflict || basisChanged) && recordedReportingBasis
     ? { ...recordedReportingBasis, nominalDueOn: null, review: cadenceConflict ? financialConditionCadenceReview : basisReview }

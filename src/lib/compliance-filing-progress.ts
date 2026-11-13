@@ -5,7 +5,7 @@ import { reviewIllinoisAuditEvidence, type IllinoisAuditEvidence } from "./illin
 import { prepareNewYorkEmploymentWorkpaper, reviewNewYorkEmployment, type NewYorkEmploymentEvidence } from "./new-york-employment-model";
 import { isNewYorkVoorSource, reviewNewYorkVoor, type NewYorkVoorEvidence } from "./new-york-voor-model";
 import { reviewMichiganMloRenewal, type MichiganMloRenewalEvidence } from "./michigan-mlo-renewal-model";
-import { californiaAnnualFilingComponent, filingEvidenceComponent, reviewNmlsFiling, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
+import { statePortalAnnualFilingComponent, filingEvidenceComponent, reviewNmlsFiling, statePortalFilingZone, type MichiganFilingEvidence } from "./michigan-filing-evidence-model";
 import type { ObligationDraft, ObligationStateSource } from "./compliance-obligations-model";
 
 export type FilingProgress = { revision: string | null; summary: string; gaps: string[]; reviewedScopeRevision?: number; reviewedDueOn?: string;
@@ -24,14 +24,14 @@ export function currentFilingProgress(db: Store, target: FilingTarget, now: stri
   if (sourceKey === "REQ-MI-LICENSING-MLO-RENEW" && nominalDueOn)
     return michiganRenewalProgress(db, target, nominalDueOn, now);
   const component = filingEvidenceComponent(sourceKey, target.draft, bounds.from);
-  const statePortal = californiaAnnualFilingComponent(sourceKey, target.draft, bounds.from);
+  const statePortal = statePortalAnnualFilingComponent(sourceKey, target.draft, bounds.from);
   const table = component ? "michigan_filing_versions" :
     isNewYorkVoorSource(sourceKey) && bounds.from.endsWith("-01-01") && bounds.through.endsWith("-12-31")
     ? "new_york_voor_versions" : sourceKey === "REQ-NY-REPORTING-QRES" && nominalDueOn ? "new_york_employment_versions"
     : sourceKey === "REQ-CO-LICENSING-CO-RENEW" && nominalDueOn && bounds.from >= "2026-01-01" ? "colorado_company_renewal_versions"
     : sourceKey === "REQ-IL-REPORTING-ANNUAL-AUDIT" && nominalDueOn ? "illinois_audit_evidence_versions" : null;
   if (!table) return;
-  const timeZone = statePortal ? "America/Los_Angeles" : table === "colorado_company_renewal_versions" ? "America/Denver" :
+  const timeZone = statePortal ? statePortalFilingZone(sourceKey) : table === "colorado_company_renewal_versions" ? "America/Denver" :
     table === "illinois_audit_evidence_versions" ? "America/Chicago" : "America/New_York";
   const asOf = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
   const row = db.prepare(`SELECT version,evidence${component ? ",finding" : ""} FROM ${table}
