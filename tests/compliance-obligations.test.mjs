@@ -421,6 +421,31 @@ test("priority state reporting uses distinct periods and leaves unverified dates
  check("CO","MCR","Quarterly","2026-04","NMLS Mortgage Call Report","2026-08-14");
  check("CO","STD-FC","Annual","2025-07","NMLS Financial Condition",null,7);
  check("CO","QUARTER-FC","Quarterly","2026-04","NMLS Financial Condition",null);
+ const coloradoScope = (activity, expectedRevision) => complianceCaseWork(f.db, { type: "stateScope", input: {
+   operation: "save", entityId: f.entityId, jurisdiction: "CO", expectedRevision, requestId: crypto.randomUUID(),
+   facts: { activity, lienScope: "First lien", companyEvidence: "Fictional license", officeEvidence: "",
+     originatorEvidence: "", products: "", responsibility: "", reportingBasis: "", counselPacketReference: "" },
+ } }, f.staff, f.staff.brokerage.id, [f.actor], "2026-11-12T12:00:00Z");
+ const quarterlySource = "REQ-CO-REPORTING-QUARTER-FC";
+ const quarterlyDraft = { ...f.draft, cadence: "Quarterly", applicability: "Required", reviewerEvidence: "Fictional review" };
+ const quarterlyObligation = revision => {
+   const id = crypto.randomUUID();
+   assert.equal(f.run(f.save({ id, draft: quarterlyDraft,
+     stateReference: { jurisdiction: "CO", revision, sourceKey: quarterlySource } })).revision, 1);
+   return id;
+ };
+ const coloradoPeriod = (id, period) => JSON.parse(f.run(f.generate({ id, period })).occurrence.snapshot);
+ assert.equal(coloradoScope("Brokerage and lending", 1).revision, 2);
+ const lending = quarterlyObligation(2);
+ assert.equal(coloradoPeriod(lending, "2026-04").reportingBasis.nominalDueOn, "2026-08-14");
+ assert.equal(coloradoPeriod(lending, "2025-10").reportingBasis.nominalDueOn, null);
+ assert.equal(coloradoScope("Brokerage and servicing", 2).revision, 3);
+ const servicing = quarterlyObligation(3);
+ assert.equal(coloradoPeriod(servicing, "2026-07").reportingBasis.nominalDueOn, "2026-11-14");
+ assert.equal(coloradoScope("Multiple or unresolved", 3).revision, 4);
+ assert.equal(coloradoPeriod(quarterlyObligation(4), "2026-07").reportingBasis.nominalDueOn, null);
+ assert.equal(coloradoPeriod(servicing, "2026-10").reportingBasis.nominalDueOn, null);
+ assert.equal(coloradoPeriod(servicing, "2026-07").reportingBasis.nominalDueOn, "2026-11-14");
  check("IL","ACTIVITY","Quarterly","2026-01","NMLS Mortgage Call Report","2026-05-15");
  check("IL","ACTIVITY","Annual","2025-01","NMLS Mortgage Call Report",null);
  check("MI","FC","Annual","2025-01","NMLS Financial Condition","2026-03-31");
