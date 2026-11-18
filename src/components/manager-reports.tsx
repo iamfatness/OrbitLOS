@@ -198,9 +198,13 @@ export function ManagerReports({ data, campaigns, segments, now, busy, save, ope
           const minutes = response.reduce((sum, row) => sum + (Date.parse(row.firstContactAt!) - Date.parse(row.createdAt!)) / 60_000, 0);
           const cell = (kind: Metric, rate = false) => {
             const count = items.filter((row) => rows[kind].includes(row)).length;
-            return <Button variant="ghost" size="sm" onClick={() => { setMetric(kind); setGroup(key); }}>
+            const button = <Button variant="ghost" size="sm" onClick={() => { setMetric(kind); setGroup(key); }}>
               {count}{rate && ` · ${percent(count, items.length)}`}
             </Button>;
+            return rate ? <div className="report-rate">
+              {button}
+              <span className="metric-bar" aria-hidden="true"><span style={{ width: percent(count, items.length) }} /></span>
+            </div> : button;
           };
           return <tr key={key}><td>{first.officer || "Unassigned"}</td><td>{first.source}</td><td>{cell("leads")}</td>
             <td>{cell("responded", true)}</td><td>{response.length ? `${Math.round(minutes / response.length)} min` : "—"}</td>

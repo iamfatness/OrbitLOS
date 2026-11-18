@@ -276,6 +276,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   </> : error;
   const [notice, setNotice] = useState("");
   const [dropStage, setDropStage] = useState<Stage | null>(null);
+  const [theme, setTheme] = useState("light");
+  const [density, setDensity] = useState("comfortable");
   const [taskView, setTaskView] = useState<TaskView>("Open");
   const [taskOfficer, setTaskOfficer] = useState(processorTaskEntry ? "mine" : "");
   const [guideCallbackId, setGuideCallbackId] = useState<string>();
@@ -1438,7 +1440,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   }
 
   return (
-    <div className="shell">
+    <div className="shell" data-theme={theme} data-density={density}>
       <aside className="sidebar" onKeyDown={(event) => {
         if (event.key === "Escape" && mobileNavOpen) {
           event.preventDefault();
@@ -1493,6 +1495,14 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
         <header className="topbar">
           <span><span className="muted">Workspace</span><span className="slash">/</span><strong>{section}</strong></span>
           <div className="topbar-actions">
+            <div className="workspace-appearance">
+              <label>Theme <select aria-label="Theme" value={theme} onChange={(event) => setTheme(event.target.value)}>
+                <option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option>
+              </select></label>
+              <label>Density <select aria-label="Density" value={density} onChange={(event) => setDensity(event.target.value)}>
+                <option value="comfortable">Comfortable</option><option value="compact">Compact</option>
+              </select></label>
+            </div>
             {canOpenCalendar && <Button className="workspace-search-trigger" type="button" size="sm" variant="ghost" data-tooltip="Search workspace"
               aria-label="Search workspace" aria-current={section === "Search" ? "page" : undefined} disabled={!controlsReady}
               onClick={() => navigate("Search", false)}><Search aria-hidden="true" /><span>Search</span></Button>}
@@ -1593,7 +1603,11 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
               </div>}
               {pipeline.error && <p className="empty-inline no-matches" role="alert">{pipeline.error}</p>}
               {!pipeline.page && !pipeline.error && <p className="empty-inline no-matches" role="status">Loading pipeline…</p>}
-              {pipeline.page?.matches === 0 && <p className="empty-inline no-matches">No loans match this view.</p>}
+              {pipeline.page?.matches === 0 && <div className="pipeline-empty">
+                <OrbitIcon aria-hidden="true" size={25} />
+                <strong>No loans match this view</strong>
+                <p>Try changing your search or filters.</p>
+              </div>}
               {pipeline.page && (view === "Board" ? (
                 <div className="board" ref={board} tabIndex={0} aria-label="Loan stages">
                   {pipeline.page.lanes.map(({ stage, loans, count, volume, next }) => {
