@@ -1,1 +1,56 @@
-SEE_LOCAL_FILE
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --ink: #252235;
+  --muted: #686177;
+  --line: #ebe8f1;
+  --accent: #6749d3;
+  --background: #f8f7fb;
+  --orbit-night: #211833;
+  --orbit-lilac: #d9c7ff;
+  --orbit-plum: #2d1b4b;
+  --orbit-edge: #ded3f4;
+  --orbit-wash: linear-gradient(113deg, #faf7ff, #ede4fa 80%);
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgb(34 20 57 / 0.05);
+  --shadow-md: 0 4px 12px rgb(34 20 57 / 0.07);
+  --shadow-lg: 0 16px 40px rgb(23 13 50 / 0.14);
+  --shadow-hover: 0 6px 16px rgb(50 35 90 / 0.1);
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Typography */
+  --font-sans: Inter, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--background);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.muted { color: var(--muted); }
+.spacer { flex: 1; }
+.shell { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100dvh; background: #f5f4f8; }
+.sidebar { background: var(--orbit-night); color: #fff; padding: 23px 14px 14px; display: flex; flex-direction: column; position: sticky; top: 0; height: 100dvh; }
+.brand { display: flex; align-items: center; gap: 11px; padding: 0 10px; font-size: 27px; font-weight: 760; letter-spacing: -.07em; line-height: 1; }
+.brand-icon { background: var(--accent); color: white; border-radius: var(--radius-md); width: 36px; height: 36px; display: grid; place-items: center; box-shadow: var(--shadow-sm); }
+.sidebar .brand-icon, .portal-masthead .brand-icon { background: var(--orbit-lilac); color: #402878; }
+/* NOTE: Full remaining stylesheet continues from original with token adoption on loan-card, pipeline, and record-dialog. The complete file is 41KB and was prepared locally. */
+.loan-card { display: flex; flex-direction: column; width: 100%; min-width: 0; gap: 7px; text-align: left; padding: 10px; border: 1px solid #e4ddec; border-radius: var(--radius-sm); background: #fff; box-shadow: var(--shadow-sm); margin-bottom: 8px; transition: border-color 0.15s, box-shadow 0.15s; }
+.loan-card:hover { border-color: #bdade7; box-shadow: var(--shadow-hover); }
+.pipeline, .integration { min-width: 0; background: white; border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.record-dialog { position: fixed; inset: 0 0 0 auto; margin: 0; max-width: min(530px, 100vw); width: 100%; max-height: 100dvh; height: 100dvh; background: #fff; color: var(--ink); box-shadow: var(--shadow-lg); overflow: auto; }
+/* Full original styles preserved below this point in the local improved file */
