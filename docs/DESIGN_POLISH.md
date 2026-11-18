@@ -82,3 +82,8 @@ Started advanced polish:
 - Subtle infinite rotation on `.orbit-rings` (respects reduced-motion preference)
 
 These are opt-in / progressive. Next steps: wire a density toggle in the UI, add actual bar/trend usage in reports, and refine dark-mode contrast.
+
+## Phase 3 continued
+- Density toggle wired in topbar (comfortable / compact)
+- Theme toggle wired (light / dark / system)
+- data-theme="dark" overrides added alongside prefers-color-scheme

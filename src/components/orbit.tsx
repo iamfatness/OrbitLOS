@@ -113,6 +113,8 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [dropStage, setDropStage] = useState<Stage | null>(null);
+  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
+  const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
   const [taskView, setTaskView] = useState<TaskView>("Open");
   const [taskOfficer, setTaskOfficer] = useState("");
   const [focusLeadId, setFocusLeadId] = useState<string>();
@@ -344,7 +346,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
   }
 
   return (
-    <div className="shell">
+    <div className="shell" data-density={density} data-theme={theme}>
       <aside className="sidebar" onKeyDown={(event) => {
         if (event.key === "Escape" && mobileNavOpen) {
           event.preventDefault();
@@ -380,6 +382,12 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
         <header className="topbar">
           <span><span className="muted">Workspace</span><span className="slash">/</span><strong>{section}</strong></span>
           <div className="topbar-actions">
+            <button className="connection-chip" onClick={() => setDensity(d => d === "comfortable" ? "compact" : "comfortable")} title="Toggle density">
+              {density === "compact" ? "Comfortable" : "Compact"}
+            </button>
+            <button className="connection-chip" onClick={() => setTheme(t => t === "light" ? "dark" : t === "dark" ? "system" : "light")} title="Toggle theme">
+              {theme === "dark" ? "Light" : theme === "light" ? "System" : "Dark"}
+            </button>
             <button className="connection-chip" onClick={() => navigate("Integrations")}><span /> UWM mock</button>
             {staff && <form method="post" action="/auth/logout"><Button type="submit" size="sm" variant="ghost"><LogOut /> Sign out</Button></form>}
           </div>

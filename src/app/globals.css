@@ -644,3 +644,23 @@ button:disabled {
     transform-origin: center;
   }
 }
+
+/* Manual theme override */
+[data-theme="dark"] {
+  --ink: #e8e4f0;
+  --muted: #a89bb8;
+  --line: #3a3150;
+  --background: #161220;
+  --orbit-night: #0e0b16;
+  --orbit-edge: #4a3d6a;
+  --orbit-wash: linear-gradient(113deg, #1e1830, #2a2140 80%);
+}
+[data-theme="dark"] body,
+[data-theme="dark"] .shell { background: var(--background); color: var(--ink); }
+[data-theme="dark"] .sidebar { background: var(--orbit-night); }
+[data-theme="dark"] .topbar,
+[data-theme="dark"] .pipeline,
+[data-theme="dark"] .integration,
+[data-theme="dark"] .record-dialog { background: #1c1728; border-color: var(--line); }
+[data-theme="dark"] .loan-card { background: #221c32; border-color: #3d3458; }
+[data-theme="dark"] .data-table th { background: #1f1a2c; }
