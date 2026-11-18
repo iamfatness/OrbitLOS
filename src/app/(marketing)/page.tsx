@@ -74,7 +74,11 @@ function PipelinePreview() {
             </div>
           </div>
           <div className="marketing-preview-next"><div><small>Next action</small><strong>Request a pay stub</strong></div><ArrowRight size={16} aria-hidden="true" /></div>
-          <p className="marketing-preview-conditions"><span /> 2 UWM conditions open · Mock</p>
+          <p className="marketing-preview-conditions"><span /> 2 open conditions · Sample</p>
+          <div className="marketing-preview-meta" style={{marginTop:8,fontSize:12,color:"#635175",display:"flex",justifyContent:"space-between"}}>
+            <span>Assigned · Alex Morgan</span>
+            <span>3d in stage</span>
+          </div>
         </div>
       </div>
     </figure>
