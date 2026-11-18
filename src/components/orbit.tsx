@@ -409,9 +409,24 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
               </div>
             </div>
             <dl className="metrics">
-              <div><dt>Active loans</dt><dd>{active.length}</dd><dd className="metric-context">{state.loans.length} total in pipeline</dd></div>
-              <div><dt>Active loan volume</dt><dd>{compactMoney(active.reduce((total, loan) => total + loan.amount, 0))}</dd><dd className="metric-context">Across active stages</dd></div>
-              <div><dt>Open UWM conditions</dt><dd data-outstanding={openConditions > 0}>{openConditions}</dd><dd className="metric-context">{state.uwmSyncedAt ? "Across synced loan files" : "Available after the first sync"}</dd></div>
+              <div>
+                <dt>Active loans</dt>
+                <dd>{active.length}</dd>
+                <dd className="metric-context">{state.loans.length} total in pipeline</dd>
+                <div className="metric-bar" aria-hidden="true"><span style={{width: `${Math.min(100, (active.length / Math.max(1, state.loans.length)) * 100)}%`}} /></div>
+              </div>
+              <div>
+                <dt>Active loan volume</dt>
+                <dd>{compactMoney(active.reduce((total, loan) => total + loan.amount, 0))}</dd>
+                <dd className="metric-context">Across active stages</dd>
+                <span className="metric-trend up">↑ in orbit</span>
+              </div>
+              <div>
+                <dt>Open UWM conditions</dt>
+                <dd data-outstanding={openConditions > 0}>{openConditions}</dd>
+                <dd className="metric-context">{state.uwmSyncedAt ? "Across synced loan files" : "Available after the first sync"}</dd>
+                {openConditions > 0 && <span className="metric-trend down">needs attention</span>}
+              </div>
             </dl>
           </section> : <div className="page-heading">
             <div><p className="eyebrow">ORBIT WORKSPACE{staff && ` · ${staff.brokerage.role.toUpperCase()}`}</p>
