@@ -87,3 +87,8 @@ These are opt-in / progressive. Next steps: wire a density toggle in the UI, add
 - Density toggle wired in topbar (comfortable / compact)
 - Theme toggle wired (light / dark / system)
 - data-theme="dark" overrides added alongside prefers-color-scheme
+
+## Phase 3 continued (toggles + viz)
+- Density and theme toggles live in the topbar
+- Pipeline metrics now show a progress bar and trend indicators
+- Manual dark theme works via data-theme
