@@ -64,3 +64,12 @@
 - Prefer CSS custom properties and existing class structure over large rewrites
 - Keep Lucide icons
 - Test both marketing site and workspace (local SQLite + demo)
+
+## Phase 2 Progress (2026-11-18)
+- Enhanced empty states with dashed orbit-edge treatment, better spacing, and hierarchy
+- Refined banner/error surfaces to use shared radii and subtle elevation
+- Added light hover lift on loan cards and smoother transitions on interactive elements
+- Busy/disabled states now have clearer visual feedback
+- Marketing styles already aligned from Phase 1; product preview uses shared tokens
+
+Next for full Phase 2 close: higher-fidelity annotated screenshots on marketing pages and richer empty-state illustrations in the workspace.

@@ -514,3 +514,62 @@ button:disabled { cursor: default; }
   .playbook-settings > .form-grid { grid-template-columns: minmax(0, 1fr); }
   .playbook-exceptions button, .playbook-exceptions select, .playbook-settings button { min-height: 44px; }
 }
+
+/* Phase 2: polished empty states and micro-interactions */
+.lane-empty,
+.empty-state {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 28px 12px;
+  border: 1px dashed var(--orbit-edge);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--orbit-wash) 40%, white);
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+.empty-state svg,
+.lane-empty svg {
+  opacity: 0.55;
+  color: var(--accent);
+}
+.empty-state strong {
+  color: var(--orbit-plum);
+  font-weight: 650;
+  font-size: 14px;
+}
+.empty-state p {
+  max-width: 28ch;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Refined banners / feedback */
+.banner {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+.banner-error, .dialog-error {
+  border-radius: var(--radius-sm);
+}
+
+/* Micro-interactions */
+.loan-card,
+.marketing-button,
+.nav-item {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.loan-card:hover {
+  transform: translateY(-1px);
+}
+.nav-item:hover {
+  transform: none;
+}
+
+/* Busy / loading feel */
+.busy,
+button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
