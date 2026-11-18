@@ -573,3 +573,74 @@ button:disabled {
   opacity: 0.7;
   cursor: wait;
 }
+
+/* ========== Phase 3: density, visualization, dark-mode tokens, motion ========== */
+
+/* Density modes (apply via data-density="compact" on .shell or body) */
+[data-density="compact"] .content { padding: 18px 22px 24px; }
+[data-density="compact"] .loan-card { padding: 7px; gap: 5px; margin-bottom: 6px; }
+[data-density="compact"] .pipeline-heading { padding: 12px 14px 8px; }
+[data-density="compact"] .lane { padding: 7px; min-height: 260px; }
+[data-density="compact"] .page-heading { margin-bottom: 14px; }
+[data-density="compact"] .metrics dd { font-size: 26px; }
+
+/* Light visualization helpers for metrics / reports */
+.metric-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+  margin-top: 6px;
+}
+.metric-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+.metric-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.metric-trend.up { color: #468142; }
+.metric-trend.down { color: #c76383; }
+
+/* Dark mode token foundation (opt-in via prefers-color-scheme or data-theme) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e4f0;
+    --muted: #a89bb8;
+    --line: #3a3150;
+    --background: #161220;
+    --orbit-night: #0e0b16;
+    --orbit-edge: #4a3d6a;
+    --orbit-wash: linear-gradient(113deg, #1e1830, #2a2140 80%);
+  }
+  body { background: var(--background); color: var(--ink); }
+  .sidebar { background: var(--orbit-night); }
+  .topbar, .pipeline, .integration, .record-dialog { background: #1c1728; border-color: var(--line); }
+  .loan-card { background: #221c32; border-color: #3d3458; }
+  .data-table th { background: #1f1a2c; }
+}
+
+/* Animated orbit rings (subtle, respect prefers-reduced-motion) */
+@keyframes orbit-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.orbit-rings {
+  transform-origin: 70% 40%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .orbit-rings {
+    animation: orbit-spin 90s linear infinite;
+  }
+  .orbit-rings ellipse {
+    animation: orbit-spin 120s linear infinite reverse;
+    transform-origin: center;
+  }
+}

@@ -73,3 +73,12 @@
 - Marketing styles already aligned from Phase 1; product preview uses shared tokens
 
 Next for full Phase 2 close: higher-fidelity annotated screenshots on marketing pages and richer empty-state illustrations in the workspace.
+
+## Phase 3 Progress (2026-11-18)
+Started advanced polish:
+- Density mode foundation (`[data-density="compact"]`) for tighter spacing on pipeline and cards
+- Light visualization helpers (`.metric-bar`, `.metric-trend`) for reports and metrics
+- Dark-mode token groundwork via `prefers-color-scheme` (surfaces, text, cards, tables)
+- Subtle infinite rotation on `.orbit-rings` (respects reduced-motion preference)
+
+These are opt-in / progressive. Next steps: wire a density toggle in the UI, add actual bar/trend usage in reports, and refine dark-mode contrast.
