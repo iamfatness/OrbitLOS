@@ -92,3 +92,11 @@ These are opt-in / progressive. Next steps: wire a density toggle in the UI, add
 - Density and theme toggles live in the topbar
 - Pipeline metrics now show a progress bar and trend indicators
 - Manual dark theme works via data-theme
+
+## Phase 3 full polish (local iteration)
+- Dark mode refined: higher contrast, better surface hierarchy, form and focus states
+- Density mode tightened across content, cards, lanes, forms, and topbar
+- Empty states now include orbit-motif illustration and clearer next-action copy
+- Form focus rings and error styling added
+- Brand icon hover scale + optional pulse animation
+- Reports remain ready for metric-bar helpers (pipeline metrics already use them)

@@ -472,7 +472,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
                 <select aria-label="Filter by work status" value={filters.work} onChange={(event) => setFilters({ ...filters, work: event.target.value as WorkFilter | "" })}><option value="">Any work status</option>{workFilters.map((item) => <option key={item}>{item}</option>)}</select>
                 <Button variant="ghost" size="sm" onClick={() => setFilters(emptyFilters)}>Clear filters</Button>
               </div>}
-              {visibleLoans.length === 0 && <p className="empty-inline no-matches">No loans match this view.</p>}
+              {visibleLoans.length === 0 && <p className="empty-inline no-matches empty-state"><strong>No loans match</strong>Try clearing filters or search.</p>}
               {view === "Board" ? (
                 <div className="board" ref={board} tabIndex={0} aria-label="Loan stages">
                   {stages.filter((stage) => !filters.stage || filters.stage === stage).map((stage) => {
@@ -487,7 +487,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
                         onOpen={() => show({ kind: "details", loanId: loan.id })}
                         onDrag={(event) => { if (busy || processor) { event.preventDefault(); return; } dragged.current = loan.id; event.dataTransfer.setData("text/plain", loan.id); event.dataTransfer.effectAllowed = "move"; }}
                         onDragEnd={() => { dragged.current = null; setDropStage(null); }} />)}
-                      {items.length === 0 && <p className="lane-empty">No loans in this stage</p>}
+                      {items.length === 0 && <p className="lane-empty"><strong>Nothing in this stage yet</strong>Drag a loan here or create a new lead.</p>}
                     </section>;
                   })}
                 </div>

@@ -664,3 +664,93 @@ button:disabled {
 [data-theme="dark"] .record-dialog { background: #1c1728; border-color: var(--line); }
 [data-theme="dark"] .loan-card { background: #221c32; border-color: #3d3458; }
 [data-theme="dark"] .data-table th { background: #1f1a2c; }
+
+/* ========== Phase 3 polish: dark, density, forms, empty, brand ========== */
+
+/* Refined dark mode — better contrast and hierarchy */
+[data-theme="dark"],
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f0ebf8;
+    --muted: #b8a8d0;
+    --line: #4a3d68;
+    --background: #120e1c;
+    --orbit-night: #0a0712;
+    --orbit-edge: #5c4d7a;
+    --orbit-wash: linear-gradient(113deg, #1a1528, #241c38 80%);
+  }
+  body, .shell { background: var(--background); color: var(--ink); }
+  .sidebar { background: var(--orbit-night); border-right: 1px solid #2a2140; }
+  .topbar, .pipeline, .integration, .record-dialog, .marketing-preview-window {
+    background: #1a1528;
+    border-color: var(--line);
+    color: var(--ink);
+  }
+  .loan-card { background: #221a32; border-color: #4a3d68; }
+  .loan-card:hover { border-color: #7a68a8; box-shadow: 0 6px 16px rgb(0 0 0 / 0.3); }
+  .data-table th { background: #1e1830; color: var(--muted); }
+  .data-table td { border-color: #3a3150; }
+  .nav-item.selected { background: #3a2d58; color: #f0ebf8; }
+  .field input, .field select, .note-form textarea, .document-form select, .document-form textarea,
+  .search input, .filter-row select {
+    background: #1e1830;
+    border-color: #4a3d68;
+    color: var(--ink);
+  }
+  .banner { background: #2a2140; border-color: #5c4d7a; color: #d9c7ff; }
+  .banner-error, .dialog-error { background: #3a1a24; border-color: #6a3040; color: #f0c0c8; }
+  :focus-visible { outline-color: #a78bfa; }
+}
+
+/* Density polish — tighter but readable */
+[data-density="compact"] .content { padding: 14px 18px 20px; }
+[data-density="compact"] .loan-card { padding: 6px 8px; gap: 4px; margin-bottom: 5px; font-size: 13px; }
+[data-density="compact"] .pipeline-heading { padding: 10px 12px 6px; }
+[data-density="compact"] .lane { padding: 6px; min-height: 220px; gap: 4px; }
+[data-density="compact"] .page-heading { margin-bottom: 10px; }
+[data-density="compact"] .metrics dd { font-size: 22px; }
+[data-density="compact"] .field input, [data-density="compact"] .field select { min-height: 32px; padding: 4px 7px; }
+[data-density="compact"] .topbar { min-height: 48px; padding: 0 14px; }
+[data-density="compact"] .sidebar { padding: 16px 10px; }
+
+/* Form / dialog polish */
+.field input:focus, .field select:focus, .note-form textarea:focus,
+.document-form select:focus, .document-form textarea:focus, .search input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: none;
+}
+.field.error input, .field.error select, .field.error textarea {
+  border-color: #c76383;
+}
+.field .hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.field .error-text { font-size: 11px; color: #c76383; margin-top: 2px; }
+
+/* Empty state illustrations */
+.empty-state, .lane-empty {
+  position: relative;
+  padding: 32px 16px 28px;
+}
+.empty-state::before, .lane-empty::before {
+  content: "";
+  display: block;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%, var(--orbit-lilac), var(--accent));
+  opacity: 0.7;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='black' stroke-width='1.5' d='M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4a6 6 0 1 1 0 12 6 6 0 0 1 0-12z'/%3E%3C/svg%3E") center / 28px no-repeat;
+}
+.empty-state strong, .lane-empty strong { display: block; margin-bottom: 4px; color: var(--orbit-plum); }
+
+/* Brand mark refinement */
+.brand-icon {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.brand-icon:hover { transform: scale(1.06); box-shadow: 0 4px 12px rgb(103 73 211 / 0.25); }
+@keyframes brand-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(103 73 211 / 0.3); }
+  50% { box-shadow: 0 0 0 6px rgb(103 73 211 / 0); }
+}
+.brand-icon.pulse { animation: brand-pulse 2.5s ease-in-out infinite; }
