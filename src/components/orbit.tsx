@@ -511,7 +511,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
             {visibleContacts.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Contact type</th><th>Email</th><th>Phone</th></tr></thead><tbody>
               {visibleContacts.map((contact) => <tr key={contact.id}><td><button className="name-link" onClick={() => show({ kind: "contactHistory", contactId: contact.id })}>{contact.name}</button>
                 {admin && <small><button className="name-link" onClick={() => show({ kind: "contact", contactId: contact.id })}>Edit contact</button></small>}</td><td>{contact.role}</td><td>{contact.email || "—"}</td><td>{contact.phone || "—"}</td></tr>)}
-            </tbody></table></div> : <p className="empty-inline no-matches">No contacts match your search.</p>}
+            </tbody></table></div> : <p className="empty-inline no-matches empty-state"><strong>No contacts found</strong>Try a different search or add a new contact.</p>}
           </section>}
 
           {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
