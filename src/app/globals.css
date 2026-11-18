@@ -1369,7 +1369,7 @@ button:disabled { cursor: default; }
 }
 .metric-bar > span { display: block; height: 100%; background: light-dark(var(--accent), #ba9aff); }
 .report-rate { display: grid; justify-items: stretch; min-width: 80px; }
-.pipeline-empty {
+.workspace-empty {
   display: grid;
   justify-items: center;
   gap: 6px;
@@ -1380,8 +1380,8 @@ button:disabled { cursor: default; }
   color: var(--muted);
   text-align: center;
 }
-.pipeline-empty svg { color: light-dark(var(--accent), #ba9aff); }
-.pipeline-empty strong { color: var(--ink); }
+.workspace-empty svg { color: light-dark(var(--accent), #ba9aff); }
+.workspace-empty strong { color: var(--ink); }
 @media (prefers-reduced-motion: no-preference) {
   .marketing-hero .orbit-rings { animation: orbit-drift 18s ease-in-out infinite alternate; }
   .loan-card { transition: transform 150ms ease, box-shadow 150ms ease; }
@@ -1391,3 +1391,18 @@ button:disabled { cursor: default; }
   from { transform: rotate(-2deg); }
   to { transform: rotate(2deg); }
 }
+
+.report-funding { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; }
+.report-funding > div { padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.report-funding dt { color: var(--muted); }
+.report-funding dd { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+[data-density="compact"] .data-table :is(th, td) { padding-block: 7px; }
+[data-density="compact"] :is(.integration, .details-section) { padding-block: 12px; }
+[data-density="compact"] .record-dialog .record-form { gap: 9px; }
+.shell :is(.connection-chip, .pill) { background: light-dark(#f1ebfd, #34274e); }
+.shell .connection-chip:not(:disabled):hover { background: light-dark(#e9defd, #46365d); }
+.shell [data-tooltip]::after {
+  background: light-dark(var(--orbit-night), #e8ddf9);
+  color: light-dark(white, #241733);
+}
+.shell .search { border-color: var(--control-line); }

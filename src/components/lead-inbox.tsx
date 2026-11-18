@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkspaceEmptyState } from "./workspace-empty-state";
 import { useEffect, useRef, useState } from "react";
 import { readArchivePage, readInboxWork } from "@/app/actions";
 import { LeadLicenseStateReview } from "./license-state-review";
@@ -546,7 +547,9 @@ export function LeadInbox({ version, staff, now, busy, initialView, focusLeadId,
               type: "assignInboxLead", leadId: lead.id, email: staff.email, previousEmail: null,
             }, () => selectLead(lead.id))}>Claim lead</Button> :
             <Button size="sm" variant="outline" disabled={busy || reading} onClick={() => selectLead(lead.id)}>Work lead</Button>}
-        </li>)}</ul> : page && !reading && <p className="empty-inline">No leads in this view.</p>}
+        </li>)}</ul> : page && !reading && <WorkspaceEmptyState title="No leads in this view">
+          Try a different view or clear the search to see more leads.
+        </WorkspaceEmptyState>}
       {page?.next && <div><Button size="sm" variant="outline" disabled={loadingMore || busy || reading} onClick={() => void loadMore()}>
         {loadingMore ? "Loading…" : `Load more leads · ${visible.length} shown`}
       </Button></div>}

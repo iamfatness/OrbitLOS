@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkspaceEmptyState } from "./workspace-empty-state";
 import { workspaceFeatures } from "@/lib/brokerage-model";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -937,7 +938,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         <ActivityPages key={loan.id} record="loan" id={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={state}
           render={(notes) => notes.length ? notes.map((note) => <div className="note" key={note.id}><div className="activity-meta">
             <span className="pill">{note.kind}{note.outcome && ` · ${note.outcome}`}</span><small>{dateTime(note.createdAt)} ET</small></div><p>{note.text}</p></div>)
-            : <p className="empty-inline">No activity recorded on this loan.</p>} />
+            : <WorkspaceEmptyState title="No loan activity yet">
+              Notes and recorded updates will appear here.
+            </WorkspaceEmptyState>} />
       </section>
       </>}
     </div>

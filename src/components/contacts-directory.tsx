@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkspaceEmptyState } from "./workspace-empty-state";
 import { useEffect, useState, type ReactNode } from "react";
 import { Search } from "lucide-react";
 import { readContactsWork } from "@/app/actions";
@@ -74,7 +75,8 @@ export function ContactsDirectory({ brokerageId, version, admin, busy, openConta
           {loadingMore ? "Loading contacts…" : "Load more contacts"}
         </Button>}
       </div>
-    </> : <p className="empty-inline no-matches">{search ? "No contacts match your search." :
-      admin ? "No contacts yet. Add a contact or import a CSV to get started." : "No contacts are available in your workspace yet."}</p>)}
+    </> : <WorkspaceEmptyState title={search ? "No contacts match your search" : "No contacts yet"}>
+      {search ? "Try a different search." : admin ? "Add a contact or import a CSV to get started." : undefined}
+    </WorkspaceEmptyState>)}
   </section>;
 }

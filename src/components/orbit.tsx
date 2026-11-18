@@ -1,4 +1,5 @@
 "use client";
+import { WorkspaceEmptyState } from "./workspace-empty-state";
 import { UwmAccount } from "./uwm-account";
 import { UwmReceipts } from "./uwm-receipts";
 import { AutomationDeliveries } from "./automation-deliveries";
@@ -1603,11 +1604,9 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
               </div>}
               {pipeline.error && <p className="empty-inline no-matches" role="alert">{pipeline.error}</p>}
               {!pipeline.page && !pipeline.error && <p className="empty-inline no-matches" role="status">Loading pipeline…</p>}
-              {pipeline.page?.matches === 0 && <div className="pipeline-empty">
-                <OrbitIcon aria-hidden="true" size={25} />
-                <strong>No loans match this view</strong>
-                <p>Try changing your search or filters.</p>
-              </div>}
+              {pipeline.page?.matches === 0 && <WorkspaceEmptyState title="No loans match this view">
+                Try changing your search or filters.
+              </WorkspaceEmptyState>}
               {pipeline.page && (view === "Board" ? (
                 <div className="board" ref={board} tabIndex={0} aria-label="Loan stages">
                   {pipeline.page.lanes.map(({ stage, loans, count, volume, next }) => {
@@ -1870,9 +1869,9 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
                     (task.completedAt && isApplicationReviewTask(task.id)) ? undefined :
                     () => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
-            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length || importedLeadTasks.length || visibleProcessing.length || visiblePlaybook.length || visibleContactFollowUps.length || (taskView !== "Completed" && focusedLoans.length)
-              ? "No other loan tasks match this view." : state.tasks.length || contactFollowUps.length ? "No tasks match this view."
-              : "Add a follow-up from a contact or loan, or submit a 1003 to create a review task."}</p>}
+            </ul> : <WorkspaceEmptyState title="No matching follow-up tasks">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length || importedLeadTasks.length || visibleProcessing.length || visiblePlaybook.length || visibleContactFollowUps.length || (taskView !== "Completed" && focusedLoans.length)
+              ? "Other work for this view appears above." : state.tasks.length || contactFollowUps.length ? "Try a different task status or owner."
+              : "Add a follow-up from a contact or loan, or submit a 1003 to create a review task."}</WorkspaceEmptyState>}
           </section>}
 
           {section === "Communications" && <div className="record-form">

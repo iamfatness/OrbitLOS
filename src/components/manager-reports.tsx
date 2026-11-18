@@ -124,6 +124,11 @@ export function ManagerReports({ data, campaigns, segments, now, busy, save, ope
   if (filters.owner && !availableOwners.has(filters.owner)) availableOwners.set(filters.owner, "Saved officer");
   const valid = reportFilters.safeParse(filters);
   const rows = reportRows(data.records, filters, now);
+  const funding = [
+    { key: "projected", label: "Projected funding", amount: totalAmount(rows.projected) },
+    { key: "funded", label: "Actual funding", amount: totalAmount(rows.funded) },
+  ] as const;
+  const fundingScale = Math.max(1, ...funding.map(({ amount }) => amount));
   const drill = rows[metric].filter((row) => !group || group === JSON.stringify([reportOwner(row), row.source]));
   const conversionGroups = new Map<string, typeof rows.leads>();
   for (const row of rows.leads) {
@@ -184,6 +189,14 @@ export function ManagerReports({ data, campaigns, segments, now, busy, save, ope
       <p className="muted">Lead response and conversion use the lead creation date and current owner. Projected funding uses the target closing date on active unfunded loans. Actual funding uses the recorded funding date.</p>
     </details>
     {valid.success && <>
+      <dl className="report-funding" aria-label="Funding volume for the selected period">
+        {funding.map(({ key, label, amount }) => <div key={key}>
+          <dt>{label}</dt>
+          <dd>{money(amount)}
+            <span className="metric-bar" aria-hidden="true"><span style={{ width: `${amount / fundingScale * 100}%` }} /></span>
+          </dd>
+        </div>)}
+      </dl>
       <div className="loan-application-actions">
         {metrics.map(([key, label]) => <Button key={key} variant={metric === key && !group ? "default" : "outline"} size="sm"
           onClick={() => { setMetric(key); setGroup(""); }}>
