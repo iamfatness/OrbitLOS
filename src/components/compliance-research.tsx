@@ -7,6 +7,8 @@ import { researchKinds, researchSources, stateRequirementSources, stateRolloutSo
 import type { complianceResearchWork } from "@/lib/compliance-research";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { downloadSampleFile } from "./sample-download";
+import { stateReportingBrief } from "@/lib/state-reporting-brief";
 import type { TexasCustodyNoticeFacts } from "@/lib/texas-custody-notice-model";
 import { ComplianceStateScope } from "./compliance-state-scope";
 
@@ -287,6 +289,14 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
             ? `${visibleRequirements} of ${requirementsByState.get(rolloutState) ?? 0} researched requirements match`
             : `${requirementsByState.get(rolloutState) ?? 0} researched requirements`}</p>
           {trackedState && <p>{trackedState.tracked} of {trackedState.total} review areas tracked by this brokerage</p>}
+        </div>
+        <div className="document-item">
+          <div><strong>Draft a reporting matrix</strong>
+            <p className="muted">Download the research and a prompt for ChatGPT or Claude. The brief contains source material and blank scope fields.</p></div>
+          <Button size="sm" variant="outline" onClick={() => {
+            const brief = stateReportingBrief(rolloutState);
+            if (brief) downloadSampleFile(brief.markdown, brief.filename, "text/markdown;charset=utf-8");
+          }}>Download AI research brief</Button>
         </div>
         {rollout && <>
           <ComplianceStateScope key={`${brokerageId}:${rolloutState}`} brokerageId={brokerageId} jurisdiction={rolloutState}

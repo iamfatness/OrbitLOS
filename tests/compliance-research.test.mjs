@@ -633,3 +633,19 @@ test("Florida amendments preserve distinct clocks and versioned evidence through
   assert.equal(lenderFinding.timingStatus, "Filed by nominal date");
   assert.ok(work(save({ kind: "Bankruptcy" }, { effective: instituted, filed: { ...filed, on: "2026-09-03" } })).error);
 });
+
+test("reporting brief includes sources for just the selected state's reporting requirements", async () => {
+  const { stateReportingBrief } = await import("../src/lib/state-reporting-brief.ts");
+  const brief = stateReportingBrief("MI");
+  assert.equal(brief.filename, "orbit-mi-reporting-research.md");
+  assert.match(brief.markdown, /Michigan mortgage reporting research brief/);
+  assert.match(brief.markdown, /ChatGPT or Claude/);
+  assert.match(brief.markdown, /mark the relevant fields as unknown/);
+  for (const { source } of stateRequirementSources.filter(entry => entry.areaKey === "STATE-MI-REPORTING")) {
+    assert.ok(brief.markdown.includes(source.key));
+    assert.ok(brief.markdown.includes(source.sourceUrl));
+  }
+  assert.doesNotMatch(brief.markdown, /REQ-CA-|REQ-MI-LOAN-/);
+  assert.equal(stateReportingBrief("US"), undefined);
+  assert.equal(stateReportingBrief("ZZ"), undefined);
+});
