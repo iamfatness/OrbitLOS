@@ -158,20 +158,19 @@ const brokerageQueueSections: Record<BrokerageQueue, Section> = { exceptions: "E
 const stageColors = ["lavender", "blue", "peach", "gold", "rose", "mint", "green", "slate"];
 const taskOwner = (item: Pick<Loan, "officer" | "officerEmail">) => item.officerEmail ? `account:${item.officerEmail}` : `name:${item.officer}`;
 
-function LoanCard({ loan, onOpen, onDrag, onDragEnd }: {
-  loan: PipelineLoan; onOpen: () => void;
+function LoanCard({ loan, onOpen, onAction, onDrag, onDragEnd }: {
+  loan: PipelineLoan; onOpen: () => void; onAction: () => void;
   onDrag: (event: DragEvent<HTMLButtonElement>) => void; onDragEnd: () => void;
 }) {
   const { name, lenders, openConditions: count, action } = loan;
   const previewId = useId();
   const [previewOpen, setPreviewOpen] = useState(false);
   return <div className="pipeline-loan-card">
-    <button className="loan-card" data-loan-record={loan.id} aria-describedby={previewId} onClick={onOpen} draggable={!pausedLoan(loan)} onDragStart={onDrag} onDragEnd={onDragEnd}>
+    <button className="loan-card" data-loan-record={loan.id} aria-describedby={`${previewId}-title`} onClick={onOpen} draggable={!pausedLoan(loan)} onDragStart={onDrag} onDragEnd={onDragEnd}>
       <span className="loan-person"><span className={`avatar avatar-${stages.indexOf(loan.stage) % 4}`}>{initials(name)}</span><strong>{name}</strong></span>
       <span className="loan-address"><MapPin size={13} /> <span>{loan.address || "Property pending"}</span></span>
       <span className="loan-value">{money(loan.amount)} <small>{loan.requestedAmount ? "Recorded" : loan.purpose}</small></span>
       {loan.requestedAmount && <span className="loan-address">1003 request {requestedMoney(loan.requestedAmount)}</span>}
-      <span className="loan-card-next"><small>Next action</small><strong>{action.title}</strong></span>
       <span className="loan-card-footer">
         <span className="loan-card-owner">{loan.officer || "Unassigned"}</span>
         {lenders.length > 0 && <span className="lender-chip">{lenders[0]}{lenders.length > 1 && ` +${lenders.length - 1}`}</span>}
@@ -182,11 +181,19 @@ function LoanCard({ loan, onOpen, onDrag, onDragEnd }: {
       aria-expanded={previewOpen} aria-controls={previewId} onClick={() => setPreviewOpen((open) => !open)}>
       {previewOpen ? "Hide next action details" : "Next action details"}
     </button>
-    <dl className="loan-action-preview" id={previewId} data-open={previewOpen}>
-      <div><dt>Loan officer</dt><dd>{loan.officer || "Unassigned"}</dd></div>
-      {action.dueAt && <div><dt>Due</dt><dd>{dateTime(action.dueAt)}</dd></div>}
-      {action.blocker && <div><dt>Blocker</dt><dd>{action.blocker}</dd></div>}
-    </dl>
+    <div className="loan-action-preview" id={previewId} data-open={previewOpen}>
+      <div className="loan-action-preview-inner">
+        <span id={`${previewId}-title`} className="sr-only">Next action: {action.title}</span>
+        <button type="button" className="loan-card-next" onClick={onAction}>
+          <span><small>Next action</small><strong>{action.title}</strong></span>
+          <ArrowRight size={15} aria-hidden="true" />
+        </button>
+        {(action.dueAt || action.blocker) && <dl>
+          {action.dueAt && <div><dt>Due</dt><dd>{dateTime(action.dueAt)}</dd></div>}
+          {action.blocker && <div><dt>Blocker</dt><dd>{action.blocker}</dd></div>}
+        </dl>}
+      </div>
+    </div>
   </div>;
 }
 
@@ -684,6 +691,12 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   }
 
   function navigate(next: Section, refresh = true, campaignId?: string, attention = false, preserveConversationOrigin = false) {
+    if (modal?.kind === "details") {
+      loanReadVersion.current += 1;
+      pipelinePosition.current = null;
+      setLoanWork(undefined);
+      setModal(null);
+    }
     if (!preserveConversationOrigin) { setConversationOrigin(undefined); conversationReturn.current = undefined; }
     openingRecord.current = false;
     recordTrigger.current = null;
@@ -1637,6 +1650,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
                       <p className="lane-volume">{compactMoney(volume)}</p>
                       {loans.map((loan) => <LoanCard key={loan.id} loan={loan}
                         onOpen={() => openPipelineLoan(loan.id)}
+                        onAction={() => openPipelineLoan(loan.id, loan.action.target)}
                         onDrag={(event) => { if (busy || processor) { event.preventDefault(); return; } dragged.current = loan; event.dataTransfer.setData("text/plain", loan.id); event.dataTransfer.effectAllowed = "move"; }}
                         onDragEnd={() => { dragged.current = null; setDropStage(null); }} />)}
                       {loans.length === 0 && <p className="lane-empty">No loans in this stage</p>}
