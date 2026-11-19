@@ -131,6 +131,14 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
         setCustodyNotice(undefined);
       }} />}
     <section ref={panel} tabIndex={-1} hidden={reportOpen || (!!custodyNotice && !paused)} aria-label={`Compliance ${view.toLowerCase()}`}>
+      {view === "Home" && <section className="compliance-research-entry" aria-labelledby="compliance-research-entry-title">
+        <div>
+          <h2 id="compliance-research-entry-title">State requirements research</h2>
+          <p>Explore the requirements, source links, and evidence questions researched for all 50 states.</p>
+        </div>
+        <Button id="compliance-browse-state-requirements" size="sm"
+          onClick={() => showArea("Research & gaps", "compliance-browse-state-requirements")}>Browse state requirements</Button>
+      </section>}
       {view === "Home" && <ComplianceOwnerHome brokerageId={brokerageId} paused={paused} branchId={branchId} onBranch={onBranch} returningTo={returningTo}
         stateOffset={stateOffset} onStatePage={setStateOffset} openState={(target, origin) => { setStateTarget(target); showArea("Research & gaps", origin); }}
         onSetup={openSetup} openArea={showArea} openFinding={openLoan}

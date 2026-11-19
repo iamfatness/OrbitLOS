@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import { complianceCaseStatuses } from "@/lib/compliance-case-model";
-import { researchBaseline, researchKinds, researchSources, type ResearchFilters, type ResearchRequest, type ResearchSource } from "@/lib/compliance-research-model";
+import { researchKinds, researchSources, stateRequirementSources, stateRolloutSources, type ResearchFilters, type ResearchRequest, type ResearchSource } from "@/lib/compliance-research-model";
 import type { complianceResearchWork } from "@/lib/compliance-research";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -16,6 +16,10 @@ type List = Extract<Result, { kind: "researchList" }>;
 type RolloutCases = Extract<Result, { kind: "stateRollout" }>["items"][number]["cases"];
 const initialFilters: ResearchFilters = { jurisdiction: "", status: "", ownership: "all" };
 const states = researchSources.filter((entry) => entry.jurisdiction !== "US");
+const requirementsByState = new Map<string, number>();
+for (const { source } of stateRequirementSources) {
+  requirementsByState.set(source.jurisdiction, (requirementsByState.get(source.jurisdiction) ?? 0) + 1);
+}
 const custodyNoticeTriggers = new Map<string, TexasCustodyNoticeFacts["kind"]>([
   ["REQ-TX-RECORDS-CEASE-NOTICE", "Cessation"],
   ["REQ-TX-RECORDS-TRANSFER-NOTICE", "Transfer received"],
@@ -100,14 +104,16 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
   stateTarget?: import("@/lib/compliance-program-model").StateScopeTarget;
   stateSetup?: import("@/lib/compliance-program-model").ComplianceOwnerHomeData["stateSetup"];
 }) {
-  const [view, setView] = useState<"Sources" | "Research work" | "State rollout">(startWithState ? "State rollout" : "Sources");
+  const [view, setView] = useState<"Sources" | "Research work" | "State rollout">("State rollout");
   const [jurisdiction, setJurisdiction] = useState("US");
   const recordedStates = stateSetup?.jurisdictions;
   const [rolloutState, setRolloutState] = useState(
-    stateTarget?.jurisdiction ?? (recordedStates?.length === 1 ? recordedStates[0] : startWithState ? "" : "MI"));
+    stateTarget?.jurisdiction ?? (startWithState && recordedStates?.length === 1 ? recordedStates[0] : ""));
   const rolloutSelect = useRef<HTMLSelectElement>(null);
   const rolloutSearch = useRef<HTMLInputElement>(null);
   const [requirementSearch, setRequirementSearch] = useState("");
+  const [stateSearch, setStateSearch] = useState("");
+  const stateSearchInput = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const feedback = useRef<HTMLParagraphElement>(null);
@@ -143,17 +149,23 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
   const detail = data && "kind" in data && data.kind === "researchDetail" ? data : undefined;
   const list = data && "kind" in data && data.kind === "researchList" ? data : undefined;
   const rollout = data && "kind" in data && data.kind === "stateRollout" ? data : undefined;
-  const selectedState = rollout?.states.find(item => item.jurisdiction === rolloutState);
+  const selectedState = states.find(item => item.jurisdiction === rolloutState);
+  const trackedState = rollout?.states.find(item => item.jurisdiction === rolloutState);
+  const stateMatches = states.filter(item =>
+    `${item.title} ${item.jurisdiction}`.toLowerCase().includes(stateSearch.trim().toLowerCase()));
+  const researchAreas = rollout?.items ?? stateRolloutSources.filter(source => source.jurisdiction === rolloutState).map(source => ({
+    source, cases: [], requirements: stateRequirementSources.filter(item => item.areaKey === source.key).map(item => ({ source: item.source, cases: [] })),
+  }));
   const terms = requirementSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const searching = terms.length > 0;
-  const visibleAreas = rollout?.items.map(area => ({
+  const visibleAreas = researchAreas.map(area => ({
     ...area,
     requirements: searching ? area.requirements.filter(({ source }) => {
       const searchable = [source.title, source.summary, source.evidence, source.counselQuestion,
         ...source.relatedSources?.map(link => link.label) ?? []].join(" ").toLowerCase();
       return terms.every(term => searchable.includes(term));
     }) : area.requirements,
-  })).filter(area => !searching || area.requirements.length > 0) ?? [];
+  })).filter(area => !searching || area.requirements.length > 0);
   const visibleRequirements = visibleAreas.reduce((total, area) => total + area.requirements.length, 0);
   useEffect(() => { if (message) feedback.current?.focus(); }, [message]);
   useEffect(() => {
@@ -214,14 +226,14 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
     });
   }
   return <div className="integration manager-panel record-form compliance-research-panel" ref={panel}>
-    <h2>{startWithState && view === "State rollout" && !caseId ? "States and activities" : "Research & control gaps"}</h2>
-    <p className="muted">50 states · 25 federal research areas · Baseline {researchBaseline}. DC and territories require separate research.</p>
+    <h2>{view === "State rollout" && !caseId ? "State requirements" : "Research & control gaps"}</h2>
+    <p className="muted">{states.length} states · {stateRequirementSources.length} researched state requirements · {researchSources.length - states.length} federal research areas</p>
     <div className="document-item"><strong>Legal approval and enforcement remain unverified</strong>
       <p>Track review work and missing controls. Workflow status and notes do not approve a jurisdiction or verify compliance.</p></div>
     <div className="loan-application-actions">
-      {(["Sources", "State rollout", "Research work"] as const).map((option) => <Button key={option} size="sm" disabled={pending}
+      {(["State rollout", "Sources", "Research work"] as const).map((option) => <Button key={option} size="sm" disabled={pending}
         aria-pressed={view === option} variant={view === option ? "default" : "outline"}
-        onClick={() => { setView(option); setCaseId(undefined); setMessage(undefined); }}>{option}</Button>)}
+        onClick={() => { setView(option); setCaseId(undefined); setMessage(undefined); }}>{option === "State rollout" ? "By state" : option}</Button>)}
       {(view !== "Sources" || caseId) && <Button size="sm" variant="outline" disabled={pending || paused}
         onClick={() => { setAfter(null); refresh((value) => value + 1); }}>Refresh research work</Button>}
     </div>
@@ -232,46 +244,68 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
       setCaseId(undefined);
       setMessage(undefined);
     }}>Back to {view === "State rollout" ? "state rollout" : view.toLowerCase()}</Button></div>}
-    {view === "State rollout" && !caseId ? <section className="record-form" aria-label="State rollout">
-      <div className="form-grid">
-        <label className="field">State<select ref={rolloutSelect} value={rolloutState} disabled={pending} onChange={event => setRolloutState(event.target.value)}>
-          {startWithState && <option value="">Choose a state</option>}
-          {recordedStates?.length ? <optgroup label="On your company profile">
-            {states.filter(item => recordedStates.includes(item.jurisdiction)).map(item =>
+    {view === "State rollout" && !caseId ? <section className="record-form" aria-label="State requirements">
+      {!rolloutState ? <>
+        <label className="field state-research-search">Find a state
+          <input ref={stateSearchInput} type="search" value={stateSearch} onChange={event => setStateSearch(event.target.value)} />
+        </label>
+        <ul className="state-research-index">
+          {stateMatches.map(item =>
+            <li key={item.key}><button type="button" className="state-research-link" onClick={() => {
+              setRolloutState(item.jurisdiction);
+              setRequirementSearch("");
+              requestAnimationFrame(() => rolloutSelect.current?.focus());
+            }}>
+              <strong>{item.title}</strong><span>{requirementsByState.get(item.jurisdiction) ?? 0} researched requirements</span>
+            </button></li>)}
+        </ul>
+        {stateMatches.length === 0 &&
+          <p role="status">No states match your search.</p>}
+      </> : <>
+        <div><Button size="sm" variant="outline" onClick={() => {
+          setRolloutState("");
+          setRequirementSearch("");
+          requestAnimationFrame(() => stateSearchInput.current?.focus());
+        }}>Browse all states</Button></div>
+        <div className="form-grid">
+          <label className="field">State<select aria-label="State" ref={rolloutSelect} value={rolloutState} disabled={pending} onChange={event => setRolloutState(event.target.value)}>
+            {recordedStates?.length ? <optgroup label="On your company profile">
+              {states.filter(item => recordedStates.includes(item.jurisdiction)).map(item =>
+                <option key={item.key} value={item.jurisdiction}>{item.title}</option>)}
+            </optgroup> : null}
+            {states.filter(item => !recordedStates?.includes(item.jurisdiction)).map(item =>
               <option key={item.key} value={item.jurisdiction}>{item.title}</option>)}
-          </optgroup> : null}
-          {states.filter(item => !recordedStates?.includes(item.jurisdiction)).map(item =>
-            <option key={item.key} value={item.jurisdiction}>{item.title}</option>)}
-        </select></label>
-        <label className="field">Search requirements<input ref={rolloutSearch} type="search" value={requirementSearch}
-          disabled={!rolloutState} maxLength={120} onChange={event => setRequirementSearch(event.target.value)} /></label>
-      </div>
-      {!rolloutState && <p>Choose a state where your brokerage operates. You can save business facts for review.</p>}
-      {rolloutState && !data && <p role="status">{paused ? "State rollout is unavailable while the workspace is paused." : "Loading state rollout…"}</p>}
-      {data && "error" in data && <p role="alert">{data.error}</p>}
-      {rollout && <>
-        <div role="status">
-          <p>{selectedState?.name} · {selectedState?.tracked} of {selectedState?.total} review areas tracked</p>
-          <p className="muted">{searching
-            ? `${visibleRequirements} of ${selectedState?.requirements} specific requirements match`
-            : `${selectedState?.requirements} specific requirements · ${rollout.states.filter(item => item.tracked > 0).length} of ${rollout.states.length} states have tracked work`}</p>
+          </select></label>
+          <label className="field">Search requirements<input ref={rolloutSearch} type="search" value={requirementSearch}
+            disabled={!rolloutState} maxLength={120} onChange={event => setRequirementSearch(event.target.value)} /></label>
         </div>
-        <ComplianceStateScope key={`${brokerageId}:${rolloutState}`} brokerageId={brokerageId} jurisdiction={rolloutState}
-          paused={paused} initiallyOpen={startWithState} initialEntityId={stateTarget?.jurisdiction === rolloutState ? stateTarget.entityId : stateSetup?.entityId}
-          active={active} openReview={openReview} />
-        <details className="document-form"><summary>Tracking by state</summary>
-          <ul className="document-list">{rollout.states.map(item => <li key={item.jurisdiction} className="document-item">
-            <div><strong>{item.name}</strong><p>{item.tracked} of {item.total} review areas tracked · {item.requirements} specific requirements</p></div>
-            <Button size="sm" variant="outline" disabled={item.jurisdiction === rolloutState || pending || paused}
-              onClick={event => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
-                rolloutSelect.current?.focus();
-                setRolloutState(item.jurisdiction);
-              }}>Review {item.name}</Button>
-          </li>)}</ul>
-        </details>
+        {rolloutState && !data && <p role="status">{paused ? "Brokerage review tracking is paused." : "Loading brokerage review tracking…"}</p>}
+        {data && "error" in data && <p role="alert">{data.error}</p>}
+        <div>
+          <h3>{selectedState?.title}</h3>
+          <p role="status" className="muted">{searching
+            ? `${visibleRequirements} of ${requirementsByState.get(rolloutState) ?? 0} researched requirements match`
+            : `${requirementsByState.get(rolloutState) ?? 0} researched requirements`}</p>
+          {trackedState && <p>{trackedState.tracked} of {trackedState.total} review areas tracked by this brokerage</p>}
+        </div>
+        {rollout && <>
+          <ComplianceStateScope key={`${brokerageId}:${rolloutState}`} brokerageId={brokerageId} jurisdiction={rolloutState}
+            paused={paused} initiallyOpen={startWithState} initialEntityId={stateTarget?.jurisdiction === rolloutState ? stateTarget.entityId : stateSetup?.entityId}
+            active={active} openReview={openReview} />
+          <details className="document-form"><summary>Tracking by state</summary>
+            <ul className="document-list">{rollout.states.map(item => <li key={item.jurisdiction} className="document-item">
+              <div><strong>{item.name}</strong><p>{item.tracked} of {item.total} review areas tracked · {item.requirements} specific requirements</p></div>
+              <Button size="sm" variant="outline" disabled={item.jurisdiction === rolloutState || pending || paused}
+                onClick={event => {
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                  rolloutSelect.current?.focus();
+                  setRolloutState(item.jurisdiction);
+                }}>Review {item.name}</Button>
+            </li>)}</ul>
+          </details>
+        </>}
         {searching && visibleRequirements === 0 && <div className="record-form">
-          <p>No matching requirements in {selectedState?.name}.</p>
+          <p>No matching requirements in {selectedState?.title}.</p>
           <div><Button size="sm" variant="outline" className="min-h-11" onClick={() => {
             setRequirementSearch("");
             rolloutSearch.current?.focus();
@@ -283,10 +317,10 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
             <details className="document-form"><summary>Open questions and evidence</summary>
               <p>{source.summary}</p><p>{source.applicability}</p><p>{source.gap}</p><p>{source.evidence}</p><ResearchLinks source={source} />
             </details>
-            {renderCases(source, cases)}
+            {rollout && renderCases(source, cases)}
           </>}
           {requirements.length > 0 && <details className="document-form" open={searching || undefined}>
-            <summary>Specific requirements ({requirements.length})</summary>
+            <summary>Read {requirements.length} researched requirements</summary>
             <div className="record-form">{requirements.map(requirement => <section className="record-form state-rollout-requirement"
               key={requirement.source.key} aria-label={requirement.source.title}>
               <h4>{requirement.source.title}</h4>
@@ -297,7 +331,7 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
                 <ResearchLinks source={requirement.source} />
                 <p>{requirement.source.evidence}</p>
               </details>
-              {renderCases(requirement.source, requirement.cases)}
+              {rollout && renderCases(requirement.source, requirement.cases)}
             </section>)}</div>
           </details>}
         </section>)}
