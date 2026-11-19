@@ -7,7 +7,7 @@ import { DeliveryExceptions } from "./automation-exceptions";
 import { PartnerPermissions } from "./partner-permissions";
 import { UwmConnection, type UwmConnectionStatus } from "./uwm-connection";
 
-import { Activity, lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
+import { Activity, lazy, Suspense, useEffect, useEffectEvent, useId, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import {
   ArrowDownUp, ArrowRight, Bell, CircleCheck, List, LogOut, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, X,
 } from "lucide-react";
@@ -163,21 +163,31 @@ function LoanCard({ loan, onOpen, onDrag, onDragEnd }: {
   onDrag: (event: DragEvent<HTMLButtonElement>) => void; onDragEnd: () => void;
 }) {
   const { name, lenders, openConditions: count, action } = loan;
-  return (
-    <button className="loan-card" data-loan-record={loan.id} onClick={onOpen} draggable={!pausedLoan(loan)} onDragStart={onDrag} onDragEnd={onDragEnd}>
+  const previewId = useId();
+  const [previewOpen, setPreviewOpen] = useState(false);
+  return <div className="pipeline-loan-card">
+    <button className="loan-card" data-loan-record={loan.id} aria-describedby={previewId} onClick={onOpen} draggable={!pausedLoan(loan)} onDragStart={onDrag} onDragEnd={onDragEnd}>
       <span className="loan-person"><span className={`avatar avatar-${stages.indexOf(loan.stage) % 4}`}>{initials(name)}</span><strong>{name}</strong></span>
       <span className="loan-address"><MapPin size={13} /> <span>{loan.address || "Property pending"}</span></span>
       <span className="loan-value">{money(loan.amount)} <small>{loan.requestedAmount ? "Recorded" : loan.purpose}</small></span>
       {loan.requestedAmount && <span className="loan-address">1003 request {requestedMoney(loan.requestedAmount)}</span>}
       <span className="loan-card-next"><small>Next action</small><strong>{action.title}</strong></span>
-      {(action.dueAt || action.blocker) && <span className="loan-address"><span>{action.blocker}{action.blocker && action.dueAt ? " · " : ""}{action.dueAt && dateTime(action.dueAt)}</span></span>}
       <span className="loan-card-footer">
         <span className="loan-card-owner">{loan.officer || "Unassigned"}</span>
         {lenders.length > 0 && <span className="lender-chip">{lenders[0]}{lenders.length > 1 && ` +${lenders.length - 1}`}</span>}
         {count > 0 ? <span className="open-chip">{count} open</span> : <span suppressHydrationWarning>{stageDays(loan.stageSince)}d</span>}
       </span>
     </button>
-  );
+    <button type="button" className="loan-preview-toggle" aria-label={`Next action details for ${name}`}
+      aria-expanded={previewOpen} aria-controls={previewId} onClick={() => setPreviewOpen((open) => !open)}>
+      {previewOpen ? "Hide next action details" : "Next action details"}
+    </button>
+    <dl className="loan-action-preview" id={previewId} data-open={previewOpen}>
+      <div><dt>Loan officer</dt><dd>{loan.officer || "Unassigned"}</dd></div>
+      {action.dueAt && <div><dt>Due</dt><dd>{dateTime(action.dueAt)}</dd></div>}
+      {action.blocker && <div><dt>Blocker</dt><dd>{action.blocker}</dd></div>}
+    </dl>
+  </div>;
 }
 
 const subscribeToControlsReady = () => () => {};
@@ -253,6 +263,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const pipeline = usePipeline(staff?.brokerage.id ?? demoBrokerageId, section === "Pipeline", pipelineQuery, state);
   const [modal, setModal] = useState<Modal | null>(null);
   const recordTrigger = useRef<HTMLElement>(null);
+  const pipelinePosition = useRef<{ top: number; laneOffset: number } | null>(null);
   const todayWorkTrigger = useRef<string>(null);
   const [todayWorkReturn, setTodayWorkReturn] = useState<string>();
   const reviewQueueTrigger = useRef<string>(null);
@@ -1385,6 +1396,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     setModal(null);
     const trigger = exceptionTrigger.current;
     const original = recordTrigger.current;
+    const position = pipelinePosition.current;
+    pipelinePosition.current = null;
     const currentOrder = modal?.kind === "details" && modal.target?.startsWith(creditAusAttemptTargetPrefix) ?
       loanWork?.mockCreditAusRuns.find((run) => creditAusAttemptTarget(run.id) === modal.target) : undefined;
     const resolvedOrder = currentOrder && currentOrder.result.status !== unconfirmedMockOrder;
@@ -1417,6 +1430,10 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
         (trigger.isConnected && !currentOrder?.conflict?.reviewedAt ? trigger : document.getElementById("owner-exception-filter")) :
         (original?.isConnected && !resolvedOrder ? original : replacement || sectionHeading.current);
       target?.focus({ preventScroll: true });
+      if (position && section === "Pipeline") {
+        window.scrollTo({ top: position.top, behavior: "instant" });
+        board.current?.scrollTo({ left: position.laneOffset, behavior: "instant" });
+      }
     });
   }
 
@@ -1430,6 +1447,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   }
 
   function openPipelineLoan(loanId: string, target?: string) {
+    pipelinePosition.current = { top: window.scrollY, laneOffset: board.current?.scrollLeft ?? 0 };
     const next = { kind: "details" as const, loanId, target };
     if (staff || !state.loans.some(({ id }) => id === loanId)) void openQueueLoan(next);
     else show(next);
@@ -1440,8 +1458,9 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     return <Button variant="outline" onClick={() => void sync()} disabled={busy}><RefreshCw className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing…" : "Sync UWM"}</Button>;
   }
 
+  const loanPage = modal?.kind === "details" && !waitingForWorkspace;
   return (
-    <div className="shell" data-theme={theme} data-density={density}>
+    <div className="shell" data-theme={theme} data-density={density} data-loan-page={loanPage}>
       <aside className="sidebar" onKeyDown={(event) => {
         if (event.key === "Escape" && mobileNavOpen) {
           event.preventDefault();
@@ -1516,7 +1535,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             {staff && <form method="post" action="/auth/logout"><Button type="submit" size="sm" variant="ghost"><LogOut /> Sign out</Button></form>}
           </div>
         </header>
-        <div className="content">
+        <div className="content" hidden={loanPage}>
           {supportReturn && <p><a className="name-link" href={supportReturn}>Back to support report</a></p>}
           {staff?.brokerage.pilot && <p className="application-message">Fictional pilot · Use sample borrowers and documents.</p>}
           {!waitingForWorkspace && section === "Pipeline" ? <section className="pipeline-hero" aria-labelledby="pipeline-title">
@@ -2081,13 +2100,14 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           </section>}
           </>}
         </div>
-      </main>
       {modal && (!waitingForWorkspace || modal.kind === "assignment") && <Suspense fallback={<p className="muted" role="status">Opening record…</p>}>
         <RecordDialog modal={modal} state={loanWork && "loanId" in modal && modal.loanId === loanWork.loanId ? {
         ...state, ...loanWork,
         loans: [...loanWork.loans, ...state.loans.filter((loan) => loan.id !== loanWork.loanId)],
         contacts: [...loanWork.contacts, ...state.contacts.filter((contact) => !loanWork.contacts.some((item) => item.id === contact.id))],
       } : state} staff={staff} busy={busy} error={saveError} save={save} show={show} close={close}
+        loanNotice={notice} dismissLoanNotice={() => setNotice("")}
+        loanReturnLabel={section === "Pipeline" ? "Back to Pipeline" : `Back to ${section}`}
         returnToSupport={Boolean(supportReturn && modal.kind === "details" && modal.loanId === initialSupport?.loanId)}
         refreshLoan={modal.kind === "details" && staff ? () => void openQueueLoan(modal) : undefined}
         refreshLoanOnReturn={staff ? refreshLoanOnReturn : undefined}
@@ -2109,6 +2129,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
         openConversationThread={(id) => { close(); openConversation({ id }); }}
         openLead={(id) => { close(); navigate("Lead Inbox"); setFocusLeadId(id); }} />
       </Suspense>}
+      </main>
     </div>
   );
 }

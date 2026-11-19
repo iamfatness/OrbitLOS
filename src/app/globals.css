@@ -783,7 +783,6 @@ button:disabled { cursor: default; }
   .staff-offboarding-branch-form .field { flex-basis: 100%; }
 }
 
-.record-dialog-details { max-width: min(820px, 100vw); scroll-padding-block-start: var(--loan-header-height, 156px); --record-scroll-offset: 12px; }
 .loan-dialog-identity { flex: 1; min-width: 0; }
 .loan-dialog-identity h2 {
   display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
@@ -1097,9 +1096,8 @@ button:disabled { cursor: default; }
   .scenario-table th:first-child { min-width: 125px; }
 }
 
-.record-dialog-scenarios { max-width: min(1160px, 100vw); }
 @media (max-width: 640px) {
-  .record-dialog-details .loan-section-nav { display: none; }
+  .loan-workspace-file .loan-section-nav { display: none; }
   .loan-dialog-controls { gap: 2px; padding: 6px 13px 2px; }
   .loan-dialog-identity h2 { font-size: 18px; }
   .loan-snapshot-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1398,7 +1396,7 @@ button:disabled { cursor: default; }
 .report-funding dd { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
 [data-density="compact"] .data-table :is(th, td) { padding-block: 7px; }
 [data-density="compact"] :is(.integration, .details-section) { padding-block: 12px; }
-[data-density="compact"] .record-dialog .record-form { gap: 9px; }
+[data-density="compact"] :is(.record-dialog, .loan-workspace-file) .record-form { gap: 9px; }
 .shell :is(.connection-chip, .pill) { background: light-dark(#f1ebfd, #34274e); }
 .shell .connection-chip:not(:disabled):hover { background: light-dark(#e9defd, #46365d); }
 .shell [data-tooltip]::after {
@@ -1406,3 +1404,64 @@ button:disabled { cursor: default; }
   color: light-dark(white, #241733);
 }
 .shell .search { border-color: var(--control-line); }
+
+.pipeline-loan-card { margin-bottom: 8px; }
+.pipeline-loan-card > .loan-card { margin-bottom: 0; }
+[data-density="compact"] .pipeline-loan-card { margin-bottom: 6px; }
+[data-density="compact"] .pipeline-loan-card > .loan-card { margin-bottom: 0; }
+.loan-preview-toggle { display: none; }
+.loan-action-preview {
+  display: none;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: light-dark(white, #211b2d);
+  color: var(--ink);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.loan-action-preview > div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 5px; }
+.loan-action-preview dt { color: var(--muted); }
+.loan-action-preview[data-open="true"], .loan-card:focus-visible ~ .loan-action-preview { display: grid; gap: 4px; }
+@media (hover: hover) and (pointer: fine) {
+  .pipeline-loan-card:hover .loan-action-preview { display: grid; gap: 4px; }
+}
+@media (any-pointer: coarse), (hover: none) {
+  .loan-preview-toggle {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    text-align: start;
+    padding-inline: 10px;
+    color: var(--orbit-plum);
+    font-size: 12px;
+    font-weight: 650;
+  }
+}
+.shell[data-loan-page="true"] { display: block; }
+.shell[data-loan-page="true"] > .sidebar,
+.shell[data-loan-page="true"] > .main > .topbar { display: none; }
+.loan-workspace-file {
+  height: 100dvh;
+  overflow: auto;
+  background: light-dark(#fff, #211b2d);
+  scroll-padding-block-start: var(--loan-header-height, 156px);
+  --record-scroll-offset: 12px;
+}
+.loan-file-back { padding: 4px clamp(12px, 3vw, 40px); border-bottom: 1px solid var(--line); background: light-dark(white, #211b2d); }
+.loan-file-back button { min-height: 44px; color: var(--ink); }
+.loan-workspace-file :is(.dialog-head, .loan-dialog-controls) { padding-inline: clamp(12px, 3vw, 40px); }
+.loan-workspace-file > .dialog-content { margin: 16px clamp(12px, 3vw, 40px) 32px; }
+.loan-workspace-file .loan-status-action { background: light-dark(#f0e9fc, #34274e); }
+.loan-workspace-file .loan-status-action:hover { background: light-dark(#e8dcfb, #46365d); }
+.loan-workspace-file :is(.loan-next-action-title small, .loan-next-action-note, .loan-section-nav button) { color: var(--muted); }
+.loan-workspace-file .loan-section-nav button:hover,
+.loan-workspace-file .loan-section-nav button[aria-current] { background: light-dark(#efe6fb, #34274e); color: var(--orbit-plum); }
+.loan-file-notice {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-inline: clamp(12px, 3vw, 40px);
+  background: light-dark(#f0e9fc, #34274e);
+  color: var(--orbit-plum);
+}

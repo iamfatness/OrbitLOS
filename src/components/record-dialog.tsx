@@ -971,9 +971,12 @@ function ReturningClientForm({ borrower, originalProperty, fromRateWatch, busy, 
   </form>;
 }
 
-export function RecordDialog({ modal, state, staff, busy, error, save, show, close, returnToSupport, refreshLoan, refreshLoanOnReturn, openLead, openConversation, openContactConversation, openConversationThread, appointmentChanged, reviewChanged, searchContact, openContact, openContactLoan, repeatOption, openRateWatchRefinance, assignmentChanged, assignmentVersion, separateSamplePricing }: {
+export function RecordDialog({ modal, state, staff, busy, error, save, show, close, loanNotice, dismissLoanNotice, loanReturnLabel, returnToSupport, refreshLoan, refreshLoanOnReturn, openLead, openConversation, openContactConversation, openConversationThread, appointmentChanged, reviewChanged, searchContact, openContact, openContactLoan, repeatOption, openRateWatchRefinance, assignmentChanged, assignmentVersion, separateSamplePricing }: {
   modal: Modal; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; error: ReactNode; save: Save; show: (modal: Modal) => void; close: () => void;
   refreshLoan?: () => void;
+  loanNotice: string;
+  dismissLoanNotice: () => void;
+  loanReturnLabel: string;
   returnToSupport?: boolean;
   refreshLoanOnReturn?: (loanId: string, canApply: () => boolean, periodic: boolean) => Promise<void>;
   openLead: (id: string) => void;
@@ -992,23 +995,24 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   separateSamplePricing: boolean;
 }) {
   const router = useRouter();
-  const dialog = useRef<HTMLDialogElement>(null);
+  const dialog = useRef<HTMLElement>(null);
+  const details = modal.kind === "details";
   const loanHeader = useRef<HTMLDivElement>(null);
   const dirtyEditors = useRef(new Set<Node>());
   const [refreshDeferred, setRefreshDeferred] = useState<Modal | null>(null);
   useEffect(() => {
     const element = dialog.current;
+    if (details || !(element instanceof HTMLDialogElement)) return;
     const trigger = document.activeElement;
-    element?.showModal();
+    element.showModal();
     return () => {
       element?.close();
       if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
     };
-  }, []);
+  }, [details]);
   const target = modal.kind === "pricing" ? modal.focusFees ?? "pricing-workbench" : modal.kind === "returningClient" ? "returning-client-purpose" :
     modal.kind === "fundingCheckIn" ? "funding-check-in-channel" :
     modal.kind === "details" ? modal.target : undefined;
-  const details = modal.kind === "details";
   useLayoutEffect(() => {
     const element = dialog.current;
     const header = loanHeader.current;
@@ -1193,11 +1197,15 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
       else if (handoffApplication) void save({ type: "sendApplication", loanId: loan.id, revision: handoffApplication.revision, quote }, (result) => openChecklist(result.state));
     },
   } : undefined;
+  const Surface = details ? "section" : "dialog";
   return (
-    <dialog ref={dialog} className={(modal.kind === "pricing" || modal.kind === "details" ? "record-dialog record-dialog-wide" : "record-dialog") +
-      (modal.kind === "details" ? " record-dialog-details" : "") + (modal.kind === "details" && modal.target === "loan-scenarios" ? " record-dialog-scenarios" : "")}
-      aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
+    <Surface ref={(element) => { dialog.current = element; }}
+      className={details ? "loan-workspace-file" : modal.kind === "pricing" ? "record-dialog record-dialog-wide" : "record-dialog"}
+      aria-labelledby="record-title" onCancel={details ? undefined : (event) => { event.preventDefault(); close(); }}>
       <div className="dialog-top" ref={details ? loanHeader : undefined}>
+        {details && <div className="loan-file-back">
+          <Button variant="ghost" onClick={close}><ArrowLeft /> {returnToSupport ? "Back to support report" : loanReturnLabel}</Button>
+        </div>}
         <div className="dialog-head">
           {modal.kind === "assignment" && modal.returnTo && <Button variant="ghost" size="icon"
             aria-label={modal.returnTo === "document-checklist" ? "Back to document checklist" : "Back to processing handoff"}
@@ -1207,13 +1215,11 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           {detailLoan ? <div className="loan-dialog-identity">
             <h2 id="record-title" tabIndex={-1}><span className="sr-only">{title} for </span>{borrowerName}</h2>
             <p><strong>{detailLoan.stage}</strong> · <span suppressHydrationWarning>{stageDays(detailLoan.stageSince)}d in stage</span>
-              {pausedLoan(detailLoan) && ` · ${detailLoan.disposition}`}</p>
+              {pausedLoan(detailLoan) && ` · ${detailLoan.disposition}`} · {detailLoan.officer || "Unassigned"}</p>
           </div> : <h2 id="record-title">{title}</h2>}
           {refreshLoan && <Button variant="ghost" size={details ? "icon" : "sm"} aria-label={details ? "Refresh loan" : undefined}
             disabled={busy} onClick={() => { setRefreshDeferred(null); refreshLoan(); }}><RefreshCw />{!details && " Refresh loan"}</Button>}
-          <Button variant="ghost" size="icon" aria-label={returnToSupport ? "Back to support report" : "Close dialog"} onClick={close}>
-            {returnToSupport ? <ArrowLeft /> : <X />}
-          </Button>
+          {!details && <Button variant="ghost" size="icon" aria-label="Close dialog" onClick={close}><X /></Button>}
         </div>
         {detailLoan && <div className="loan-dialog-controls">
           {nextAction && !focusedFinding && <button type="button" className="loan-status-action" disabled={busy} onClick={() => openLoanDetail(nextAction.target)}>
@@ -1227,13 +1233,16 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             <button key={name} type="button" aria-current={returnSection === name ? "page" : undefined}
               onClick={() => openLoanDetail(destination)}>{name}</button>)}</nav>
           <label className="loan-section-picker">
-            <span>Loan section</span><select value={visibleLoanSections(staff).find(([name]) => name === returnSection)?.[1] ?? "loan-overview"}
+            <span>Loan section</span><select aria-label="Loan section" value={visibleLoanSections(staff).find(([name]) => name === returnSection)?.[1] ?? "loan-overview"}
               onChange={(event) => openLoanDetail(event.target.value)}>
               {visibleLoanSections(staff).map(([name, destination]) => <option key={name} value={destination}>{name}</option>)}
             </select>
           </label>
         </div>}
         {error && <p className="dialog-error" role="alert">{error}</p>}
+        {details && loanNotice && <div className="loan-file-notice" role="status">
+          <span>{loanNotice}</span><Button variant="ghost" size="icon" aria-label="Dismiss notification" onClick={dismissLoanNotice}><X /></Button>
+        </div>}
         {refreshDeferred === modal && <p className="dialog-refresh-notice muted" role="status">Automatic refresh paused for your edits. Finish editing before refreshing the loan.</p>}
       </div>
       <div className="dialog-content" key={key} onInputCapture={trackDraftInput} onChangeCapture={trackDraftInput}
@@ -1339,6 +1348,6 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           <Field label="Lender status"><input name="status" placeholder="e.g. File received" defaultValue={submission?.status} maxLength={160} required /></Field>
         </Form>}
       </div>
-    </dialog>
+    </Surface>
   );
 }
